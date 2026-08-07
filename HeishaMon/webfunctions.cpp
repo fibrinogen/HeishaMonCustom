@@ -1078,6 +1078,24 @@ int handleScheduler(struct webserver_t *client) {
   return 0;
 }
 
+int handleSmartDhw(struct webserver_t *client) {
+  switch (client->content) {
+    case 0: {
+        webserver_send(client, 200, (char *)"text/html", 0);
+        webserver_send_content_P(client, webHeader, strlen_P(webHeader));
+        webserver_send_content_P(client, webCSS, strlen_P(webCSS));
+        webserver_send_content_P(client, webBodyStart, strlen_P(webBodyStart));
+        webserver_send_content_P(client, webBodySmartDhw, strlen_P(webBodySmartDhw));
+      } break;
+    case 1: {
+        webserver_send_content_P(client, menuJS, strlen_P(menuJS));
+        webserver_send_content_P(client, smartDhwJS, strlen_P(smartDhwJS));
+        webserver_send_content_P(client, webFooter, strlen_P(webFooter));
+      } break;
+  }
+  return 0;
+}
+
 
 int handleRoot(struct webserver_t *client, float readpercentage, int mqttReconnects, settingsStruct *heishamonSettings) {
   switch (client->content) {

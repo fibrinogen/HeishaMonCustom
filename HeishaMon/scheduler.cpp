@@ -50,8 +50,7 @@ void SchedulerManager::loop() {
   bool valid = readClock(clock);
   if (!valid) {
     if (clockWasValid_) log("[SCHED] local time became invalid; execution paused");
-    pendingStart_ = 0;
-    pendingCount_ = 0;
+    cancelPending("Local time invalid; pending action cancelled");
     clockWasValid_ = false;
     return;
   }
@@ -83,7 +82,8 @@ void SchedulerManager::checkSchedules(const SchedulerClock &clock) {
       continue;
     }
     char queueMessage[64] = {0};
-    if (!enqueue(entry, detail, queueMessage, sizeof(queueMessage))) {
+    if (!enqueue(entry, detail, nullptr, nullptr, nullptr,
+        queueMessage, sizeof(queueMessage))) {
       addEvent(entry, "failed", queueMessage);
     }
   }
@@ -112,6 +112,7 @@ bool SchedulerManager::evaluateCondition(const SchedulerEntry &entry,
 }
 
 bool SchedulerManager::enqueue(const SchedulerEntry &entry, const char *conditionDetail,
+    SchedulerDispatchGuard guard, SchedulerDispatchObserver observer, void *observerContext,
     char *message, size_t messageSize) {
   uint8_t index = 0;
   if (!schedulerQueueWriteIndex(pendingStart_, pendingCount_, SCHEDULER_MAX_ENTRIES, index)) {
@@ -122,8 +123,12 @@ bool SchedulerManager::enqueue(const SchedulerEntry &entry, const char *conditio
   strlcpy(pending_[index].name, entry.name, sizeof(pending_[index].name));
   pending_[index].action = entry.action;
   pending_[index].value = entry.actionValue;
+  pending_[index].automation = entry.id == 0;
   strlcpy(pending_[index].conditionDetail, conditionDetail,
     sizeof(pending_[index].conditionDetail));
+  pending_[index].guard = guard;
+  pending_[index].observer = observer;
+  pending_[index].observerContext = observerContext;
   pendingCount_++;
   snprintf(message, messageSize, "Action queued");
   return true;
@@ -147,8 +152,16 @@ void SchedulerManager::dispatchNext() {
   strlcpy(eventEntry.name, pending.name, sizeof(eventEntry.name));
 
   char actionDetail[SCHEDULER_DETAIL_LENGTH] = {0};
-  SchedulerDispatchResult result = dispatcher_(pending.action, pending.value,
-    actionDetail, sizeof(actionDetail));
+  SchedulerDispatchResult result;
+  if (!pending.automation && !enabled_) {
+    snprintf(actionDetail, sizeof(actionDetail), "Scheduler disabled before dispatch");
+    result = SCHEDULER_DISPATCH_FAILED;
+  } else if (pending.guard != nullptr && !pending.guard(pending.observerContext)) {
+    snprintf(actionDetail, sizeof(actionDetail), "Automation request cancelled before dispatch");
+    result = SCHEDULER_DISPATCH_FAILED;
+  } else {
+    result = dispatcher_(pending.action, pending.value, actionDetail, sizeof(actionDetail));
+  }
   char detail[SCHEDULER_DETAIL_LENGTH] = {0};
   snprintf(detail, sizeof(detail), "%s; %s", pending.conditionDetail, actionDetail);
   switch (result) {
@@ -157,6 +170,27 @@ void SchedulerManager::dispatchNext() {
     case SCHEDULER_DISPATCH_BUSY: addEvent(eventEntry, "busy", detail); break;
     default: addEvent(eventEntry, "failed", detail); break;
   }
+  if (pending.observer != nullptr) {
+    pending.observer(result, actionDetail, pending.observerContext);
+  }
+}
+
+void SchedulerManager::cancelPending(const char *reason) {
+  while (pendingCount_ > 0) {
+    PendingAction pending = pending_[pendingStart_];
+    pendingStart_ = (uint8_t)((pendingStart_ + 1) % SCHEDULER_MAX_ENTRIES);
+    pendingCount_--;
+    SchedulerEntry eventEntry = {};
+    eventEntry.id = pending.entryId;
+    eventEntry.action = pending.action;
+    eventEntry.actionValue = pending.value;
+    strlcpy(eventEntry.name, pending.name, sizeof(eventEntry.name));
+    addEvent(eventEntry, "failed", reason);
+    if (pending.observer != nullptr) {
+      pending.observer(SCHEDULER_DISPATCH_FAILED, reason, pending.observerContext);
+    }
+  }
+  pendingStart_ = 0;
 }
 
 void SchedulerManager::addEvent(const SchedulerEntry &entry, const char *result, const char *detail) {
@@ -335,6 +369,10 @@ bool SchedulerManager::remove(uint8_t id, char *message, size_t messageSize) {
 }
 
 bool SchedulerManager::runNow(uint8_t id, char *message, size_t messageSize) {
+  if (!enabled_) {
+    snprintf(message, messageSize, "Scheduler is disabled");
+    return false;
+  }
   int8_t index = findIndex(id);
   if (index < 0) { snprintf(message, messageSize, "Schedule not found"); return false; }
   char detail[SCHEDULER_DETAIL_LENGTH];
@@ -343,7 +381,36 @@ bool SchedulerManager::runNow(uint8_t id, char *message, size_t messageSize) {
     snprintf(message, messageSize, "Condition is false; action skipped");
     return true;
   }
-  return enqueue(entries_[index], detail, message, messageSize);
+  return enqueue(entries_[index], detail, nullptr, nullptr, nullptr,
+    message, messageSize);
+}
+
+bool SchedulerManager::claimDue(bool enabled, uint8_t dayMask, uint8_t hour,
+    uint8_t minute, uint32_t &lastExecutionKey) const {
+  SchedulerClock clock;
+  if (!readClock(clock) ||
+      !schedulerTimeMatches(enabled, dayMask, hour, minute, clock, lastExecutionKey)) {
+    return false;
+  }
+  lastExecutionKey = schedulerMinuteKey(clock);
+  return true;
+}
+
+bool SchedulerManager::submitAutomationAction(const char *name, SchedulerActionType action,
+    int16_t value, const char *reason, SchedulerDispatchGuard guard,
+    SchedulerDispatchObserver observer, void *context,
+    char *message, size_t messageSize) {
+  if (action >= SCHEDULER_ACTION_COUNT || name == nullptr || name[0] == '\0') {
+    snprintf(message, messageSize, "Invalid automation action");
+    return false;
+  }
+  SchedulerEntry entry = {};
+  entry.id = 0;
+  entry.action = action;
+  entry.actionValue = value;
+  strlcpy(entry.name, name, sizeof(entry.name));
+  return enqueue(entry, reason == nullptr ? "Automation request" : reason,
+    guard, observer, context, message, messageSize);
 }
 
 bool SchedulerManager::setEnabled(bool enabled, char *message, size_t messageSize) {
@@ -354,7 +421,6 @@ bool SchedulerManager::setEnabled(bool enabled, char *message, size_t messageSiz
     snprintf(message, messageSize, "Could not persist scheduler state");
     return false;
   }
-  if (!enabled_) { pendingStart_ = 0; pendingCount_ = 0; }
   snprintf(message, messageSize, enabled_ ? "Scheduler enabled" : "Scheduler disabled");
   return true;
 }

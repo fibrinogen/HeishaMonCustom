@@ -44,6 +44,7 @@
 #include "decode.h"
 #include "commands.h"
 #include "scheduler.h"
+#include "smart_dhw.h"
 #include "rules.h"
 #include "version.h"
 
@@ -115,6 +116,7 @@ QueueHandle_t logQueue = NULL;
 char actData[DATASIZE] = { '\0' };
 char actDataExtra[DATASIZE] = { '\0' };
 char actOptData[OPTDATASIZE]  = { '\0' };
+unsigned long lastHeatpumpDataAt = 0;
 
 enum DashboardWorkflowType : uint8_t {
   DASHBOARD_WORKFLOW_NONE = 0,
@@ -151,7 +153,9 @@ DashboardWorkflowState dashboardWorkflow = {
 char dashboardWorkflowMessage[128] = "Ready";
 
 SchedulerManager schedulerManager;
+SmartDhwController smartDhwController;
 static bool schedulerReadTopic(uint8_t topic, float *value);
+static bool smartDhwReadTopic(uint8_t topic, float *value);
 static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType action,
   int16_t value, char *detail, size_t detailSize);
 
@@ -788,6 +792,7 @@ bool readSerial()
       if (data_length == DATASIZE)  {  //receive a full data block
         if  (data[3] == 0x10) { //decode the normal data block
           decode_heatpump_data(data, actData, mqtt_client, log_message, heishamonSettings.mqtt_topic_base, heishamonSettings.updateAllTime);
+          lastHeatpumpDataAt = millis();
           if ( (!extraDataBlockAvailable) && ((actData[0] == 0x71) && (actData[0xc7] >= 3)) ) { //do we have valid header and byte 0xc7 is more or equal 3 then assume K&L and more series
             log_message(_F("Extra data available on this heatpump"));
             extraDataBlockAvailable = true; //request for extra data next run
@@ -1233,6 +1238,14 @@ static bool schedulerReadTopic(uint8_t topic, float *value) {
   return true;
 }
 
+static bool smartDhwReadTopic(uint8_t topic, float *value) {
+  unsigned long maximumAge = (unsigned long)heishamonSettings.waitTime * 4000UL;
+  if (maximumAge < 60000UL) maximumAge = 60000UL;
+  if (lastHeatpumpDataAt == 0 ||
+      (unsigned long)(millis() - lastHeatpumpDataAt) > maximumAge) return false;
+  return schedulerReadTopic(topic, value);
+}
+
 static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType action,
     int16_t value, char *detail, size_t detailSize) {
   if (heishamonSettings.listenonly) {
@@ -1334,6 +1347,24 @@ static int handleSchedulerStatus(struct webserver_t *client) {
   return 0;
 }
 
+static int handleSmartDhwStatus(struct webserver_t *client) {
+  if (client->content != 0) return 0;
+  JsonDocument document;
+  smartDhwController.toJson(document);
+  size_t length = measureJson(document);
+  char *response = (char *)malloc(length + 1);
+  if (response == nullptr) {
+    webserver_send(client, 503, (char *)"text/plain", 21);
+    webserver_send_content_P(client, PSTR("Smart DHW unavailable"), 21);
+    return 0;
+  }
+  serializeJson(document, response, length + 1);
+  client->userdata = response;
+  webserver_send(client, 200, (char *)"application/json", length);
+  webserver_send_content(client, response, length);
+  return 0;
+}
+
 static void appendSchedulerResponse(struct webserver_t *client, const char *message) {
   size_t oldLength = client->userdata == nullptr ? 0 : strlen((char *)client->userdata);
   size_t addLength = strlen(message);
@@ -1386,6 +1417,43 @@ static void handleSchedulerArgument(struct webserver_t *client, struct arguments
   }
 
   char result[192];
+  snprintf(result, sizeof(result), "%s: %s", accepted ? "OK" : "ERROR", response);
+  appendSchedulerResponse(client, result);
+  log_message(result);
+}
+
+static void handleSmartDhwArgument(struct webserver_t *client, struct arguments_t *args) {
+  char name[16] = {0};
+  snprintf(name, sizeof(name), "%s", (char *)args->name);
+  char value[args->len + 1];
+  snprintf(value, sizeof(value), "%.*s", args->len, args->value);
+  char response[192] = {0};
+  bool accepted = false;
+
+  if (strcmp(name, "save") == 0) {
+    JsonDocument document;
+    DeserializationError error = deserializeJson(document, value);
+    if (error || !document.is<JsonObject>()) {
+      snprintf(response, sizeof(response), "Invalid Smart DHW JSON");
+    } else {
+      accepted = smartDhwController.update(document.as<JsonObjectConst>(),
+        response, sizeof(response));
+    }
+  } else if (strcmp(name, "test") == 0) {
+    if (strcmp(value, "evening") == 0) {
+      accepted = smartDhwController.testDecision(SMART_DHW_SLOT_EVENING,
+        response, sizeof(response));
+    } else if (strcmp(value, "morning") == 0) {
+      accepted = smartDhwController.testDecision(SMART_DHW_SLOT_MORNING,
+        response, sizeof(response));
+    } else {
+      snprintf(response, sizeof(response), "Test must be evening or morning");
+    }
+  } else {
+    snprintf(response, sizeof(response), "Unknown Smart DHW command");
+  }
+
+  char result[224];
   snprintf(result, sizeof(result), "%s: %s", accepted ? "OK" : "ERROR", response);
   appendSchedulerResponse(client, result);
   log_message(result);
@@ -1573,6 +1641,19 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
           }
           ((char *)client->userdata)[0] = '\0';
           client->route = 14;
+        } else if (strcmp_P((char *)dat, PSTR("/smartdhw")) == 0) {
+          client->route = 17;
+        } else if (strcmp_P((char *)dat, PSTR("/smartdhwapi")) == 0) {
+          client->route = 18;
+        } else if (strcmp_P((char *)dat, PSTR("/smartdhwcommand")) == 0) {
+          client->userdata = malloc(1);
+          if (client->userdata == nullptr) {
+            loggingSerial.printf(PSTR("Out of memory %s:#%d\n"), __FUNCTION__, __LINE__);
+            ESP.restart();
+            exit(-1);
+          }
+          ((char *)client->userdata)[0] = '\0';
+          client->route = 19;
         } else if (strcmp_P((char *)dat, PSTR("/json")) == 0) {
           client->route = 20;
         } else if (strcmp_P((char *)dat, PSTR("/reboot")) == 0) {
@@ -1680,6 +1761,10 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
         switch (client->route) {
           case 14: {
               handleSchedulerArgument(client, args);
+              return 0;
+            } break;
+          case 19: {
+              handleSmartDhwArgument(client, args);
               return 0;
             } break;
           case 60: {
@@ -1867,6 +1952,21 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
             } break;
           case 16: {
               return handleWpSettingsConfigStatus(client);
+            } break;
+          case 17: {
+              return handleSmartDhw(client);
+            } break;
+          case 18: {
+              return handleSmartDhwStatus(client);
+            } break;
+          case 19: {
+              if (client->content == 0) {
+                char *response = (char *)client->userdata;
+                size_t length = response == nullptr ? 0 : strlen(response);
+                webserver_send(client, 200, (char *)"text/plain", length);
+                if (length > 0) webserver_send_content(client, response, length);
+              }
+              return 0;
             } break;
           case 20: {
               return handleJsonOutput(client, actData, actDataExtra, actOptData, &heishamonSettings, extraDataBlockAvailable);
@@ -2065,6 +2165,8 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
         switch (client->route) {
           case 13:
           case 14:
+          case 18:
+          case 19:
           case 100: {
               if (client->userdata != NULL) {
                 free(client->userdata);
@@ -2433,6 +2535,9 @@ void setup() {
   loggingSerial.println(F("Loading local scheduler..."));
   schedulerManager.begin(schedulerReadTopic, schedulerDispatchAction, log_message);
 
+  loggingSerial.println(F("Loading Smart DHW..."));
+  smartDhwController.begin(&schedulerManager, smartDhwReadTopic, log_message);
+
   loggingSerial.println(F("Setup wifi..."));
   setupWifi(&heishamonSettings);
   lastWifiRetryTimer = millis();
@@ -2594,6 +2699,7 @@ void loop() {
   readHeatpump();
   processDashboardWorkflow();
   schedulerManager.loop();
+  smartDhwController.loop();
 
 #ifdef ESP32
   if (heishamonSettings.proxy) readProxy();

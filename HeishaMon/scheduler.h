@@ -65,6 +65,9 @@ typedef bool (*SchedulerStateReader)(uint8_t topic, float *value);
 typedef SchedulerDispatchResult (*SchedulerActionDispatcher)(SchedulerActionType action,
   int16_t value, char *detail, size_t detailSize);
 typedef void (*SchedulerLogger)(char *message);
+typedef void (*SchedulerDispatchObserver)(SchedulerDispatchResult result,
+  const char *detail, void *context);
+typedef bool (*SchedulerDispatchGuard)(void *context);
 
 class SchedulerManager {
  public:
@@ -79,6 +82,12 @@ class SchedulerManager {
   bool remove(uint8_t id, char *message, size_t messageSize);
   bool runNow(uint8_t id, char *message, size_t messageSize);
   bool setEnabled(bool enabled, char *message, size_t messageSize);
+  bool claimDue(bool enabled, uint8_t dayMask, uint8_t hour, uint8_t minute,
+    uint32_t &lastExecutionKey) const;
+  bool submitAutomationAction(const char *name, SchedulerActionType action, int16_t value,
+    const char *reason, SchedulerDispatchGuard guard,
+    SchedulerDispatchObserver observer, void *context,
+    char *message, size_t messageSize);
   void toJson(JsonDocument &document) const;
 
   bool isEnabled() const { return enabled_; }
@@ -96,7 +105,11 @@ class SchedulerManager {
     char name[SCHEDULER_NAME_LENGTH];
     SchedulerActionType action;
     int16_t value;
+    bool automation;
     char conditionDetail[80];
+    SchedulerDispatchGuard guard;
+    SchedulerDispatchObserver observer;
+    void *observerContext;
   };
 
   SchedulerEntry entries_[SCHEDULER_MAX_ENTRIES];
@@ -119,8 +132,10 @@ class SchedulerManager {
   void checkSchedules(const SchedulerClock &clock);
   bool evaluateCondition(const SchedulerEntry &entry, char *detail, size_t detailSize);
   bool enqueue(const SchedulerEntry &entry, const char *conditionDetail,
+    SchedulerDispatchGuard guard, SchedulerDispatchObserver observer, void *observerContext,
     char *message, size_t messageSize);
   void dispatchNext();
+  void cancelPending(const char *reason);
   void addEvent(const SchedulerEntry &entry, const char *result, const char *detail);
   void log(const char *message) const;
   int8_t findIndex(uint8_t id) const;

@@ -97,6 +97,7 @@ int handleRoot(struct webserver_t *client, float readpercentage, int mqttReconne
 int handleDashboard(struct webserver_t *client);
 int handleWpSettings(struct webserver_t *client);
 int handleScheduler(struct webserver_t *client);
+int handleSmartDhw(struct webserver_t *client);
 int handleJsonOutput(struct webserver_t *client, char* actData, char* actDataExtra, char* actOptData, settingsStruct *heishamonSettings, bool extraDataBlockAvailable);
 int handleFactoryReset(struct webserver_t *client);
 int handleReboot(struct webserver_t *client);

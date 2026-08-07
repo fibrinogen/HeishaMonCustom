@@ -64,6 +64,36 @@ The lightweight API follows the existing HeishaMon query-command convention:
 - `GET /schedulercommand?run=<id>` evaluates and queues an entry immediately.
 - `GET /schedulercommand?enabled=0|1` pauses or enables the complete Scheduler.
 
+## Smart DHW (ESP32-S3)
+
+The **Smart DHW** page provides two local, solar-friendly hot-water reserves without exposing them as generic Scheduler rows. By default the feature is disabled, with an evening check at 18:00 below 42 °C and a morning safety check at 04:00 below 38 °C. Both reserves, times, temperatures, and the minimum interval between starts are configurable at `http://heishamon.local/smartdhw`.
+
+At each enabled check Smart DHW uses the latest Panasonic DHW values. It skips if the tank is warm enough, DHW is unavailable/not installed, DHW or Force DHW is already active, local time is invalid, another Smart DHW action is pending, or the minimum interval has not elapsed. A required charge is placed in the common Scheduler automation queue and uses the existing protected Force-DHW workflow. That workflow temporarily selects DHW-only mode when required, confirms Force DHW, and restores the previous operating mode after completion. Smart DHW does not modify the Panasonic DHW target.
+
+Configuration is stored as version 1 in LittleFS at `/smartdhw.json`. Runtime state, last-start time, and the ten-entry decision history remain in RAM. Default configuration:
+
+```json
+{
+  "version": 1,
+  "enabled": false,
+  "eveningEnabled": true,
+  "eveningHour": 18,
+  "eveningMinute": 0,
+  "eveningTriggerTemp": 42.0,
+  "morningEnabled": true,
+  "morningHour": 4,
+  "morningMinute": 0,
+  "morningTriggerTemp": 38.0,
+  "minimumIntervalMinutes": 60
+}
+```
+
+The API follows the same lightweight convention as the Scheduler:
+
+- `GET /smartdhwapi` returns configuration, live diagnostics, next check, and decision history.
+- `GET /smartdhwcommand?save=<url-encoded-json>` validates and saves configuration.
+- `GET /smartdhwcommand?test=evening|morning` performs a safe decision simulation and never sends a Panasonic command.
+
 # Rules functionality
 The rules functionality allows you to control the heatpump from within the HeishaMon itself. Which makes it much more reliable then having to deal with external domotica over WiFi. When posting a new ruleset, it is immidiatly validated and when valid used. When a new ruleset is invalid it will be ignored and the old ruleset will be loaded again. You can check the console for feedback on this. If somehow a new valid ruleset crashes the HeishaMon, it will be automatically disabled the next reboot, allowing you to make changes. This prevents the HeishaMon getting into a boot loop.
 

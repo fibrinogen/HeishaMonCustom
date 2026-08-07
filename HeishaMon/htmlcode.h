@@ -422,6 +422,24 @@ input:disabled + .theme-slider-compact {
 .scheduler-event-result{font-weight:600}
 .scheduler-event-result.executed,.scheduler-event-result.no-change{color:var(--green)}
 .scheduler-event-result.failed,.scheduler-event-result.busy{color:var(--red)}
+.smart-dhw-page{max-width:1180px;margin:0 auto}
+.smart-dhw-status{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.smart-dhw-status .scheduler-status-card{min-width:0}
+.smart-dhw-wide{grid-column:span 2}
+.smart-dhw-config{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:14px}
+.smart-dhw-card{padding:16px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-elevated)}
+.smart-dhw-card h3{margin:0 0 14px;color:var(--text-primary);font-size:13px}
+.smart-dhw-card.full{grid-column:1/-1}
+.smart-dhw-row{display:flex;align-items:center;justify-content:space-between;gap:15px;min-height:43px;border-bottom:1px solid rgba(42,48,64,.45)}
+.smart-dhw-row:last-child{border-bottom:0}
+.smart-dhw-row label{color:var(--text-secondary);font-size:11.5px}
+.smart-dhw-row .scheduler-input{width:155px}
+.smart-dhw-unit{display:flex;align-items:center;gap:7px;color:var(--text-muted);font-size:11px}
+.smart-dhw-footer{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:14px;border-top:1px solid var(--border)}
+.smart-dhw-note{margin-right:auto;color:var(--text-muted);font-size:10.5px}
+.smart-dhw-state-active{color:var(--green)}
+.smart-dhw-state-error{color:var(--red)}
+@media(max-width:760px){.smart-dhw-status{grid-template-columns:repeat(2,minmax(0,1fr))}.smart-dhw-config{grid-template-columns:1fr}.smart-dhw-card.full{grid-column:auto}.smart-dhw-row{align-items:flex-start;flex-direction:column;padding:9px 0}.smart-dhw-row .scheduler-input{width:100%}.smart-dhw-unit{width:100%}.smart-dhw-unit .scheduler-input{flex:1}.smart-dhw-footer{align-items:stretch;flex-direction:column}.smart-dhw-note{margin:0 0 5px}.smart-dhw-footer .btn{width:100%}}
 @media(max-width:1250px){.wp-settings-columns{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:680px){.wp-settings-columns{grid-template-columns:1fr}.wp-settings-slider{width:120px}}
 @media(max-width:1000px){.dashboard-columns{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -1359,6 +1377,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -1512,6 +1531,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -1778,6 +1798,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -1890,6 +1911,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -2018,6 +2040,104 @@ document.addEventListener('DOMContentLoaded',function(){schedulerRefresh();windo
 )====";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SMART DHW PAGE
+// ─────────────────────────────────────────────────────────────────────────────
+static const char webBodySmartDhw[] FLASHPROG = R"====(
+<script>
+document.addEventListener('DOMContentLoaded',function(){
+  document.title='Smart DHW - HeishaMon';
+  document.getElementById('sideNav').innerHTML=`
+<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
+<a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
+<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
+<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
+<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>`;
+});
+</script>
+<main class='main-content smart-dhw-page'>
+  <div class='scheduler-heading'><div><h1>Smart DHW</h1><p>Local solar-friendly hot-water reserves without MQTT or external automation.</p></div></div>
+  <div class='smart-dhw-status'>
+    <div class='scheduler-status-card'><span class='scheduler-status-label'>Smart DHW state</span><span id='smartDhwState' class='scheduler-status-value'>Loading ...</span></div>
+    <div class='scheduler-status-card'><span class='scheduler-status-label'>DHW temperature</span><span id='smartDhwTemperature' class='scheduler-status-value'>--</span></div>
+    <div class='scheduler-status-card'><span class='scheduler-status-label'>Panasonic target</span><span id='smartDhwTarget' class='scheduler-status-value'>--</span></div>
+    <div class='scheduler-status-card'><span class='scheduler-status-label'>DHW operation</span><span id='smartDhwOperation' class='scheduler-status-value'>--</span></div>
+    <div class='scheduler-status-card smart-dhw-wide'><span class='scheduler-status-label'>Next check</span><span id='smartDhwNextCheck' class='scheduler-status-value'>--</span></div>
+    <div class='scheduler-status-card smart-dhw-wide'><span class='scheduler-status-label'>Last successful Smart DHW start</span><span id='smartDhwLastStart' class='scheduler-status-value'>Never</span></div>
+    <div class='scheduler-status-card scheduler-last'><span class='scheduler-status-label'>Last decision</span><span id='smartDhwLastDecision' class='scheduler-status-value'>No decision since boot</span></div>
+  </div>
+
+  <section class='scheduler-panel'>
+    <div class='scheduler-panel-header'><h2>Configuration</h2><span class='dashboard-muted'>Charges to the Panasonic DHW target shown above</span></div>
+    <div class='smart-dhw-config'>
+      <section class='smart-dhw-card full'>
+        <h3>General</h3>
+        <div class='smart-dhw-row'><label for='smartDhwEnabled'>Enable Smart DHW</label><label class='dashboard-toggle'><input id='smartDhwEnabled' type='checkbox' onchange='smartDhwMarkDirty()'><span class='dashboard-toggle-slider'></span></label></div>
+      </section>
+      <section class='smart-dhw-card'>
+        <h3>Evening reserve</h3>
+        <div class='smart-dhw-row'><label for='smartDhwEveningEnabled'>Enable evening reserve</label><label class='dashboard-toggle'><input id='smartDhwEveningEnabled' type='checkbox' onchange='smartDhwMarkDirty()'><span class='dashboard-toggle-slider'></span></label></div>
+        <div class='smart-dhw-row'><label for='smartDhwEveningTime'>Check time</label><input id='smartDhwEveningTime' class='scheduler-input' type='time' onchange='smartDhwMarkDirty()'></div>
+        <div class='smart-dhw-row'><label for='smartDhwEveningTemp'>Charge if tank below</label><div class='smart-dhw-unit'><input id='smartDhwEveningTemp' class='scheduler-input' type='number' min='20' max='75' step='0.5' oninput='smartDhwMarkDirty()'><span>&deg;C</span></div></div>
+        <div class='smart-dhw-row'><span class='dashboard-muted'>Safe simulation</span><button class='btn btn-ghost' onclick="smartDhwTest('evening')">Test evening decision</button></div>
+      </section>
+      <section class='smart-dhw-card'>
+        <h3>Morning safety reserve</h3>
+        <div class='smart-dhw-row'><label for='smartDhwMorningEnabled'>Enable morning reserve</label><label class='dashboard-toggle'><input id='smartDhwMorningEnabled' type='checkbox' onchange='smartDhwMarkDirty()'><span class='dashboard-toggle-slider'></span></label></div>
+        <div class='smart-dhw-row'><label for='smartDhwMorningTime'>Check time</label><input id='smartDhwMorningTime' class='scheduler-input' type='time' onchange='smartDhwMarkDirty()'></div>
+        <div class='smart-dhw-row'><label for='smartDhwMorningTemp'>Charge if tank below</label><div class='smart-dhw-unit'><input id='smartDhwMorningTemp' class='scheduler-input' type='number' min='20' max='75' step='0.5' oninput='smartDhwMarkDirty()'><span>&deg;C</span></div></div>
+        <div class='smart-dhw-row'><span class='dashboard-muted'>Safe simulation</span><button class='btn btn-ghost' onclick="smartDhwTest('morning')">Test morning decision</button></div>
+      </section>
+      <section class='smart-dhw-card full'>
+        <h3>Advanced protection</h3>
+        <div class='smart-dhw-row'><label for='smartDhwMinimumInterval'>Minimum time between Smart DHW starts</label><div class='smart-dhw-unit'><input id='smartDhwMinimumInterval' class='scheduler-input' type='number' min='15' max='1440' step='1' oninput='smartDhwMarkDirty()'><span>minutes</span></div></div>
+      </section>
+    </div>
+    <div class='smart-dhw-footer'><span class='smart-dhw-note'>Test decision never sends a Panasonic command. Save pending edits before testing them.</span><button class='btn btn-ghost' onclick='smartDhwCancel()'>Cancel</button><button class='btn btn-primary' onclick='smartDhwSave()'>Save</button></div>
+  </section>
+  <div id='smartDhwCommandStatus' class='scheduler-command-status'></div>
+
+  <section class='scheduler-panel'>
+    <div class='scheduler-panel-header'><h2>Decision history</h2><span class='dashboard-muted'>RAM only, newest first</span></div>
+    <div class='scheduler-table-wrap'><table class='scheduler-table'><thead><tr><th>Time</th><th>Reserve</th><th>Result</th><th>Detail</th></tr></thead><tbody id='smartDhwEvents'><tr><td colspan='4' class='scheduler-empty'>No Smart DHW decisions since boot.</td></tr></tbody></table></div>
+  </section>
+</main>
+)====";
+
+static const char smartDhwJS[] FLASHPROG = R"====(
+<script>
+var smartDhwData=null;
+var smartDhwBusy=false;
+var smartDhwDirty=false;
+var smartDhwRefreshPromise=null;
+function smartDhwEscape(value){return String(value===undefined?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function smartDhwPad(value){return String(value).padStart(2,'0');}
+function smartDhwValue(value,unit){return value===null||value===undefined?'Unavailable':Number(value).toFixed(1)+(unit||'');}
+function smartDhwStatus(message,isError){var el=document.getElementById('smartDhwCommandStatus');el.textContent=message||'';el.style.color=isError?'var(--red)':'var(--text-muted)';}
+function smartDhwMarkDirty(){smartDhwDirty=true;smartDhwStatus('Unsaved changes',false);}
+function smartDhwSetControls(disabled){document.querySelectorAll('.smart-dhw-page button,.smart-dhw-page input').forEach(function(control){control.disabled=disabled;});}
+function smartDhwFillConfig(config){document.getElementById('smartDhwEnabled').checked=!!config.enabled;document.getElementById('smartDhwEveningEnabled').checked=!!config.eveningEnabled;document.getElementById('smartDhwEveningTime').value=smartDhwPad(config.eveningHour)+':'+smartDhwPad(config.eveningMinute);document.getElementById('smartDhwEveningTemp').value=String(config.eveningTriggerTemp);document.getElementById('smartDhwMorningEnabled').checked=!!config.morningEnabled;document.getElementById('smartDhwMorningTime').value=smartDhwPad(config.morningHour)+':'+smartDhwPad(config.morningMinute);document.getElementById('smartDhwMorningTemp').value=String(config.morningTriggerTemp);document.getElementById('smartDhwMinimumInterval').value=String(config.minimumIntervalMinutes);}
+function smartDhwRender(data){
+  smartDhwData=data;var status=data.status||{};var state=document.getElementById('smartDhwState');state.textContent=(data.config.enabled?'Enabled · ':'Disabled · ')+(status.state||'Unknown');state.className='scheduler-status-value '+(status.state==='Error'?'smart-dhw-state-error':data.config.enabled?'smart-dhw-state-active':'');
+  document.getElementById('smartDhwTemperature').textContent=smartDhwValue(status.dhwTemperature,' °C');document.getElementById('smartDhwTarget').textContent=smartDhwValue(status.dhwTarget,' °C');document.getElementById('smartDhwOperation').textContent=status.dhwOperationActive===null?'Unavailable':status.forceDhwActive?'Force DHW active':status.dhwOperationActive?'DHW active':'Idle';document.getElementById('smartDhwNextCheck').textContent=data.nextCheck&&data.nextCheck.available?(data.nextCheck.time+' · '+data.nextCheck.reserve):'No enabled check';document.getElementById('smartDhwLastStart').textContent=status.lastSuccessfulStart||'Never';
+  var last=data.events&&data.events.length?data.events[0]:null;document.getElementById('smartDhwLastDecision').textContent=last?(last.time+' · '+last.reserve+' -> '+last.result+' · '+last.detail):'No decision since boot';
+  if(!smartDhwDirty)smartDhwFillConfig(data.config);
+  var events=document.getElementById('smartDhwEvents');if(!data.events||!data.events.length){events.innerHTML="<tr><td colspan='4' class='scheduler-empty'>No Smart DHW decisions since boot.</td></tr>";}else{events.innerHTML=data.events.map(function(event){return '<tr><td class="scheduler-mono">'+smartDhwEscape(event.time)+'</td><td>'+smartDhwEscape(event.reserve)+'</td><td class="scheduler-event-result">'+smartDhwEscape(event.result)+'</td><td>'+smartDhwEscape(event.detail)+'</td></tr>';}).join('');}
+  smartDhwSetControls(smartDhwBusy);
+}
+function smartDhwRefresh(){if(smartDhwRefreshPromise)return smartDhwRefreshPromise;smartDhwRefreshPromise=fetch('/smartdhwapi',{cache:'no-store'}).then(function(response){if(!response.ok)throw new Error('HTTP '+response.status);return response.json();}).then(function(data){smartDhwRefreshPromise=null;smartDhwRender(data);return data;}).catch(function(error){smartDhwRefreshPromise=null;smartDhwStatus('Refresh failed: '+error.message,true);throw error;});return smartDhwRefreshPromise;}
+function smartDhwCommand(name,value){if(smartDhwBusy){smartDhwStatus('Please wait for the current command.',false);return Promise.reject(new Error('busy'));}smartDhwBusy=true;smartDhwSetControls(true);return fetch('/smartdhwcommand?'+encodeURIComponent(name)+'='+encodeURIComponent(value),{cache:'no-store'}).then(function(response){if(!response.ok)throw new Error('HTTP '+response.status);return response.text();}).then(function(message){if(/^ERROR:/m.test(message))throw new Error(message.replace(/^ERROR:\s*/,'').trim());smartDhwStatus(message.replace(/^OK:\s*/,'').trim()||'Done',false);return smartDhwRefresh();}).then(function(data){smartDhwBusy=false;smartDhwRender(data);return data;}).catch(function(error){smartDhwBusy=false;smartDhwSetControls(false);if(error.message!=='busy')smartDhwStatus('Command failed: '+error.message,true);throw error;});}
+function smartDhwReadTime(id){var value=document.getElementById(id).value;if(!/^\d{2}:\d{2}$/.test(value))return null;var parts=value.split(':');var hour=Number(parts[0]);var minute=Number(parts[1]);return Number.isInteger(hour)&&hour>=0&&hour<=23&&Number.isInteger(minute)&&minute>=0&&minute<=59?{hour:hour,minute:minute}:null;}
+function smartDhwSave(){var evening=smartDhwReadTime('smartDhwEveningTime');var morning=smartDhwReadTime('smartDhwMorningTime');var eveningTemp=Number(document.getElementById('smartDhwEveningTemp').value);var morningTemp=Number(document.getElementById('smartDhwMorningTemp').value);var interval=Number(document.getElementById('smartDhwMinimumInterval').value);if(!evening||!morning){smartDhwStatus('Both check times must be valid.',true);return;}if(!Number.isFinite(eveningTemp)||eveningTemp<20||eveningTemp>75||!Number.isFinite(morningTemp)||morningTemp<20||morningTemp>75){smartDhwStatus('Trigger temperatures must be between 20 and 75 °C.',true);return;}if(!Number.isInteger(interval)||interval<15||interval>1440){smartDhwStatus('Minimum interval must be 15 to 1440 minutes.',true);return;}var config={enabled:document.getElementById('smartDhwEnabled').checked,eveningEnabled:document.getElementById('smartDhwEveningEnabled').checked,eveningHour:evening.hour,eveningMinute:evening.minute,eveningTriggerTemp:eveningTemp,morningEnabled:document.getElementById('smartDhwMorningEnabled').checked,morningHour:morning.hour,morningMinute:morning.minute,morningTriggerTemp:morningTemp,minimumIntervalMinutes:interval};smartDhwCommand('save',JSON.stringify(config)).then(function(){smartDhwDirty=false;smartDhwFillConfig(smartDhwData.config);});}
+function smartDhwCancel(){if(smartDhwData){smartDhwDirty=false;smartDhwFillConfig(smartDhwData.config);smartDhwStatus('Changes discarded',false);}}
+function smartDhwTest(slot){if(smartDhwDirty){smartDhwStatus('Save or cancel pending edits before testing.',true);return;}smartDhwCommand('test',slot);}
+document.addEventListener('DOMContentLoaded',function(){smartDhwRefresh();window.setInterval(smartDhwRefresh,10000);});
+</script>
+)====";
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SETTINGS PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 static const char settingsJS[] FLASHPROG = R"====(
@@ -2077,6 +2197,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -2500,6 +2621,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>
@@ -2962,6 +3084,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
 <a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>
