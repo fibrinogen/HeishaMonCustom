@@ -336,6 +336,39 @@ input:disabled + .theme-slider-compact {
 .alias-edit:focus{border-color:var(--border-focus);box-shadow:0 0 0 2px var(--accent-glow)}
 .tab-pane{display:none}
 .tab-pane.active{display:block}
+.dashboard-page{max-width:1500px;margin:0 auto}
+.dashboard-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:start}
+.dashboard-column{background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.dashboard-title{padding:15px 16px;color:#25bdf1;font-size:17px;font-weight:600;letter-spacing:.2px}
+.dashboard-section{padding:0 14px 8px}
+.dashboard-section-title{padding:9px 0 7px;border-top:1px solid var(--border);color:var(--text-primary);font-size:12px;font-weight:600}
+.dashboard-row{min-height:42px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:8px 6px;color:var(--text-secondary);font-size:12.5px}
+.dashboard-row-label{min-width:0}
+.dashboard-value{color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;text-align:right;white-space:nowrap}
+.dashboard-muted{color:var(--text-muted)}
+.dashboard-toggle{position:relative;display:inline-block;width:38px;height:22px;flex:0 0 38px}
+.dashboard-toggle input{opacity:0;width:0;height:0}
+.dashboard-toggle-slider{position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:22px;transition:.2s}
+.dashboard-toggle-slider:before{content:'';position:absolute;width:16px;height:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.dashboard-toggle input:checked + .dashboard-toggle-slider{background:#25bdf1}
+.dashboard-toggle input:checked + .dashboard-toggle-slider:before{transform:translateX(16px)}
+.dashboard-toggle input:disabled + .dashboard-toggle-slider{cursor:wait;opacity:.55}
+.dashboard-control{display:flex;align-items:center;gap:8px}
+.dashboard-step{width:26px;height:26px;border:0;border-radius:50%;background:transparent;color:var(--text-secondary);font-size:20px;line-height:24px;cursor:pointer}
+.dashboard-step:hover{background:var(--bg-elevated);color:var(--accent)}
+.dashboard-gauges{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:6px 4px 12px}
+.dashboard-gauge{text-align:center;color:var(--text-muted);font-size:11px}
+.dashboard-gauge svg{display:block;width:100%;max-width:150px;margin:0 auto;overflow:visible}
+.dashboard-gauge-track,.dashboard-gauge-fill{fill:none;stroke-width:11;stroke-linecap:butt}
+.dashboard-gauge-track{stroke:var(--border)}
+.dashboard-gauge-fill{stroke:#25bdf1;transition:stroke-dashoffset .5s ease}
+.dashboard-gauge-reading{margin-top:-24px;color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600}
+.dashboard-gauge-unit{display:block;color:var(--text-muted);font-size:9px;font-weight:400}
+.dashboard-gauge-scale{display:flex;justify-content:space-between;max-width:130px;margin:3px auto 0;font-size:9px}
+.dashboard-command-status{min-height:18px;margin:8px 6px 0;color:var(--text-muted);font-size:11px;text-align:right}
+.dashboard-hidden{display:none}
+@media(max-width:1000px){.dashboard-columns{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:680px){.main-content{padding-left:12px;padding-right:12px}.dashboard-columns{grid-template-columns:1fr}}
 .settings-grid{
   display:grid;
   gap:0;
@@ -1245,6 +1278,7 @@ static const char webBodyRoot1[] FLASHPROG = R"====(
 document.addEventListener('DOMContentLoaded',function(){
   var nav=document.getElementById('sideNav');
   nav.innerHTML=`
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -1388,6 +1422,199 @@ static const char webBodyRootConsole[] FLASHPROG = R"====(
 )====";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// DASHBOARD PAGE
+// ─────────────────────────────────────────────────────────────────────────────
+static const char webBodyDashboard[] FLASHPROG = R"====(
+<script>
+document.addEventListener('DOMContentLoaded',function(){
+  document.title='Dashboard - HeishaMon';
+  document.getElementById('sideNav').innerHTML=`
+<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
+<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
+<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
+<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
+<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>`;
+});
+</script>
+<main class='main-content dashboard-page'>
+  <div class='dashboard-columns'>
+    <section class='dashboard-column'>
+      <h2 class='dashboard-title'>HEAT PUMP</h2>
+      <div class='dashboard-section'>
+        <div class='dashboard-row'>
+          <span class='dashboard-row-label'>Heat pump power</span>
+          <div class='dashboard-control'>
+            <span id='TOP0-Description' class='dashboard-value'>--</span><span id='TOP0-Value' class='dashboard-hidden'></span>
+            <label class='dashboard-toggle'><input id='heatpumpToggle' type='checkbox' onchange="setDashboardToggle(this,'SetHeatpump')"><span class='dashboard-toggle-slider'></span></label>
+          </div>
+        </div>
+        <div class='dashboard-section-title'>Operating mode</div>
+        <div class='dashboard-row'><span>Actual</span><span id='TOP4-Description' class='dashboard-value'>--</span><span id='TOP4-Value' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Valve position</span><span id='TOP20-Description' class='dashboard-value'>--</span><span id='TOP20-Value' class='dashboard-hidden'></span></div>
+        <div class='dashboard-section-title'>Water temperature</div>
+        <div class='dashboard-row'><span>Outlet setpoint</span><span class='dashboard-value'><span id='TOP7-Value'>--</span> &deg;C</span><span id='TOP7-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Outlet actual</span><span class='dashboard-value'><span id='TOP6-Value'>--</span> &deg;C</span><span id='TOP6-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Inlet actual</span><span class='dashboard-value'><span id='TOP5-Value'>--</span> &deg;C</span><span id='TOP5-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-gauges'>
+          <div class='dashboard-gauge'>Water flow
+            <svg viewBox='0 0 120 68' aria-label='Water flow gauge'><path class='dashboard-gauge-track' d='M10 62 A50 50 0 0 1 110 62'/><path id='TOP1-Gauge' class='dashboard-gauge-fill' pathLength='100' stroke-dasharray='100' stroke-dashoffset='100' d='M10 62 A50 50 0 0 1 110 62'/></svg>
+            <div class='dashboard-gauge-reading'><span id='TOP1-Value'>--</span><span class='dashboard-gauge-unit'>L/min</span></div><span id='TOP1-Description' class='dashboard-hidden'></span>
+            <div class='dashboard-gauge-scale'><span>0</span><span>35</span></div>
+          </div>
+          <div class='dashboard-gauge'>Frequency
+            <svg viewBox='0 0 120 68' aria-label='Compressor frequency gauge'><path class='dashboard-gauge-track' d='M10 62 A50 50 0 0 1 110 62'/><path id='TOP8-Gauge' class='dashboard-gauge-fill' pathLength='100' stroke-dasharray='100' stroke-dashoffset='100' d='M10 62 A50 50 0 0 1 110 62'/></svg>
+            <div class='dashboard-gauge-reading'><span id='TOP8-Value'>--</span><span class='dashboard-gauge-unit'>Hz</span></div><span id='TOP8-Description' class='dashboard-hidden'></span>
+            <div class='dashboard-gauge-scale'><span>0</span><span>120</span></div>
+          </div>
+        </div>
+        <div class='dashboard-row'><span>Pump speed</span><span class='dashboard-value'><span id='TOP65-Value'>--</span> rpm</span><span id='TOP65-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-section-title'></div>
+        <div class='dashboard-row'><span>Operating hours</span><span class='dashboard-value'><span id='TOP11-Value'>--</span> h</span><span id='TOP11-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Fan 1</span><span class='dashboard-value'><span id='TOP62-Value'>--</span> rpm</span><span id='TOP62-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Internal heater</span><span id='TOP60-Description' class='dashboard-value'>--</span><span id='TOP60-Value' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Outside temperature</span><span class='dashboard-value'><span id='TOP14-Value'>--</span> &deg;C</span><span id='TOP14-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Error</span><span id='TOP44-Description' class='dashboard-value'>--</span><span id='TOP44-Value' class='dashboard-hidden'></span></div>
+      </div>
+    </section>
+
+    <section class='dashboard-column'>
+      <h2 class='dashboard-title'>HEAT (zone 1)</h2>
+      <div class='dashboard-section'>
+        <div class='dashboard-row'><span>Zone 1</span><span id='TOP94-Description' class='dashboard-value'>--</span><span id='TOP94-Value' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'>
+          <span>Heat request / shift</span>
+          <div class='dashboard-control'><button class='dashboard-step' onclick='stepZone1Heat(-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='TOP27-Value'>--</span> &deg;C</span><span id='TOP27-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick='stepZone1Heat(1)' aria-label='Increase'>&#8963;</button></div>
+        </div>
+        <div class='dashboard-section-title'>Temperatures</div>
+        <div class='dashboard-row'><span>Water target</span><span class='dashboard-value'><span id='TOP42-Value'>--</span> &deg;C</span><span id='TOP42-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Water actual</span><span class='dashboard-value'><span id='TOP36-Value'>--</span> &deg;C</span><span id='TOP36-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Room actual</span><span class='dashboard-value'><span id='TOP56-Value'>--</span> &deg;C</span><span id='TOP56-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Heating mode</span><span id='TOP76-Description' class='dashboard-value'>--</span><span id='TOP76-Value' class='dashboard-hidden'></span></div>
+        <div class='dashboard-section-title'>Heating power</div>
+        <div class='dashboard-row'><span>Production</span><span class='dashboard-value'><span id='TOP15-Value'>--</span> W</span><span id='TOP15-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Consumption</span><span class='dashboard-value'><span id='TOP16-Value'>--</span> W</span><span id='TOP16-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-section-title'>Heating curve</div>
+        <div class='dashboard-row'><span>Target high</span><span class='dashboard-value'><span id='TOP29-Value'>--</span> &deg;C</span><span id='TOP29-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Target low</span><span class='dashboard-value'><span id='TOP30-Value'>--</span> &deg;C</span><span id='TOP30-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Outside high</span><span class='dashboard-value'><span id='TOP31-Value'>--</span> &deg;C</span><span id='TOP31-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Outside low</span><span class='dashboard-value'><span id='TOP32-Value'>--</span> &deg;C</span><span id='TOP32-Description' class='dashboard-hidden'></span></div>
+      </div>
+    </section>
+
+    <section class='dashboard-column'>
+      <h2 class='dashboard-title'>DHW</h2>
+      <div class='dashboard-section'>
+        <div class='dashboard-row'>
+          <span>DHW setpoint</span>
+          <div class='dashboard-control'><button class='dashboard-step' onclick="stepDashboardValue('SetDHWTemp','TOP9',-1,40,75)" aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='TOP9-Value'>--</span> &deg;C</span><span id='TOP9-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="stepDashboardValue('SetDHWTemp','TOP9',1,40,75)" aria-label='Increase'>&#8963;</button></div>
+        </div>
+        <div class='dashboard-row'><span>DHW actual</span><span class='dashboard-value'><span id='TOP10-Value'>--</span> &deg;C</span><span id='TOP10-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Sterilization setpoint</span><span class='dashboard-value'><span id='TOP70-Value'>--</span> &deg;C</span><span id='TOP70-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'>
+          <span>Force DHW</span>
+          <div class='dashboard-control'><span id='TOP2-Description' class='dashboard-value'>--</span><span id='TOP2-Value' class='dashboard-hidden'></span><label class='dashboard-toggle'><input id='forceDhwToggle' type='checkbox' onchange="setDashboardToggle(this,'SetForceDHW')"><span class='dashboard-toggle-slider'></span></label></div>
+        </div>
+        <div class='dashboard-row'>
+          <span>Force sterilization</span>
+          <div class='dashboard-control'><span id='TOP69-Description' class='dashboard-value'>--</span><span id='TOP69-Value' class='dashboard-hidden'></span><label class='dashboard-toggle'><input id='sterilizationToggle' type='checkbox' onchange="setDashboardToggle(this,'SetForceSterilization')"><span class='dashboard-toggle-slider'></span></label></div>
+        </div>
+        <div class='dashboard-section-title'>DHW power</div>
+        <div class='dashboard-row'><span>Production</span><span class='dashboard-value'><span id='TOP40-Value'>--</span> W</span><span id='TOP40-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Consumption</span><span class='dashboard-value'><span id='TOP41-Value'>--</span> W</span><span id='TOP41-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-section-title'>Sterilization</div>
+        <div class='dashboard-row'><span>Maximum duration</span><span class='dashboard-value'><span id='TOP71-Value'>--</span> min</span><span id='TOP71-Description' class='dashboard-hidden'></span></div>
+        <div id='dashboardCommandStatus' class='dashboard-command-status'></div>
+      </div>
+    </section>
+  </div>
+</main>
+)====";
+
+static const char dashboardJS[] FLASHPROG = R"====(
+<script>
+var dashboardValues={};
+var dashboardRefreshTimer=null;
+function dashboardItems(data){
+  return [].concat(data.heatpump||[],data['heatpump extra']||[],data['heatpump optional']||[]);
+}
+function renderDashboard(data){
+  dashboardItems(data).forEach(function(item){
+    dashboardValues[item.Topic]=item.Value;
+    updCell(item.Topic+'-Value',String(item.Value));
+    updCell(item.Topic+'-Description',String(item.Description));
+  });
+  syncDashboardControls();
+}
+function refreshDashboard(){
+  fetch('/json',{cache:'no-store'}).then(function(response){
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    return response.json();
+  }).then(renderDashboard).catch(function(error){
+    setDashboardStatus('Update failed: '+error.message,true);
+  });
+}
+function setGauge(topic,max){
+  var path=document.getElementById(topic+'-Gauge');
+  var value=parseFloat(dashboardValues[topic]);
+  if(path&&!isNaN(value)){
+    var percent=Math.max(0,Math.min(100,value/max*100));
+    path.style.strokeDashoffset=String(100-percent);
+  }
+}
+function setToggle(id,topic){
+  var toggle=document.getElementById(id);
+  if(toggle)toggle.checked=Number(dashboardValues[topic])!==0;
+}
+function syncDashboardControls(){
+  setToggle('heatpumpToggle','TOP0');
+  setToggle('forceDhwToggle','TOP2');
+  setToggle('sterilizationToggle','TOP69');
+  setGauge('TOP1',35);
+  setGauge('TOP8',120);
+}
+function setDashboardStatus(message,isError){
+  var status=document.getElementById('dashboardCommandStatus');
+  if(status){status.textContent=message||'';status.style.color=isError?'var(--red)':'var(--text-muted)';}
+}
+function sendDashboardCommand(command,value){
+  setDashboardStatus('Sending '+command+' ...',false);
+  return fetch('/command?'+encodeURIComponent(command)+'='+encodeURIComponent(value),{cache:'no-store'}).then(function(response){
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    return response.text();
+  }).then(function(){
+    setDashboardStatus('Command sent',false);
+    window.setTimeout(refreshDashboard,1400);
+  }).catch(function(error){
+    setDashboardStatus('Command failed: '+error.message,true);
+    throw error;
+  });
+}
+function setDashboardToggle(toggle,command){
+  toggle.disabled=true;
+  sendDashboardCommand(command,toggle.checked?1:0).catch(function(){toggle.checked=!toggle.checked;}).then(function(){toggle.disabled=false;});
+}
+function stepDashboardValue(command,topic,delta,min,max){
+  var current=parseFloat(dashboardValues[topic]);
+  if(isNaN(current))return;
+  var next=Math.max(min,Math.min(max,Math.round(current+delta)));
+  dashboardValues[topic]=next;
+  updCell(topic+'-Value',String(next));
+  sendDashboardCommand(command,next);
+}
+function stepZone1Heat(delta){
+  var directMode=Number(dashboardValues.TOP76)===1;
+  stepDashboardValue('SetZ1HeatRequestTemperature','TOP27',delta,directMode?20:-5,directMode?60:5);
+}
+document.addEventListener('DOMContentLoaded',function(){
+  refreshDashboard();
+  startWebsockets();
+  monitorWebSocket();
+  dashboardRefreshTimer=window.setInterval(refreshDashboard,10000);
+});
+</script>
+)====";
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SETTINGS PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 static const char settingsJS[] FLASHPROG = R"====(
@@ -1444,6 +1671,7 @@ document.addEventListener('DOMContentLoaded',function(){
   var nav=document.getElementById('sideNav');
   nav.innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -1864,6 +2092,7 @@ document.addEventListener('DOMContentLoaded',function(){
   var nav=document.getElementById('sideNav');
   nav.innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>
@@ -2323,6 +2552,7 @@ document.addEventListener('DOMContentLoaded',function(){
   var nav=document.getElementById('sideNav');
   nav.innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
 <a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>

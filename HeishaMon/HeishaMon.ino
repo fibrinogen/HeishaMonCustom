@@ -1058,6 +1058,8 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
     case WEBSERVER_CLIENT_REQUEST_URI: {
         if (strcmp_P((char *)dat, PSTR("/")) == 0) {
           client->route = 1;
+        } else if (strcmp_P((char *)dat, PSTR("/dashboard")) == 0) {
+          client->route = 10;
         } else if (strcmp_P((char *)dat, PSTR("/json")) == 0) {
           client->route = 20;
         } else if (strcmp_P((char *)dat, PSTR("/reboot")) == 0) {
@@ -1289,6 +1291,9 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
             } break;
           case 1: {
               return handleRoot(client, readpercentage, mqttReconnects, &heishamonSettings);
+            } break;
+          case 10: {
+              return handleDashboard(client);
             } break;
           case 20: {
               return handleJsonOutput(client, actData, actDataExtra, actOptData, &heishamonSettings, extraDataBlockAvailable);
