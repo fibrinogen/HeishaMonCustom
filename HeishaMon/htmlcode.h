@@ -376,10 +376,56 @@ input:disabled + .theme-slider-compact {
 .wp-settings-button{min-width:82px}
 .wp-settings-note{padding:8px 6px;color:var(--text-muted);font-size:10.5px;line-height:1.4}
 .wp-settings-service-title{color:var(--red)}
+.scheduler-page{max-width:1500px;margin:0 auto}
+.scheduler-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:16px}
+.scheduler-heading h1{margin:0 0 5px;color:var(--text-primary);font-size:22px}
+.scheduler-heading p{margin:0;color:var(--text-muted);font-size:12px}
+.scheduler-status{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.scheduler-status-card{padding:13px 15px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg)}
+.scheduler-status-card.scheduler-last{grid-column:1/-1}
+.scheduler-status-label{display:block;margin-bottom:5px;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.7px}
+.scheduler-status-value{color:var(--text-primary);font:600 12px 'JetBrains Mono',monospace}
+.scheduler-panel{background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:14px}
+.scheduler-panel-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 15px;border-bottom:1px solid var(--border)}
+.scheduler-panel-header h2{margin:0;color:var(--text-primary);font-size:14px}
+.scheduler-table-wrap{overflow-x:auto}
+.scheduler-table{width:100%;border-collapse:collapse;min-width:850px}
+.scheduler-table th{padding:10px 12px;color:var(--text-muted);font-size:10px;font-weight:600;text-align:left;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.scheduler-table td{padding:11px 12px;color:var(--text-secondary);font-size:11.5px;border-bottom:1px solid rgba(42,48,64,.55);vertical-align:middle}
+.scheduler-table tr:last-child td{border-bottom:0}
+.scheduler-table tr:hover td{background:var(--bg-elevated)}
+.scheduler-name{color:var(--text-primary);font-weight:600}
+.scheduler-mono{font-family:'JetBrains Mono',monospace;white-space:nowrap}
+.scheduler-actions{display:flex;gap:5px;justify-content:flex-end}
+.scheduler-actions .btn{height:27px;padding:4px 8px;font-size:10px}
+.scheduler-empty{padding:32px;text-align:center;color:var(--text-muted);font-size:12px}
+.scheduler-sync-good{color:var(--green)}
+.scheduler-sync-bad{color:var(--red)}
+.scheduler-command-status{min-height:18px;margin:4px 2px 10px;color:var(--text-muted);font-size:11px;text-align:right}
+.scheduler-modal{display:none;position:fixed;z-index:1200;inset:0;padding:20px;background:rgba(4,7,12,.7);align-items:center;justify-content:center}
+.scheduler-modal.open{display:flex}
+.scheduler-editor{width:min(720px,100%);max-height:calc(100vh - 40px);overflow:auto;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:0 20px 70px rgba(0,0,0,.45)}
+.scheduler-editor-header{display:flex;justify-content:space-between;align-items:center;padding:15px 18px;border-bottom:1px solid var(--border)}
+.scheduler-editor-header h2{margin:0;font-size:16px;color:var(--text-primary)}
+.scheduler-editor-body{padding:18px}
+.scheduler-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.scheduler-field{display:flex;flex-direction:column;gap:6px}
+.scheduler-field.full{grid-column:1/-1}
+.scheduler-field label{color:var(--text-secondary);font-size:11px}
+.scheduler-input{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-elevated);color:var(--text-primary);font:12px 'JetBrains Mono',monospace}
+.scheduler-days{display:flex;flex-wrap:wrap;gap:6px}
+.scheduler-day input{display:none}
+.scheduler-day span{display:block;min-width:35px;padding:7px 8px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-muted);font-size:10px;cursor:pointer}
+.scheduler-day input:checked+span{border-color:var(--accent);background:var(--accent-glow);color:var(--accent)}
+.scheduler-form-note{padding:10px 12px;border-left:3px solid var(--accent);background:var(--bg-elevated);color:var(--text-muted);font-size:10.5px;line-height:1.5}
+.scheduler-editor-footer{display:flex;justify-content:flex-end;gap:8px;padding:13px 18px;border-top:1px solid var(--border)}
+.scheduler-event-result{font-weight:600}
+.scheduler-event-result.executed,.scheduler-event-result.no-change{color:var(--green)}
+.scheduler-event-result.failed,.scheduler-event-result.busy{color:var(--red)}
 @media(max-width:1250px){.wp-settings-columns{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:680px){.wp-settings-columns{grid-template-columns:1fr}.wp-settings-slider{width:120px}}
 @media(max-width:1000px){.dashboard-columns{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:680px){.main-content{padding-left:12px;padding-right:12px}.dashboard-columns{grid-template-columns:1fr}}
+@media(max-width:680px){.main-content{padding-left:12px;padding-right:12px}.dashboard-columns{grid-template-columns:1fr}.scheduler-heading{align-items:stretch;flex-direction:column}.scheduler-status{grid-template-columns:repeat(2,minmax(0,1fr))}.scheduler-form-grid{grid-template-columns:1fr}.scheduler-field.full{grid-column:auto}.scheduler-modal{padding:8px}.scheduler-editor{max-height:calc(100vh - 16px)}}
 .settings-grid{
   display:grid;
   gap:0;
@@ -1312,6 +1358,7 @@ document.addEventListener('DOMContentLoaded',function(){
   nav.innerHTML=`
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -1464,6 +1511,7 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('sideNav').innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -1729,6 +1777,7 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('sideNav').innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
+<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -1831,6 +1880,144 @@ document.addEventListener('DOMContentLoaded',function(){wpRefresh();startWebsock
 )====";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// LOCAL SCHEDULER PAGE
+// ─────────────────────────────────────────────────────────────────────────────
+static const char webBodyScheduler[] FLASHPROG = R"====(
+<script>
+document.addEventListener('DOMContentLoaded',function(){
+  document.title='Scheduler - HeishaMon';
+  document.getElementById('sideNav').innerHTML=`
+<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
+<a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
+<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
+<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
+<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>`;
+});
+</script>
+<main class='main-content scheduler-page'>
+  <div class='scheduler-heading'>
+    <div><h1>Local Scheduler</h1><p>Executes heat-pump actions locally using HeishaMon time and live values.</p></div>
+    <button class='btn btn-primary' onclick='schedulerOpenEditor(0)'>+ Add schedule</button>
+  </div>
+  <div class='scheduler-status'>
+    <div class='scheduler-status-card'><span class='scheduler-status-label'>Local time</span><span id='schedulerLocalTime' class='scheduler-status-value'>Loading ...</span></div>
+    <div class='scheduler-status-card'><span class='scheduler-status-label'>Time synchronization</span><span id='schedulerTimeStatus' class='scheduler-status-value'>--</span></div>
+    <div class='scheduler-status-card'><span class='scheduler-status-label'>Active schedules</span><span id='schedulerActiveCount' class='scheduler-status-value'>--</span></div>
+    <div class='scheduler-status-card'><span class='scheduler-status-label'>Pending actions</span><span id='schedulerPendingCount' class='scheduler-status-value'>--</span></div>
+    <div class='scheduler-status-card scheduler-last'><span class='scheduler-status-label'>Last scheduler action</span><span id='schedulerLastAction' class='scheduler-status-value'>No action since boot</span></div>
+  </div>
+  <section class='scheduler-panel'>
+    <div class='scheduler-panel-header'>
+      <h2>Schedules</h2>
+      <div class='dashboard-control'><span id='schedulerGlobalLabel' class='dashboard-muted'>Enabled</span><label class='dashboard-toggle'><input id='schedulerGlobalToggle' type='checkbox' onchange='schedulerSetGlobal(this.checked)'><span class='dashboard-toggle-slider'></span></label></div>
+    </div>
+    <div class='scheduler-table-wrap'>
+      <table class='scheduler-table'>
+        <thead><tr><th>On</th><th>Name</th><th>Days</th><th>Time</th><th>Condition</th><th>Action</th><th></th></tr></thead>
+        <tbody id='schedulerRows'><tr><td colspan='7' class='scheduler-empty'>Loading schedules ...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+  <div id='schedulerCommandStatus' class='scheduler-command-status'></div>
+  <section class='scheduler-panel'>
+    <div class='scheduler-panel-header'><h2>Recent execution log</h2><span class='dashboard-muted'>RAM only, newest first</span></div>
+    <div class='scheduler-table-wrap'>
+      <table class='scheduler-table'>
+        <thead><tr><th>Time</th><th>Schedule</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody id='schedulerEvents'><tr><td colspan='4' class='scheduler-empty'>No executions since boot.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id='schedulerModal' class='scheduler-modal' onclick='if(event.target===this)schedulerCloseEditor()'>
+  <section class='scheduler-editor' role='dialog' aria-modal='true' aria-labelledby='schedulerEditorTitle'>
+    <div class='scheduler-editor-header'><h2 id='schedulerEditorTitle'>Add schedule</h2><button class='btn btn-ghost' onclick='schedulerCloseEditor()'>Close</button></div>
+    <div class='scheduler-editor-body'>
+      <div class='scheduler-form-grid'>
+        <div class='scheduler-field full'><label for='schedulerName'>Name</label><input id='schedulerName' class='scheduler-input' maxlength='32' placeholder='e.g. Morning hot water'></div>
+        <div class='scheduler-field'><label for='schedulerTime'>Execution time</label><input id='schedulerTime' class='scheduler-input' type='time' required></div>
+        <div class='scheduler-field'><label>Schedule state</label><label class='dashboard-control' style='justify-content:flex-start'><input id='schedulerEntryEnabled' type='checkbox' checked> Enabled</label></div>
+        <div class='scheduler-field full'><label>Weekdays</label><div class='scheduler-days'>
+          <label class='scheduler-day'><input type='checkbox' data-day='0'><span>Mon</span></label><label class='scheduler-day'><input type='checkbox' data-day='1'><span>Tue</span></label><label class='scheduler-day'><input type='checkbox' data-day='2'><span>Wed</span></label><label class='scheduler-day'><input type='checkbox' data-day='3'><span>Thu</span></label><label class='scheduler-day'><input type='checkbox' data-day='4'><span>Fri</span></label><label class='scheduler-day'><input type='checkbox' data-day='5'><span>Sat</span></label><label class='scheduler-day'><input type='checkbox' data-day='6'><span>Sun</span></label>
+        </div><div class='scheduler-actions' style='justify-content:flex-start'><button class='btn btn-ghost' onclick='schedulerSelectDays(127)'>Every day</button><button class='btn btn-ghost' onclick='schedulerSelectDays(31)'>Weekdays</button><button class='btn btn-ghost' onclick='schedulerSelectDays(96)'>Weekend</button></div></div>
+        <div class='scheduler-field'><label for='schedulerAction'>Action</label><select id='schedulerAction' class='scheduler-input' onchange='schedulerActionChanged()'><option value='force_dhw'>Force DHW workflow</option><option value='heatpump_on'>Heat pump on</option><option value='heatpump_off'>Heat pump off</option><option value='set_operation_mode'>Set operating mode</option><option value='set_dhw_target'>Set DHW target</option><option value='set_z1_request'>Set Zone 1 request</option><option value='set_quiet_mode'>Set quiet mode</option></select></div>
+        <div id='schedulerActionValueField' class='scheduler-field'><label for='schedulerActionValue'>Action value</label><div id='schedulerActionValueContainer'></div></div>
+        <div class='scheduler-field'><label for='schedulerConditionField'>Optional condition</label><select id='schedulerConditionField' class='scheduler-input' onchange='schedulerConditionChanged()'><option value='none'>No condition</option><option value='dhw_temperature'>DHW temperature</option><option value='outside_temperature'>Outside temperature</option><option value='room_temperature'>Zone 1 room temperature</option><option value='main_inlet_temperature'>Main inlet temperature</option><option value='main_outlet_temperature'>Main outlet temperature</option></select></div>
+        <div id='schedulerConditionControls' class='scheduler-field'><label>Comparison</label><div class='dashboard-control'><select id='schedulerConditionOperator' class='scheduler-input'><option value='<'>&lt;</option><option value='<='>&le;</option><option value='=='>=</option><option value='>='>&ge;</option><option value='>'>&gt;</option></select><input id='schedulerConditionValue' class='scheduler-input' type='number' min='-100' max='200' step='0.5' value='0'></div></div>
+        <div class='scheduler-field full'><div class='scheduler-form-note'>Force DHW uses the same protected workflow as WP Dashboard. Conditions are evaluated from the latest Panasonic values at the scheduled minute. If time or a required value is unavailable, nothing is sent.</div></div>
+      </div>
+    </div>
+    <div class='scheduler-editor-footer'><button class='btn btn-ghost' onclick='schedulerCloseEditor()'>Cancel</button><button id='schedulerSaveButton' class='btn btn-primary' onclick='schedulerSaveEditor()'>Save schedule</button></div>
+  </section>
+</div>
+)====";
+
+static const char schedulerJS[] FLASHPROG = R"====(
+<script>
+var schedulerData={entries:[],events:[]};
+var schedulerEditingId=0;
+var schedulerBusy=false;
+var schedulerRefreshPromise=null;
+var schedulerDays=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+var schedulerActionLabels={force_dhw:'Force DHW workflow',heatpump_on:'Heat pump on',heatpump_off:'Heat pump off',set_operation_mode:'Set operating mode',set_dhw_target:'Set DHW target',set_z1_request:'Set Zone 1 request',set_quiet_mode:'Set quiet mode'};
+var schedulerConditionLabels={none:'No condition',dhw_temperature:'DHW temperature',outside_temperature:'Outside temperature',room_temperature:'Zone 1 room temperature',main_inlet_temperature:'Main inlet temperature',main_outlet_temperature:'Main outlet temperature'};
+function schedulerEscape(value){return String(value===undefined?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function schedulerDayText(mask){var result=[];for(var i=0;i<7;i++)if(mask&(1<<i))result.push(schedulerDays[i]);return result.join(', ');}
+function schedulerPad(value){return String(value).padStart(2,'0');}
+function schedulerActionText(entry){var label=schedulerActionLabels[entry.action]||entry.action;if(entry.action==='set_operation_mode'){var modes=['Heat only','Cool only','Auto','DHW only','Heat + DHW','Cool + DHW','Auto + DHW'];return label+': '+(modes[entry.actionValue]||entry.actionValue);}if(entry.action==='set_quiet_mode')return label+': '+(Number(entry.actionValue)===0?'Off':'Level '+entry.actionValue);if(entry.action==='set_dhw_target'||entry.action==='set_z1_request')return label+': '+entry.actionValue+' °C';return label;}
+function schedulerConditionText(entry){if(entry.conditionField==='none')return 'Always';return (schedulerConditionLabels[entry.conditionField]||entry.conditionField)+' '+entry.conditionOperator+' '+entry.conditionValue+' °C';}
+function schedulerSetStatus(message,isError){var el=document.getElementById('schedulerCommandStatus');if(el){el.textContent=message||'';el.style.color=isError?'var(--red)':'var(--text-muted)';}}
+function schedulerSelectDays(mask){document.querySelectorAll('.scheduler-day input').forEach(function(input){input.checked=!!(mask&(1<<Number(input.dataset.day)));});}
+function schedulerRender(data){
+  schedulerData=data;
+  document.getElementById('schedulerLocalTime').textContent=data.localTime||'Time unavailable';
+  var timeStatus=document.getElementById('schedulerTimeStatus');timeStatus.textContent=data.timeValid?'Synchronized':'Unavailable - paused';timeStatus.className='scheduler-status-value '+(data.timeValid?'scheduler-sync-good':'scheduler-sync-bad');
+  document.getElementById('schedulerActiveCount').textContent=String(data.enabledCount)+' / '+String(data.count)+' ('+String(data.maxEntries)+' max)';
+  document.getElementById('schedulerPendingCount').textContent=String(data.pendingActions);
+  var last=(data.events&&data.events.length)?data.events[0]:null;document.getElementById('schedulerLastAction').textContent=last?(last.time+' · '+last.name+' -> '+last.result+' · '+last.detail):'No action since boot';
+  var globalToggle=document.getElementById('schedulerGlobalToggle');globalToggle.checked=!!data.enabled;globalToggle.disabled=schedulerBusy;document.getElementById('schedulerGlobalLabel').textContent=data.enabled?'Enabled':'Paused';
+  var rows=document.getElementById('schedulerRows');
+  if(!data.entries||!data.entries.length){rows.innerHTML="<tr><td colspan='7' class='scheduler-empty'>No schedules configured. Add the first one above.</td></tr>";}else{rows.innerHTML=data.entries.map(function(entry){return '<tr><td><label class="dashboard-toggle"><input type="checkbox" '+(entry.enabled?'checked ':'')+'onchange="schedulerToggleEntry('+entry.id+',this.checked)"><span class="dashboard-toggle-slider"></span></label></td><td class="scheduler-name">'+schedulerEscape(entry.name)+'</td><td>'+schedulerEscape(schedulerDayText(entry.days))+'</td><td class="scheduler-mono">'+schedulerPad(entry.hour)+':'+schedulerPad(entry.minute)+'</td><td>'+schedulerEscape(schedulerConditionText(entry))+'</td><td>'+schedulerEscape(schedulerActionText(entry))+'</td><td><div class="scheduler-actions"><button class="btn btn-ghost" onclick="schedulerRun('+entry.id+')">Run</button><button class="btn btn-ghost" onclick="schedulerOpenEditor('+entry.id+')">Edit</button><button class="btn btn-danger" onclick="schedulerDelete('+entry.id+')">Delete</button></div></td></tr>';}).join('');}
+  var events=document.getElementById('schedulerEvents');
+  if(!data.events||!data.events.length){events.innerHTML="<tr><td colspan='4' class='scheduler-empty'>No executions since boot.</td></tr>";}else{events.innerHTML=data.events.map(function(event){var resultClass=String(event.result).replace(/\s+/g,'-');return '<tr><td class="scheduler-mono">'+schedulerEscape(event.time)+'</td><td>'+schedulerEscape(event.name||('#'+event.id))+'</td><td class="scheduler-event-result '+schedulerEscape(resultClass)+'">'+schedulerEscape(event.result)+'</td><td>'+schedulerEscape(event.detail)+'</td></tr>';}).join('');}
+}
+function schedulerRefresh(){if(schedulerRefreshPromise)return schedulerRefreshPromise;schedulerRefreshPromise=fetch('/schedulerapi',{cache:'no-store'}).then(function(response){if(!response.ok)throw new Error('HTTP '+response.status);return response.json();}).then(function(data){schedulerRefreshPromise=null;schedulerRender(data);return data;}).catch(function(error){schedulerRefreshPromise=null;schedulerSetStatus('Refresh failed: '+error.message,true);throw error;});return schedulerRefreshPromise;}
+function schedulerCommand(name,value){if(schedulerBusy){schedulerSetStatus('Please wait for the current scheduler command.',false);return Promise.reject(new Error('busy'));}schedulerBusy=true;schedulerSetStatus('Saving ...',false);return fetch('/schedulercommand?'+encodeURIComponent(name)+'='+encodeURIComponent(value),{cache:'no-store'}).then(function(response){if(!response.ok)throw new Error('HTTP '+response.status);return response.text();}).then(function(message){if(/^ERROR:/m.test(message))throw new Error(message.replace(/^ERROR:\s*/,'').trim());schedulerSetStatus(message.replace(/^OK:\s*/,'').trim()||'Done',false);return schedulerRefresh();}).then(function(data){schedulerBusy=false;schedulerRender(data);return data;}).catch(function(error){schedulerBusy=false;if(error.message!=='busy')schedulerSetStatus('Command failed: '+error.message,true);throw error;});}
+function schedulerSetGlobal(enabled){schedulerCommand('enabled',enabled?1:0);}
+function schedulerFind(id){return (schedulerData.entries||[]).find(function(entry){return Number(entry.id)===Number(id);});}
+function schedulerToggleEntry(id,enabled){var entry=schedulerFind(id);if(!entry)return;var copy=Object.assign({},entry,{enabled:enabled});schedulerCommand('save',JSON.stringify(copy)).catch(function(){schedulerRefresh();});}
+function schedulerRun(id){schedulerCommand('run',id);}
+function schedulerDelete(id){var entry=schedulerFind(id);if(entry&&window.confirm('Delete schedule "'+entry.name+'"?'))schedulerCommand('delete',id);}
+function schedulerOpenEditor(id){
+  var entry=id?schedulerFind(id):null;schedulerEditingId=entry?entry.id:0;
+  document.getElementById('schedulerEditorTitle').textContent=entry?'Edit schedule':'Add schedule';
+  document.getElementById('schedulerName').value=entry?entry.name:'';document.getElementById('schedulerTime').value=entry?schedulerPad(entry.hour)+':'+schedulerPad(entry.minute):'06:00';document.getElementById('schedulerEntryEnabled').checked=entry?!!entry.enabled:true;
+  var mask=entry?Number(entry.days):31;document.querySelectorAll('.scheduler-day input').forEach(function(input){input.checked=!!(mask&(1<<Number(input.dataset.day)));});
+  document.getElementById('schedulerAction').value=entry?entry.action:'force_dhw';schedulerActionChanged(entry?entry.actionValue:0);
+  document.getElementById('schedulerConditionField').value=entry?entry.conditionField:'none';document.getElementById('schedulerConditionOperator').value=entry?entry.conditionOperator:'<';document.getElementById('schedulerConditionValue').value=entry?entry.conditionValue:0;schedulerConditionChanged();
+  document.getElementById('schedulerModal').classList.add('open');document.getElementById('schedulerName').focus();
+}
+function schedulerCloseEditor(){document.getElementById('schedulerModal').classList.remove('open');}
+function schedulerActionChanged(selectedValue){var action=document.getElementById('schedulerAction').value;var container=document.getElementById('schedulerActionValueContainer');var field=document.getElementById('schedulerActionValueField');field.style.visibility='visible';if(action==='set_operation_mode'){container.innerHTML='<select id="schedulerActionValue" class="scheduler-input"><option value="0">Heat only</option><option value="1">Cool only</option><option value="2">Auto</option><option value="3">DHW only</option><option value="4">Heat + DHW</option><option value="5">Cool + DHW</option><option value="6">Auto + DHW</option></select>';}else if(action==='set_quiet_mode'){container.innerHTML='<select id="schedulerActionValue" class="scheduler-input"><option value="0">Off</option><option value="1">Level 1</option><option value="2">Level 2</option><option value="3">Level 3</option></select>';}else if(action==='set_dhw_target'){container.innerHTML='<input id="schedulerActionValue" class="scheduler-input" type="number" min="40" max="75" step="1" value="45">';}else if(action==='set_z1_request'){container.innerHTML='<input id="schedulerActionValue" class="scheduler-input" type="number" min="-5" max="65" step="1" value="0">';}else{container.innerHTML='<input id="schedulerActionValue" type="hidden" value="0"><span class="dashboard-muted">No value required</span>';field.style.visibility='visible';}if(selectedValue!==undefined&&document.getElementById('schedulerActionValue'))document.getElementById('schedulerActionValue').value=String(selectedValue);}
+function schedulerConditionChanged(){var hasCondition=document.getElementById('schedulerConditionField').value!=='none';document.getElementById('schedulerConditionControls').style.visibility=hasCondition?'visible':'hidden';}
+function schedulerSaveEditor(){
+  var name=document.getElementById('schedulerName').value.trim();var time=document.getElementById('schedulerTime').value;if(!name){schedulerSetStatus('A schedule name is required.',true);return;}if(!time||time.indexOf(':')<0){schedulerSetStatus('A valid execution time is required.',true);return;}
+  var days=0;document.querySelectorAll('.scheduler-day input').forEach(function(input){if(input.checked)days|=(1<<Number(input.dataset.day));});if(!days){schedulerSetStatus('Select at least one weekday.',true);return;}
+  var parts=time.split(':');var hour=Number(parts[0]);var minute=Number(parts[1]);if(!Number.isInteger(hour)||hour<0||hour>23||!Number.isInteger(minute)||minute<0||minute>59){schedulerSetStatus('Time must be between 00:00 and 23:59.',true);return;}
+  var action=document.getElementById('schedulerAction').value;var actionValue=Number(document.getElementById('schedulerActionValue').value);var validActions=['force_dhw','heatpump_on','heatpump_off','set_operation_mode','set_dhw_target','set_z1_request','set_quiet_mode'];if(validActions.indexOf(action)<0||!Number.isFinite(actionValue)){schedulerSetStatus('Select a valid action.',true);return;}if(action==='set_operation_mode'&&(actionValue<0||actionValue>6)||action==='set_dhw_target'&&(actionValue<40||actionValue>75)||action==='set_z1_request'&&(actionValue<-5||actionValue>65)||action==='set_quiet_mode'&&(actionValue<0||actionValue>3)){schedulerSetStatus('Action value is outside its supported range.',true);return;}
+  var conditionField=document.getElementById('schedulerConditionField').value;var conditionValue=conditionField==='none'?0:Number(document.getElementById('schedulerConditionValue').value);var conditionOperator=conditionField==='none'?'<':document.getElementById('schedulerConditionOperator').value;var validConditions=['none','dhw_temperature','outside_temperature','room_temperature','main_inlet_temperature','main_outlet_temperature'];var validOperators=['<','<=','==','>=','>'];if(validConditions.indexOf(conditionField)<0||validOperators.indexOf(conditionOperator)<0||!Number.isFinite(conditionValue)||conditionValue<-100||conditionValue>200){schedulerSetStatus('Condition is outside its supported range.',true);return;}
+  var payload={id:schedulerEditingId,enabled:document.getElementById('schedulerEntryEnabled').checked,name:name,days:days,hour:hour,minute:minute,action:action,actionValue:actionValue,conditionField:conditionField,conditionOperator:conditionOperator,conditionValue:conditionValue};
+  schedulerCommand('save',JSON.stringify(payload)).then(function(){schedulerCloseEditor();});
+}
+document.addEventListener('keydown',function(event){if(event.key==='Escape')schedulerCloseEditor();});
+document.addEventListener('DOMContentLoaded',function(){schedulerRefresh();window.setInterval(schedulerRefresh,10000);});
+</script>
+)====";
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SETTINGS PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 static const char settingsJS[] FLASHPROG = R"====(
@@ -1889,6 +2076,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -2311,6 +2499,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>
@@ -2772,6 +2961,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
 <a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>

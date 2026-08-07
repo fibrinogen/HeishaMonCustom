@@ -96,6 +96,7 @@ void getWifiScanResults(int numSsid);
 int handleRoot(struct webserver_t *client, float readpercentage, int mqttReconnects, settingsStruct *heishamonSettings);
 int handleDashboard(struct webserver_t *client);
 int handleWpSettings(struct webserver_t *client);
+int handleScheduler(struct webserver_t *client);
 int handleJsonOutput(struct webserver_t *client, char* actData, char* actDataExtra, char* actOptData, settingsStruct *heishamonSettings, bool extraDataBlockAvailable);
 int handleFactoryReset(struct webserver_t *client);
 int handleReboot(struct webserver_t *client);

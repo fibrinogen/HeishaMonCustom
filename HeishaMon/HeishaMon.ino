@@ -43,6 +43,7 @@
 #include "webfunctions.h"
 #include "decode.h"
 #include "commands.h"
+#include "scheduler.h"
 #include "rules.h"
 #include "version.h"
 
@@ -148,6 +149,11 @@ DashboardWorkflowState dashboardWorkflow = {
   0
 };
 char dashboardWorkflowMessage[128] = "Ready";
+
+SchedulerManager schedulerManager;
+static bool schedulerReadTopic(uint8_t topic, float *value);
+static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType action,
+  int16_t value, char *detail, size_t detailSize);
 
 // log message to sprintf to
 #define LOG_MSG_SIZE 256
@@ -1216,6 +1222,175 @@ static int handleDashboardWorkflowStatus(struct webserver_t *client) {
   return 0;
 }
 
+static bool schedulerReadTopic(uint8_t topic, float *value) {
+  if (value == nullptr || topic >= NUMBER_OF_TOPICS || actData[0] == '\0') return false;
+  String topicValue = getDataValue(actData, topic);
+  if (topicValue.length() == 0) return false;
+  char *end = nullptr;
+  float parsed = strtof(topicValue.c_str(), &end);
+  if (end == topicValue.c_str() || *end != '\0' || !isfinite(parsed)) return false;
+  *value = parsed;
+  return true;
+}
+
+static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType action,
+    int16_t value, char *detail, size_t detailSize) {
+  if (heishamonSettings.listenonly) {
+    snprintf(detail, detailSize, "Listen-only mode");
+    return SCHEDULER_DISPATCH_FAILED;
+  }
+
+  float current = 0;
+  uint8_t stateTopic = 255;
+  int desired = value;
+  switch (action) {
+    case SCHEDULER_ACTION_HEATPUMP_ON: stateTopic = 0; desired = 1; break;
+    case SCHEDULER_ACTION_HEATPUMP_OFF: stateTopic = 0; desired = 0; break;
+    case SCHEDULER_ACTION_SET_OPERATION_MODE: stateTopic = 4; break;
+    case SCHEDULER_ACTION_SET_DHW_TARGET: stateTopic = 9; break;
+    case SCHEDULER_ACTION_SET_Z1_REQUEST: stateTopic = 27; break;
+    case SCHEDULER_ACTION_SET_QUIET_MODE: stateTopic = 18; break;
+    default: break;
+  }
+
+  if (stateTopic != 255 && schedulerReadTopic(stateTopic, &current)) {
+    int normalizedCurrent = (int)lroundf(current);
+    if (action == SCHEDULER_ACTION_SET_OPERATION_MODE) {
+      if (normalizedCurrent == 7) normalizedCurrent = 2;
+      if (normalizedCurrent == 8) normalizedCurrent = 6;
+    }
+    if (normalizedCurrent == desired) {
+      snprintf(detail, detailSize, "%s already has requested value %d",
+        SchedulerManager::actionName(action), desired);
+      return SCHEDULER_DISPATCH_NO_CHANGE;
+    }
+  }
+
+  if (action == SCHEDULER_ACTION_FORCE_DHW) {
+    if (dashboardWorkflow.type != DASHBOARD_WORKFLOW_NONE) {
+      snprintf(detail, detailSize, "Dashboard workflow is busy");
+      return SCHEDULER_DISPATCH_BUSY;
+    }
+    char workflowResponse[128] = {0};
+    if (!dashboardWorkflowStart(DASHBOARD_WORKFLOW_DHW, workflowResponse, sizeof(workflowResponse))) {
+      strlcpy(detail, workflowResponse, detailSize);
+      return SCHEDULER_DISPATCH_FAILED;
+    }
+    strlcpy(detail, workflowResponse, detailSize);
+    return SCHEDULER_DISPATCH_EXECUTED;
+  }
+
+  if (dashboardWorkflow.type != DASHBOARD_WORKFLOW_NONE) {
+    snprintf(detail, detailSize, "Dashboard workflow is busy");
+    return SCHEDULER_DISPATCH_BUSY;
+  }
+
+  unsigned char command[256] = {0};
+  char commandLog[256] = {0};
+  char valueString[16];
+  snprintf(valueString, sizeof(valueString), "%d", desired);
+  unsigned int length = 0;
+  switch (action) {
+    case SCHEDULER_ACTION_HEATPUMP_ON:
+    case SCHEDULER_ACTION_HEATPUMP_OFF:
+      length = set_heatpump_state(valueString, command, commandLog); break;
+    case SCHEDULER_ACTION_SET_OPERATION_MODE:
+      length = set_operation_mode(valueString, command, commandLog); break;
+    case SCHEDULER_ACTION_SET_DHW_TARGET:
+      length = set_DHW_temp(valueString, command, commandLog); break;
+    case SCHEDULER_ACTION_SET_Z1_REQUEST:
+      length = set_z1_heat_request_temperature(valueString, command, commandLog); break;
+    case SCHEDULER_ACTION_SET_QUIET_MODE:
+      length = set_quiet_mode(valueString, command, commandLog); break;
+    default:
+      snprintf(detail, detailSize, "Unsupported action");
+      return SCHEDULER_DISPATCH_FAILED;
+  }
+
+  if (length == 0 || !send_command(command, length)) {
+    snprintf(detail, detailSize, "Panasonic command queue rejected action");
+    return SCHEDULER_DISPATCH_FAILED;
+  }
+  strlcpy(detail, commandLog, detailSize);
+  return SCHEDULER_DISPATCH_EXECUTED;
+}
+
+static int handleSchedulerStatus(struct webserver_t *client) {
+  if (client->content != 0) return 0;
+
+  JsonDocument document;
+  schedulerManager.toJson(document);
+  size_t length = measureJson(document);
+  char *response = (char *)malloc(length + 1);
+  if (response == nullptr) {
+    webserver_send(client, 503, (char *)"text/plain", 20);
+    webserver_send_content_P(client, PSTR("Scheduler unavailable"), 20);
+    return 0;
+  }
+  serializeJson(document, response, length + 1);
+  client->userdata = response;
+  webserver_send(client, 200, (char *)"application/json", length);
+  webserver_send_content(client, response, length);
+  return 0;
+}
+
+static void appendSchedulerResponse(struct webserver_t *client, const char *message) {
+  size_t oldLength = client->userdata == nullptr ? 0 : strlen((char *)client->userdata);
+  size_t addLength = strlen(message);
+  char *response = (char *)realloc(client->userdata, oldLength + addLength + 2);
+  if (response == nullptr) {
+    loggingSerial.printf(PSTR("Out of memory %s:#%d\n"), __FUNCTION__, __LINE__);
+    ESP.restart();
+    exit(-1);
+  }
+  client->userdata = response;
+  memcpy(response + oldLength, message, addLength);
+  response[oldLength + addLength] = '\n';
+  response[oldLength + addLength + 1] = '\0';
+}
+
+static void handleSchedulerArgument(struct webserver_t *client, struct arguments_t *args) {
+  char name[24] = {0};
+  snprintf(name, sizeof(name), "%s", (char *)args->name);
+  char value[args->len + 1];
+  snprintf(value, sizeof(value), "%.*s", args->len, args->value);
+  char response[160] = {0};
+  bool accepted = false;
+
+  if (strcmp(name, "save") == 0) {
+    JsonDocument document;
+    DeserializationError error = deserializeJson(document, value);
+    if (error || !document.is<JsonObject>()) {
+      snprintf(response, sizeof(response), "Invalid scheduler JSON");
+    } else {
+      accepted = schedulerManager.upsert(document.as<JsonObjectConst>(), response, sizeof(response));
+    }
+  } else if (strcmp(name, "delete") == 0 || strcmp(name, "run") == 0) {
+    char *end = nullptr;
+    long id = strtol(value, &end, 10);
+    if (end == value || *end != '\0' || id < 1 || id > 255) {
+      snprintf(response, sizeof(response), "Invalid schedule ID");
+    } else if (strcmp(name, "delete") == 0) {
+      accepted = schedulerManager.remove((uint8_t)id, response, sizeof(response));
+    } else {
+      accepted = schedulerManager.runNow((uint8_t)id, response, sizeof(response));
+    }
+  } else if (strcmp(name, "enabled") == 0) {
+    if (strcmp(value, "0") != 0 && strcmp(value, "1") != 0) {
+      snprintf(response, sizeof(response), "Scheduler enabled must be 0 or 1");
+    } else {
+      accepted = schedulerManager.setEnabled(strcmp(value, "1") == 0, response, sizeof(response));
+    }
+  } else {
+    snprintf(response, sizeof(response), "Unknown scheduler command");
+  }
+
+  char result[192];
+  snprintf(result, sizeof(result), "%s: %s", accepted ? "OK" : "ERROR", response);
+  appendSchedulerResponse(client, result);
+  log_message(result);
+}
+
 static int handleWpSettingsConfigStatus(struct webserver_t *client) {
   if (client->content == 0) {
     char response[128];
@@ -1385,6 +1560,19 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
           client->route = 11;
         } else if (strcmp_P((char *)dat, PSTR("/wpsettingsconfig")) == 0) {
           client->route = 16;
+        } else if (strcmp_P((char *)dat, PSTR("/scheduler")) == 0) {
+          client->route = 12;
+        } else if (strcmp_P((char *)dat, PSTR("/schedulerapi")) == 0) {
+          client->route = 13;
+        } else if (strcmp_P((char *)dat, PSTR("/schedulercommand")) == 0) {
+          client->userdata = malloc(1);
+          if (client->userdata == nullptr) {
+            loggingSerial.printf(PSTR("Out of memory %s:#%d\n"), __FUNCTION__, __LINE__);
+            ESP.restart();
+            exit(-1);
+          }
+          ((char *)client->userdata)[0] = '\0';
+          client->route = 14;
         } else if (strcmp_P((char *)dat, PSTR("/json")) == 0) {
           client->route = 20;
         } else if (strcmp_P((char *)dat, PSTR("/reboot")) == 0) {
@@ -1490,6 +1678,10 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
     case WEBSERVER_CLIENT_ARGS: {
         struct arguments_t *args = (struct arguments_t *)dat;
         switch (client->route) {
+          case 14: {
+              handleSchedulerArgument(client, args);
+              return 0;
+            } break;
           case 60: {
               sprintf_P(log_msg, PSTR("Dallas alias changed address %s to alias %s"), args->name, args->value);
               log_message(log_msg);
@@ -1654,6 +1846,21 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
             } break;
           case 11: {
               return handleWpSettings(client);
+            } break;
+          case 12: {
+              return handleScheduler(client);
+            } break;
+          case 13: {
+              return handleSchedulerStatus(client);
+            } break;
+          case 14: {
+              if (client->content == 0) {
+                char *response = (char *)client->userdata;
+                size_t length = response == nullptr ? 0 : strlen(response);
+                webserver_send(client, 200, (char *)"text/plain", length);
+                if (length > 0) webserver_send_content(client, response, length);
+              }
+              return 0;
             } break;
           case 15: {
               return handleDashboardWorkflowStatus(client);
@@ -1856,6 +2063,8 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
       } break;
     case WEBSERVER_CLIENT_CLOSE: {
         switch (client->route) {
+          case 13:
+          case 14:
           case 100: {
               if (client->userdata != NULL) {
                 free(client->userdata);
@@ -2221,6 +2430,9 @@ void setup() {
   loggingSerial.println(F("Loading config from flash..."));
   loadSettings(&heishamonSettings);
 
+  loggingSerial.println(F("Loading local scheduler..."));
+  schedulerManager.begin(schedulerReadTopic, schedulerDispatchAction, log_message);
+
   loggingSerial.println(F("Setup wifi..."));
   setupWifi(&heishamonSettings);
   lastWifiRetryTimer = millis();
@@ -2381,6 +2593,7 @@ void loop() {
 
   readHeatpump();
   processDashboardWorkflow();
+  schedulerManager.loop();
 
 #ifdef ESP32
   if (heishamonSettings.proxy) readProxy();

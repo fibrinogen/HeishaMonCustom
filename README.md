@@ -37,6 +37,33 @@ A json output of all received data (heatpump and 1wire) is available at the url 
 
 Within the 'integrations' folder you can find examples how to connect your automation platform to the HeishaMon.
 
+# Local Scheduler (ESP32-S3)
+
+The ESP32-S3 web interface contains a **Scheduler** page for local, conditional heat-pump automation. It runs on HeishaMon itself and does not require MQTT, Node-RED, Home Assistant, or Internet connectivity after a valid local time has been obtained.
+
+Open `http://heishamon.local/scheduler` (or use the device IP), select **Add schedule**, choose weekdays and a time, then select an optional temperature condition and an action. Existing schedules can be enabled, edited, deleted, or run manually for testing. The page also shows the ESP's local time, synchronization state, queued actions, and the ten most recent execution results since boot.
+
+Version 1 supports these actions:
+
+- protected Force DHW workflow
+- heat pump on or off
+- operating mode
+- DHW target temperature
+- Zone 1 heat request / curve shift
+- quiet mode level
+
+Conditions can compare the current DHW, outside, Zone 1 room, main inlet, or main outlet temperature using `<`, `<=`, `==`, `>=`, or `>`. The latest already-received Panasonic value is used; the Scheduler does not initiate additional polling.
+
+Up to 16 schedules are stored in the versioned LittleFS file `/scheduler.json`. Runtime information, including the execution log and last-executed minute, remains in RAM. A schedule executes at most once in its configured local minute. Invalid time, unavailable condition data, invalid entries, or a disabled Scheduler result in no Panasonic command.
+
+The lightweight API follows the existing HeishaMon query-command convention:
+
+- `GET /schedulerapi` returns status, entries, and the in-memory event log as JSON.
+- `GET /schedulercommand?save=<url-encoded-json>` creates or updates an entry.
+- `GET /schedulercommand?delete=<id>` deletes an entry.
+- `GET /schedulercommand?run=<id>` evaluates and queues an entry immediately.
+- `GET /schedulercommand?enabled=0|1` pauses or enables the complete Scheduler.
+
 # Rules functionality
 The rules functionality allows you to control the heatpump from within the HeishaMon itself. Which makes it much more reliable then having to deal with external domotica over WiFi. When posting a new ruleset, it is immidiatly validated and when valid used. When a new ruleset is invalid it will be ignored and the old ruleset will be loaded again. You can check the console for feedback on this. If somehow a new valid ruleset crashes the HeishaMon, it will be automatically disabled the next reboot, allowing you to make changes. This prevents the HeishaMon getting into a boot loop.
 
@@ -329,6 +356,15 @@ boards: \
 esp8266 by esp8266 community version 3.0.2 [Arduino](https://github.com/esp8266/Arduino/releases/tag/3.0.2)
 
 All the [libs we use](LIBSUSED.md) necessary for compiling.
+
+For the large ESP32-S3 board, PlatformIO resolves the pinned framework and libraries from `platformio.ini`:
+
+```bash
+cd /path/to/HeishaMon
+pio run -e esp32s3
+```
+
+The OTA image is generated as `.pio/build/esp32s3/firmware.bin` and the complete factory image as `.pio/build/esp32s3/firmware.factory.bin`.
 
 
 ## MQTT topics
