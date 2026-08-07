@@ -37,6 +37,9 @@ struct settingsStruct {
   uint16_t updateAllTime = 300; // how often all data is resend to mqtt
   uint16_t updataAllDallasTime = 300; //how often all 1wire data is resent to mqtt
   uint16_t timezone = 0;
+  int16_t wpHeatMin = 20; //minimum direct heat water setpoint used by the web UI
+  int16_t wpHeatMax = 65; //maximum direct heat water setpoint used by the web UI
+  int16_t wpDhwBlockAbove = 75; //block dashboard Force DHW above this tank temperature
 
   #define PASSWORD_LENGTH 65
 
@@ -92,6 +95,7 @@ int8_t webserver_cb(struct webserver_t *client, void *data);
 void getWifiScanResults(int numSsid);
 int handleRoot(struct webserver_t *client, float readpercentage, int mqttReconnects, settingsStruct *heishamonSettings);
 int handleDashboard(struct webserver_t *client);
+int handleWpSettings(struct webserver_t *client);
 int handleJsonOutput(struct webserver_t *client, char* actData, char* actDataExtra, char* actOptData, settingsStruct *heishamonSettings, bool extraDataBlockAvailable);
 int handleFactoryReset(struct webserver_t *client);
 int handleReboot(struct webserver_t *client);

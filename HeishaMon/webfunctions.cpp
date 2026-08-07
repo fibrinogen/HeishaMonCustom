@@ -243,6 +243,15 @@ void loadSettings(settingsStruct *heishamonSettings) {
           if ( jsonDoc[F("mqtt_password")] ) strlcpy(heishamonSettings->mqtt_password, jsonDoc[F("mqtt_password")], sizeof(heishamonSettings->mqtt_password));
           if ( jsonDoc[F("ntp_servers")] ) strlcpy(heishamonSettings->ntp_servers, jsonDoc[F("ntp_servers")], sizeof(heishamonSettings->ntp_servers));
           if ( jsonDoc[F("timezone")]) heishamonSettings->timezone = jsonDoc[F("timezone")];
+          if ( jsonDoc[F("wp_heat_min")]) heishamonSettings->wpHeatMin = jsonDoc[F("wp_heat_min")];
+          if ( jsonDoc[F("wp_heat_max")]) heishamonSettings->wpHeatMax = jsonDoc[F("wp_heat_max")];
+          if ( jsonDoc[F("wp_dhw_block_above")]) heishamonSettings->wpDhwBlockAbove = jsonDoc[F("wp_dhw_block_above")];
+          if (heishamonSettings->wpHeatMin < 20 || heishamonSettings->wpHeatMin > 100) heishamonSettings->wpHeatMin = 20;
+          if (heishamonSettings->wpHeatMax < heishamonSettings->wpHeatMin || heishamonSettings->wpHeatMax > 100) {
+            heishamonSettings->wpHeatMin = 20;
+            heishamonSettings->wpHeatMax = 65;
+          }
+          if (heishamonSettings->wpDhwBlockAbove < 40 || heishamonSettings->wpDhwBlockAbove > 100) heishamonSettings->wpDhwBlockAbove = 75;
 #ifdef TLS_SUPPORT
           heishamonSettings->mqtt_tls_enabled = ( jsonDoc[F("mqtt_tls_enabled")] == "enabled" ) ? true : false; 
 #endif
@@ -491,6 +500,9 @@ void settingsToJson(JsonDocument &jsonDoc, settingsStruct *heishamonSettings) {
   }
 #endif 
   jsonDoc[F("waitTime")] = heishamonSettings->waitTime;
+  jsonDoc[F("wp_heat_min")] = heishamonSettings->wpHeatMin;
+  jsonDoc[F("wp_heat_max")] = heishamonSettings->wpHeatMax;
+  jsonDoc[F("wp_dhw_block_above")] = heishamonSettings->wpDhwBlockAbove;
   jsonDoc[F("waitDallasTime")] = heishamonSettings->waitDallasTime;
   jsonDoc[F("dallasResolution")] = heishamonSettings->dallasResolution;
   jsonDoc[F("updateAllTime")] = heishamonSettings->updateAllTime;
@@ -1022,6 +1034,25 @@ int handleDashboard(struct webserver_t *client) {
     case 1: {
         webserver_send_content_P(client, menuJS, strlen_P(menuJS));
         webserver_send_content_P(client, dashboardJS, strlen_P(dashboardJS));
+        webserver_send_content_P(client, websocketJS, strlen_P(websocketJS));
+        webserver_send_content_P(client, webFooter, strlen_P(webFooter));
+      } break;
+  }
+  return 0;
+}
+
+int handleWpSettings(struct webserver_t *client) {
+  switch (client->content) {
+    case 0: {
+        webserver_send(client, 200, (char *)"text/html", 0);
+        webserver_send_content_P(client, webHeader, strlen_P(webHeader));
+        webserver_send_content_P(client, webCSS, strlen_P(webCSS));
+        webserver_send_content_P(client, webBodyStart, strlen_P(webBodyStart));
+        webserver_send_content_P(client, webBodyWpSettings, strlen_P(webBodyWpSettings));
+      } break;
+    case 1: {
+        webserver_send_content_P(client, menuJS, strlen_P(menuJS));
+        webserver_send_content_P(client, wpSettingsJS, strlen_P(wpSettingsJS));
         webserver_send_content_P(client, websocketJS, strlen_P(websocketJS));
         webserver_send_content_P(client, webFooter, strlen_P(webFooter));
       } break;
