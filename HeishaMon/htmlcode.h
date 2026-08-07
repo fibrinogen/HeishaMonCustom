@@ -878,27 +878,35 @@ if (document.readyState === 'loading') {
 static const char websocketJS[] FLASHPROG = R"====(
 <script>
 var bConnected=false;
-var inactivityTimeout=5000;
+var inactivityTimeout=30000;
 var lastActivityTime=Date.now();
+var websocketMonitorTimer=null;
+var websocketReconnectTimer=null;
+var websocketShuttingDown=false;
 function monitorWebSocket(){
-  setInterval(function(){
-    if(Date.now()-lastActivityTime>inactivityTimeout&&oWebsocket.readyState===WebSocket.OPEN){
+  if(websocketMonitorTimer)clearInterval(websocketMonitorTimer);
+  websocketMonitorTimer=setInterval(function(){
+    if(typeof oWebsocket!=='undefined'&&Date.now()-lastActivityTime>inactivityTimeout&&oWebsocket.readyState===WebSocket.OPEN){
       console.log('Inactivity detected, reconnecting...');
       oWebsocket.close();
     }
   },inactivityTimeout);
 }
 function attemptReconnect(){
-  if(!bConnected){console.log('Reconnecting...');startWebsockets();}
+  if(websocketShuttingDown||bConnected||websocketReconnectTimer)return;
+  websocketReconnectTimer=setTimeout(function(){websocketReconnectTimer=null;if(!websocketShuttingDown&&!bConnected){console.log('Reconnecting...');startWebsockets();}},1000);
 }
 function startWebsockets(){
+  if(websocketShuttingDown)return;
+  if(typeof oWebsocket!=='undefined'&&(oWebsocket.readyState===WebSocket.OPEN||oWebsocket.readyState===WebSocket.CONNECTING))return;
+  lastActivityTime=Date.now();
   if(typeof MozWebSocket!='undefined'){
     oWebsocket=new MozWebSocket('ws://'+location.host);
   } else if(typeof WebSocket!='undefined'){
     oWebsocket=new WebSocket('ws://'+location.host+'/ws');
   }
   if(oWebsocket){
-    oWebsocket.onopen=function(){bConnected=true;};
+    oWebsocket.onopen=function(){bConnected=true;lastActivityTime=Date.now();};
     oWebsocket.onclose=function(){bConnected=false;attemptReconnect();};
     oWebsocket.onerror=function(e){console.log('WS error:',e);};
     oWebsocket.onmessage=function(evt){
@@ -947,6 +955,19 @@ function startWebsockets(){
     };
   }
 }
+function closeWebsocketForNavigation(){
+  websocketShuttingDown=true;
+  bConnected=false;
+  if(websocketMonitorTimer){clearInterval(websocketMonitorTimer);websocketMonitorTimer=null;}
+  if(websocketReconnectTimer){clearTimeout(websocketReconnectTimer);websocketReconnectTimer=null;}
+  if(typeof oWebsocket!=='undefined'){
+    oWebsocket.onclose=null;
+    oWebsocket.onerror=null;
+    if(oWebsocket.readyState===WebSocket.OPEN||oWebsocket.readyState===WebSocket.CONNECTING)oWebsocket.close();
+  }
+}
+window.addEventListener('pagehide',closeWebsocketForNavigation);
+window.addEventListener('beforeunload',closeWebsocketForNavigation);
 function updStat(id,val){
   var el=document.getElementById(id);
   if(el){
@@ -1485,7 +1506,7 @@ document.addEventListener('DOMContentLoaded',function(){
         <div class='dashboard-row'><span>Fan 1</span><span class='dashboard-value'><span id='TOP62-Value'>--</span> rpm</span><span id='TOP62-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Internal heater</span><span id='TOP60-Description' class='dashboard-value'>--</span><span id='TOP60-Value' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Outside temperature</span><span class='dashboard-value'><span id='TOP14-Value'>--</span> &deg;C</span><span id='TOP14-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Error</span><span id='TOP44-Description' class='dashboard-value'>--</span><span id='TOP44-Value' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Error</span><span id='TOP44-Value' class='dashboard-value'>--</span><span id='TOP44-Description' class='dashboard-hidden'></span></div>
       </div>
     </section>
 
@@ -1548,6 +1569,8 @@ var dashboardValues={};
 var dashboardWorkflow={type:'none',stage:'idle',previousMode:-1,message:'Loading workflow status ...'};
 var dashboardWpConfig={heatMin:20,heatMax:65,dhwBlockAbove:75};
 var dashboardRefreshTimer=null;
+var dashboardRefreshPromise=null;
+var dashboardCommandBusy=false;
 function dashboardItems(data){
   return [].concat(data.heatpump||[],data['heatpump extra']||[],data['heatpump optional']||[]);
 }
@@ -1560,22 +1583,21 @@ function renderDashboard(data){
   syncDashboardControls();
 }
 function refreshDashboard(){
-  fetch('/json',{cache:'no-store'}).then(function(response){
+  if(dashboardRefreshPromise)return dashboardRefreshPromise;
+  dashboardRefreshPromise=fetch('/json',{cache:'no-store'}).then(function(response){
     if(!response.ok)throw new Error('HTTP '+response.status);
     return response.json();
-  }).then(renderDashboard).catch(function(error){
+  }).then(renderDashboard).then(function(){return refreshDashboardWorkflow();}).then(function(){return fetch('/wpsettingsconfig',{cache:'no-store'});}).then(function(response){
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    return response.json();
+  }).then(function(data){dashboardWpConfig=data;dashboardRefreshPromise=null;syncDashboardControls();}).catch(function(error){
+    dashboardRefreshPromise=null;
     setDashboardStatus('Update failed: '+error.message,true);
   });
-  refreshDashboardWorkflow();
-  fetch('/wpsettingsconfig',{cache:'no-store'}).then(function(response){
-    if(!response.ok)throw new Error('HTTP '+response.status);
-    return response.json();
-  }).then(function(data){dashboardWpConfig=data;}).catch(function(error){
-    setDashboardStatus('WP settings failed: '+error.message,true);
-  });
+  return dashboardRefreshPromise;
 }
 function refreshDashboardWorkflow(){
-  fetch('/dashboardworkflow',{cache:'no-store'}).then(function(response){
+  return fetch('/dashboardworkflow',{cache:'no-store'}).then(function(response){
     if(!response.ok)throw new Error('HTTP '+response.status);
     return response.json();
   }).then(function(data){
@@ -1598,6 +1620,7 @@ function setToggle(id,topic){
   if(toggle)toggle.checked=Number(dashboardValues[topic])!==0;
 }
 function syncDashboardControls(){
+  if(!dashboardCommandBusy)document.querySelectorAll('.dashboard-page button,.dashboard-page input').forEach(function(control){control.disabled=false;});
   setToggle('heatpumpToggle','TOP0');
   var busy=dashboardWorkflow.type!=='none';
   var startDhw=document.getElementById('startDhwButton');
@@ -1614,20 +1637,31 @@ function syncDashboardControls(){
   if(workflowMessage)setDashboardStatus(workflowMessage,false);
   setGauge('TOP1',35);
   setGauge('TOP8',120);
+  if(dashboardCommandBusy)document.querySelectorAll('.dashboard-page button,.dashboard-page input').forEach(function(control){control.disabled=true;});
 }
 function setDashboardStatus(message,isError){
   var status=document.getElementById('dashboardCommandStatus');
   if(status){status.textContent=message||'';status.style.color=isError?'var(--red)':'var(--text-muted)';}
 }
 function sendDashboardCommand(command,value){
+  if(dashboardCommandBusy){setDashboardStatus('Please wait for the current command to finish',false);return Promise.resolve(false);}
+  dashboardCommandBusy=true;
+  syncDashboardControls();
   setDashboardStatus('Sending '+command+' ...',false);
   return fetch('/command?'+encodeURIComponent(command)+'='+encodeURIComponent(value),{cache:'no-store'}).then(function(response){
     if(!response.ok)throw new Error('HTTP '+response.status);
     return response.text();
+  }).then(function(message){
+    setDashboardStatus(message.trim()||'Command sent',false);
+    return new Promise(function(resolve){window.setTimeout(resolve,1400);});
   }).then(function(){
-    setDashboardStatus('Command sent',false);
-    window.setTimeout(refreshDashboard,1400);
+    dashboardCommandBusy=false;
+    syncDashboardControls();
+    refreshDashboard();
+    return true;
   }).catch(function(error){
+    dashboardCommandBusy=false;
+    syncDashboardControls();
     setDashboardStatus('Command failed: '+error.message,true);
     throw error;
   });
@@ -1637,16 +1671,7 @@ function setDashboardToggle(toggle,command){
   sendDashboardCommand(command,toggle.checked?1:0).catch(function(){toggle.checked=!toggle.checked;}).then(function(){toggle.disabled=false;});
 }
 function sendDashboardWorkflow(action){
-  setDashboardStatus('Sending workflow request ...',false);
-  return fetch('/command?DashboardWorkflow='+encodeURIComponent(action),{cache:'no-store'}).then(function(response){
-    if(!response.ok)throw new Error('HTTP '+response.status);
-    return response.text();
-  }).then(function(message){
-    setDashboardStatus(message.trim(),false);
-    window.setTimeout(refreshDashboard,400);
-  }).catch(function(error){
-    setDashboardStatus('Workflow request failed: '+error.message,true);
-  });
+  return sendDashboardCommand('DashboardWorkflow',action);
 }
 function startDashboardWorkflow(type){
   var label=type==='dhw'?'forced DHW':'forced sterilization';
@@ -1700,12 +1725,12 @@ document.addEventListener('DOMContentLoaded',function(){
     <section class='dashboard-column'>
       <h2 class='dashboard-title'>HEAT PUMP</h2>
       <div class='dashboard-section'>
-        <div class='dashboard-row'><span>Current error</span><span id='TOP44-Description' class='dashboard-value'>--</span><span id='TOP44-Value' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Current error</span><span id='TOP44-Value' class='dashboard-value'>--</span><span id='TOP44-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Reset current error</span><button class='btn btn-danger wp-settings-button' onclick='wpResetError()'>RESET</button></div>
         <div class='dashboard-section-title'>Water pump</div>
         <div class='dashboard-row'><input id='wpMaxPumpSlider' class='wp-settings-slider' type='range' min='0' max='100' step='1' oninput="updCell('wpMaxPumpDraft',this.value+' %')"><button class='btn btn-primary wp-settings-button' onclick='wpSetMaxPump()'>SET</button></div>
         <div class='dashboard-row'><span>Selected max flow</span><span id='wpMaxPumpDraft' class='dashboard-value'>--</span></div>
-        <div class='dashboard-row'><span>Current max flow</span><span class='dashboard-value'><span id='TOP95-Value'>--</span> %</span><span id='TOP95-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Current max flow</span><span id='wpMaxPumpCurrent' class='dashboard-value'>--</span><span id='TOP95-Value' class='dashboard-hidden'></span><span id='TOP95-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Service mode (100%)</span><div class='dashboard-workflow-actions'><button class='btn btn-ghost' onclick='wpSetServicePump(1)'>Start</button><button class='btn btn-danger' onclick='wpSetServicePump(0)'>Stop</button></div></div>
         <div class='dashboard-section-title'>Backup heater</div>
         <div class='dashboard-row'><span>Start delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetHeaterStartDelta','TOP97',-1,-10,-2)">&#8964;</button><span class='dashboard-value'><span id='TOP97-Value'>--</span> &deg;C</span><span id='TOP97-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetHeaterStartDelta','TOP97',1,-10,-2)">&#8963;</button></div></div>
@@ -1764,15 +1789,20 @@ static const char wpSettingsJS[] FLASHPROG = R"====(
 var wpValues={};
 var wpConfig={heatMin:20,heatMax:65,dhwBlockAbove:75};
 var wpWorkflow={type:'none',stage:'idle',message:'Loading ...'};
+var wpRefreshPromise=null;
+var wpCommandBusy=false;
 function wpItems(data){return [].concat(data.heatpump||[],data['heatpump extra']||[],data['heatpump optional']||[]);}
 function wpStatus(message,isError){var el=document.getElementById('wpSettingsStatus');if(el){el.textContent=message||'';el.style.color=isError?'var(--red)':'var(--text-muted)';}}
 function wpSetSelect(id,topic){var el=document.getElementById(id);if(el&&document.activeElement!==el&&wpValues[topic]!==undefined)el.value=String(wpValues[topic]);}
+function wpPumpPercent(rawValue){return Math.max(0,Math.min(100,Math.round((Number(rawValue)-64)/(254-64)*100)));}
+function wpPumpRaw(percentValue){return Math.round(Number(percentValue)/100*(254-64)+64);}
 function wpSync(){
+  if(!wpCommandBusy)document.querySelectorAll('.wp-settings-page button,.wp-settings-page select,.wp-settings-page input').forEach(function(control){control.disabled=false;});
   var schedule=document.getElementById('wpScheduleToggle');if(schedule)schedule.checked=Number(wpValues.TOP13)!==0;
   var operationMode=Number(wpValues.TOP4);if(operationMode===7)operationMode=2;if(operationMode===8)operationMode=6;
   var operationSelect=document.getElementById('wpOperationMode');if(operationSelect&&document.activeElement!==operationSelect&&!isNaN(operationMode))operationSelect.value=String(operationMode);
   wpSetSelect('wpQuietMode','TOP18');wpSetSelect('wpZones','TOP94');wpSetSelect('wpPowerfulMode','TOP17');
-  var slider=document.getElementById('wpMaxPumpSlider');if(slider&&document.activeElement!==slider&&!isNaN(Number(wpValues.TOP95))){slider.value=String(wpValues.TOP95);updCell('wpMaxPumpDraft',String(wpValues.TOP95)+' %');}
+  var slider=document.getElementById('wpMaxPumpSlider');if(slider&&document.activeElement!==slider&&!isNaN(Number(wpValues.TOP95))){var pumpPercent=wpPumpPercent(wpValues.TOP95);slider.value=String(pumpPercent);updCell('wpMaxPumpDraft',String(pumpPercent)+' %');updCell('wpMaxPumpCurrent',String(pumpPercent)+' %');}
   var buffer=document.getElementById('wpBufferDeltaRow');if(buffer){var bufferDisabled=Number(wpValues.TOP99)===0;buffer.style.opacity=bufferDisabled?'.45':'1';buffer.querySelectorAll('button').forEach(function(button){button.disabled=bufferDisabled;});}
   updCell('wpHeatMinValue',String(wpConfig.heatMin));updCell('wpHeatMaxValue',String(wpConfig.heatMax));updCell('wpDhwBlockValue',String(wpConfig.dhwBlockAbove));
   var busy=wpWorkflow.type!=='none';
@@ -1781,21 +1811,22 @@ function wpSync(){
   document.getElementById('wpStartSterilization').disabled=busy||Number(wpValues.TOP69)!==0;
   document.getElementById('wpCancelSterilization').disabled=wpWorkflow.type!=='sterilization';
   if(wpWorkflow.message)wpStatus(wpWorkflow.message,false);
+  if(wpCommandBusy)document.querySelectorAll('.wp-settings-page button,.wp-settings-page select,.wp-settings-page input').forEach(function(control){control.disabled=true;});
 }
 function wpRefresh(){
-  fetch('/json',{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(data){wpItems(data).forEach(function(item){wpValues[item.Topic]=item.Value;updCell(item.Topic+'-Value',String(item.Value));updCell(item.Topic+'-Description',String(item.Description));});wpSync();}).catch(function(e){wpStatus('Update failed: '+e.message,true);});
-  fetch('/wpsettingsconfig',{cache:'no-store'}).then(function(r){return r.json();}).then(function(data){wpConfig=data;wpSync();}).catch(function(e){wpStatus('Settings failed: '+e.message,true);});
-  fetch('/dashboardworkflow',{cache:'no-store'}).then(function(r){return r.json();}).then(function(data){wpWorkflow=data;wpSync();}).catch(function(e){wpStatus('Workflow status failed: '+e.message,true);});
+  if(wpRefreshPromise)return wpRefreshPromise;
+  wpRefreshPromise=fetch('/json',{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(data){wpItems(data).forEach(function(item){wpValues[item.Topic]=item.Value;updCell(item.Topic+'-Value',String(item.Value));updCell(item.Topic+'-Description',String(item.Description));});return fetch('/wpsettingsconfig',{cache:'no-store'});}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(data){wpConfig=data;return fetch('/dashboardworkflow',{cache:'no-store'});}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(data){wpWorkflow=data;wpRefreshPromise=null;wpSync();}).catch(function(e){wpRefreshPromise=null;wpStatus('Update failed: '+e.message,true);});
+  return wpRefreshPromise;
 }
-function wpSend(command,value){wpStatus('Sending '+command+' ...',false);return fetch('/command?'+encodeURIComponent(command)+'='+encodeURIComponent(value),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();}).then(function(message){wpStatus(message.trim()||'Command sent',false);window.setTimeout(wpRefresh,1200);return message;}).catch(function(e){wpStatus('Command failed: '+e.message,true);throw e;});}
+function wpSend(command,value){if(wpCommandBusy){wpStatus('Please wait for the current command to finish',false);return Promise.resolve(false);}wpCommandBusy=true;wpSync();wpStatus('Sending '+command+' ...',false);return fetch('/command?'+encodeURIComponent(command)+'='+encodeURIComponent(value),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();}).then(function(message){wpStatus(message.trim()||'Command sent',false);return new Promise(function(resolve){window.setTimeout(resolve,1400);});}).then(function(){wpCommandBusy=false;wpSync();wpRefresh();return true;}).catch(function(e){wpCommandBusy=false;wpSync();wpStatus('Command failed: '+e.message,true);throw e;});}
 function wpStep(command,topic,delta,min,max){var current=Number(wpValues[topic]);if(isNaN(current))return;var next=Math.max(min,Math.min(max,Math.round(current+delta)));wpValues[topic]=next;updCell(topic+'-Value',String(next));wpSend(command,next);}
 function wpSelectCommand(select,command){select.disabled=true;wpSend(command,select.value).then(function(){select.disabled=false;},function(){select.disabled=false;});}
 function wpToggle(toggle,command){toggle.disabled=true;wpSend(command,toggle.checked?1:0).then(function(){toggle.disabled=false;},function(){toggle.checked=!toggle.checked;toggle.disabled=false;});}
-function wpSetMaxPump(){wpSend('SetMaxPumpDuty',document.getElementById('wpMaxPumpSlider').value);}
+function wpSetMaxPump(){wpSend('SetMaxPumpDuty',wpPumpRaw(document.getElementById('wpMaxPumpSlider').value));}
 function wpSetServicePump(state){if(state&&!window.confirm('Run the water pump in 100% service mode?'))return;wpSend('SetPump',state);}
 function wpResetError(){if(window.confirm('Reset the current heat pump error?'))wpSend('SetReset',1);}
 function wpForceDefrost(){if(window.confirm('Start the force defrost routine?'))wpSend('SetForceDefrost',1);}
-function wpWorkflowCommand(action){wpStatus('Sending workflow request ...',false);fetch('/command?DashboardWorkflow='+encodeURIComponent(action),{cache:'no-store'}).then(function(r){return r.text();}).then(function(message){wpStatus(message.trim(),false);window.setTimeout(wpRefresh,400);}).catch(function(e){wpStatus('Workflow failed: '+e.message,true);});}
+function wpWorkflowCommand(action){wpSend('DashboardWorkflow',action);}
 function wpStartWorkflow(type){var label=type==='dhw'?'forced DHW':'forced sterilization';if(window.confirm('Start '+label+' cycle?'))wpWorkflowCommand(type==='dhw'?'start_dhw':'start_sterilization');}
 function wpCancelWorkflow(type){var label=type==='dhw'?'forced DHW':'forced sterilization';if(window.confirm('Cancel '+label+' and restore the previous operating mode?'))wpWorkflowCommand(type==='dhw'?'cancel_dhw':'cancel_sterilization');}
 function wpConfigStep(field,delta){var next=Number(wpConfig[field])+delta;var command='';if(field==='heatMin'){next=Math.max(20,Math.min(wpConfig.heatMax,next));command='WpHeatMin';}else if(field==='heatMax'){next=Math.max(wpConfig.heatMin,Math.min(100,next));command='WpHeatMax';}else{next=Math.max(40,Math.min(100,next));command='WpDhwBlockAbove';}wpConfig[field]=next;wpSync();wpSend(command,next);}

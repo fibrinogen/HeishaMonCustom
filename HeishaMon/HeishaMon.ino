@@ -952,7 +952,10 @@ bool send_command(byte* command, int length) {
   struct cmdbuffer_t cmd;
   cmd.length = length;
   memcpy(&cmd.data, command, length);
-  xQueueSend(cmdQueue, &cmd, 0);
+  if (xQueueSend(cmdQueue, &cmd, 0) != pdTRUE) {
+    log_message(_F("Heat pump command queue full. Command rejected."));
+    return false;
+  }
   return true;
 }
 
