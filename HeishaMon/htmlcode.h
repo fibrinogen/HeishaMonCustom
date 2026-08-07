@@ -354,6 +354,8 @@ input:disabled + .theme-slider-compact {
 .dashboard-toggle input:checked + .dashboard-toggle-slider:before{transform:translateX(16px)}
 .dashboard-toggle input:disabled + .dashboard-toggle-slider{cursor:wait;opacity:.55}
 .dashboard-control{display:flex;align-items:center;gap:8px}
+.dashboard-workflow-actions{display:flex;align-items:center;gap:5px}
+.dashboard-workflow-actions .btn{height:28px;padding:4px 9px;font-size:10.5px}
 .dashboard-step{width:26px;height:26px;border:0;border-radius:50%;background:transparent;color:var(--text-secondary);font-size:20px;line-height:24px;cursor:pointer}
 .dashboard-step:hover{background:var(--bg-elevated);color:var(--accent)}
 .dashboard-gauges{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:6px 4px 12px}
@@ -1512,11 +1514,11 @@ document.addEventListener('DOMContentLoaded',function(){
         <div class='dashboard-row'><span>Sterilization setpoint</span><span class='dashboard-value'><span id='TOP70-Value'>--</span> &deg;C</span><span id='TOP70-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'>
           <span>Force DHW</span>
-          <div class='dashboard-control'><span id='TOP2-Description' class='dashboard-value'>--</span><span id='TOP2-Value' class='dashboard-hidden'></span><label class='dashboard-toggle'><input id='forceDhwToggle' type='checkbox' onchange="setDashboardToggle(this,'SetForceDHW')"><span class='dashboard-toggle-slider'></span></label></div>
+          <div class='dashboard-control'><span id='TOP2-Description' class='dashboard-value'>--</span><span id='TOP2-Value' class='dashboard-hidden'></span><div class='dashboard-workflow-actions'><button id='startDhwButton' class='btn btn-ghost' onclick="startDashboardWorkflow('dhw')">Start</button><button id='cancelDhwButton' class='btn btn-danger' onclick="cancelDashboardWorkflow('dhw')">Cancel</button></div></div>
         </div>
         <div class='dashboard-row'>
           <span>Force sterilization</span>
-          <div class='dashboard-control'><span id='TOP69-Description' class='dashboard-value'>--</span><span id='TOP69-Value' class='dashboard-hidden'></span><label class='dashboard-toggle'><input id='sterilizationToggle' type='checkbox' onchange="setDashboardToggle(this,'SetForceSterilization')"><span class='dashboard-toggle-slider'></span></label></div>
+          <div class='dashboard-control'><span id='TOP69-Description' class='dashboard-value'>--</span><span id='TOP69-Value' class='dashboard-hidden'></span><div class='dashboard-workflow-actions'><button id='startSterilizationButton' class='btn btn-ghost' onclick="startDashboardWorkflow('sterilization')">Start</button><button id='cancelSterilizationButton' class='btn btn-danger' onclick="cancelDashboardWorkflow('sterilization')">Cancel</button></div></div>
         </div>
         <div class='dashboard-section-title'>DHW power</div>
         <div class='dashboard-row'><span>Production</span><span class='dashboard-value'><span id='TOP40-Value'>--</span> W</span><span id='TOP40-Description' class='dashboard-hidden'></span></div>
@@ -1533,6 +1535,7 @@ document.addEventListener('DOMContentLoaded',function(){
 static const char dashboardJS[] FLASHPROG = R"====(
 <script>
 var dashboardValues={};
+var dashboardWorkflow={type:'none',stage:'idle',previousMode:-1,message:'Loading workflow status ...'};
 var dashboardRefreshTimer=null;
 function dashboardItems(data){
   return [].concat(data.heatpump||[],data['heatpump extra']||[],data['heatpump optional']||[]);
@@ -1552,6 +1555,18 @@ function refreshDashboard(){
   }).then(renderDashboard).catch(function(error){
     setDashboardStatus('Update failed: '+error.message,true);
   });
+  refreshDashboardWorkflow();
+}
+function refreshDashboardWorkflow(){
+  fetch('/dashboardworkflow',{cache:'no-store'}).then(function(response){
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    return response.json();
+  }).then(function(data){
+    dashboardWorkflow=data;
+    syncDashboardControls();
+  }).catch(function(error){
+    setDashboardStatus('Workflow status failed: '+error.message,true);
+  });
 }
 function setGauge(topic,max){
   var path=document.getElementById(topic+'-Gauge');
@@ -1567,8 +1582,19 @@ function setToggle(id,topic){
 }
 function syncDashboardControls(){
   setToggle('heatpumpToggle','TOP0');
-  setToggle('forceDhwToggle','TOP2');
-  setToggle('sterilizationToggle','TOP69');
+  var busy=dashboardWorkflow.type!=='none';
+  var startDhw=document.getElementById('startDhwButton');
+  var cancelDhw=document.getElementById('cancelDhwButton');
+  var startSterilization=document.getElementById('startSterilizationButton');
+  var cancelSterilization=document.getElementById('cancelSterilizationButton');
+  if(startDhw)startDhw.disabled=busy||Number(dashboardValues.TOP2)!==0;
+  if(cancelDhw)cancelDhw.disabled=dashboardWorkflow.type!=='dhw';
+  if(startSterilization)startSterilization.disabled=busy||Number(dashboardValues.TOP69)!==0;
+  if(cancelSterilization)cancelSterilization.disabled=dashboardWorkflow.type!=='sterilization';
+  var workflowMessage=dashboardWorkflow.message;
+  if(!busy&&Number(dashboardValues.TOP69)!==0)workflowMessage='Sterilization is active outside the dashboard workflow';
+  else if(!busy&&Number(dashboardValues.TOP2)!==0)workflowMessage='Force DHW is active outside the dashboard workflow';
+  if(workflowMessage)setDashboardStatus(workflowMessage,false);
   setGauge('TOP1',35);
   setGauge('TOP8',120);
 }
@@ -1592,6 +1618,28 @@ function sendDashboardCommand(command,value){
 function setDashboardToggle(toggle,command){
   toggle.disabled=true;
   sendDashboardCommand(command,toggle.checked?1:0).catch(function(){toggle.checked=!toggle.checked;}).then(function(){toggle.disabled=false;});
+}
+function sendDashboardWorkflow(action){
+  setDashboardStatus('Sending workflow request ...',false);
+  return fetch('/command?DashboardWorkflow='+encodeURIComponent(action),{cache:'no-store'}).then(function(response){
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    return response.text();
+  }).then(function(message){
+    setDashboardStatus(message.trim(),false);
+    window.setTimeout(refreshDashboard,400);
+  }).catch(function(error){
+    setDashboardStatus('Workflow request failed: '+error.message,true);
+  });
+}
+function startDashboardWorkflow(type){
+  var label=type==='dhw'?'forced DHW':'forced sterilization';
+  if(!window.confirm('Start '+label+' cycle?'))return;
+  sendDashboardWorkflow(type==='dhw'?'start_dhw':'start_sterilization');
+}
+function cancelDashboardWorkflow(type){
+  var label=type==='dhw'?'forced DHW':'forced sterilization';
+  if(!window.confirm('Cancel '+label+' and restore the previous operating mode?'))return;
+  sendDashboardWorkflow(type==='dhw'?'cancel_dhw':'cancel_sterilization');
 }
 function stepDashboardValue(command,topic,delta,min,max){
   var current=parseFloat(dashboardValues[topic]);
