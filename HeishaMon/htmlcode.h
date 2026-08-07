@@ -375,6 +375,7 @@ input:disabled + .theme-slider-compact {
 .wp-settings-slider{width:145px;accent-color:#25bdf1}
 .wp-settings-button{min-width:82px}
 .wp-settings-note{padding:8px 6px;color:var(--text-muted);font-size:10.5px;line-height:1.4}
+.wp-settings-service-title{color:var(--red)}
 @media(max-width:1250px){.wp-settings-columns{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:680px){.wp-settings-columns{grid-template-columns:1fr}.wp-settings-slider{width:120px}}
 @media(max-width:1000px){.dashboard-columns{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -1481,8 +1482,10 @@ document.addEventListener('DOMContentLoaded',function(){
             <label class='dashboard-toggle'><input id='heatpumpToggle' type='checkbox' onchange="setDashboardToggle(this,'SetHeatpump')"><span class='dashboard-toggle-slider'></span></label>
           </div>
         </div>
-        <div class='dashboard-section-title'>Operating mode</div>
-        <div class='dashboard-row'><span>Actual</span><span id='TOP4-Description' class='dashboard-value'>--</span><span id='TOP4-Value' class='dashboard-hidden'></span></div>
+        <div class='dashboard-section-title'>Quick controls</div>
+        <div class='dashboard-row'><label for='dashboardOperationMode'>Operating mode</label><select id='dashboardOperationMode' class='wp-settings-select' onchange="setDashboardSelect(this,'SetOperationMode')"><option value='0'>Heat only</option><option value='1'>Cool only</option><option value='2'>Auto</option><option value='3'>DHW only</option><option value='4'>Heat + DHW</option><option value='5'>Cool + DHW</option><option value='6'>Auto + DHW</option></select><span id='TOP4-Value' class='dashboard-hidden'></span><span id='TOP4-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><label for='dashboardQuietMode'>Quiet mode</label><select id='dashboardQuietMode' class='wp-settings-select' onchange="setDashboardSelect(this,'SetQuietMode')"><option value='0'>Off</option><option value='1'>Level 1</option><option value='2'>Level 2</option><option value='3'>Level 3</option></select><span id='TOP18-Value' class='dashboard-hidden'></span><span id='TOP18-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><label for='dashboardPowerfulMode'>Powerful mode</label><select id='dashboardPowerfulMode' class='wp-settings-select' onchange="setDashboardSelect(this,'SetPowerfulMode')"><option value='0'>Off</option><option value='1'>30 min</option><option value='2'>60 min</option><option value='3'>90 min</option></select><span id='TOP17-Value' class='dashboard-hidden'></span><span id='TOP17-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Valve position</span><span id='TOP20-Description' class='dashboard-value'>--</span><span id='TOP20-Value' class='dashboard-hidden'></span></div>
         <div class='dashboard-section-title'>Water temperature</div>
         <div class='dashboard-row'><span>Outlet setpoint</span><span class='dashboard-value'><span id='TOP7-Value'>--</span> &deg;C</span><span id='TOP7-Description' class='dashboard-hidden'></span></div>
@@ -1619,9 +1622,17 @@ function setToggle(id,topic){
   var toggle=document.getElementById(id);
   if(toggle)toggle.checked=Number(dashboardValues[topic])!==0;
 }
+function setDashboardSelectValue(id,value){
+  var select=document.getElementById(id);
+  if(select&&document.activeElement!==select&&!isNaN(Number(value)))select.value=String(value);
+}
 function syncDashboardControls(){
-  if(!dashboardCommandBusy)document.querySelectorAll('.dashboard-page button,.dashboard-page input').forEach(function(control){control.disabled=false;});
+  if(!dashboardCommandBusy)document.querySelectorAll('.dashboard-page button,.dashboard-page input,.dashboard-page select').forEach(function(control){control.disabled=false;});
   setToggle('heatpumpToggle','TOP0');
+  var operationMode=Number(dashboardValues.TOP4);if(operationMode===7)operationMode=2;if(operationMode===8)operationMode=6;
+  setDashboardSelectValue('dashboardOperationMode',operationMode);
+  setDashboardSelectValue('dashboardQuietMode',dashboardValues.TOP18);
+  setDashboardSelectValue('dashboardPowerfulMode',dashboardValues.TOP17);
   var busy=dashboardWorkflow.type!=='none';
   var startDhw=document.getElementById('startDhwButton');
   var cancelDhw=document.getElementById('cancelDhwButton');
@@ -1637,7 +1648,7 @@ function syncDashboardControls(){
   if(workflowMessage)setDashboardStatus(workflowMessage,false);
   setGauge('TOP1',35);
   setGauge('TOP8',120);
-  if(dashboardCommandBusy)document.querySelectorAll('.dashboard-page button,.dashboard-page input').forEach(function(control){control.disabled=true;});
+  if(dashboardCommandBusy)document.querySelectorAll('.dashboard-page button,.dashboard-page input,.dashboard-page select').forEach(function(control){control.disabled=true;});
 }
 function setDashboardStatus(message,isError){
   var status=document.getElementById('dashboardCommandStatus');
@@ -1669,6 +1680,10 @@ function sendDashboardCommand(command,value){
 function setDashboardToggle(toggle,command){
   toggle.disabled=true;
   sendDashboardCommand(command,toggle.checked?1:0).catch(function(){toggle.checked=!toggle.checked;}).then(function(){toggle.disabled=false;});
+}
+function setDashboardSelect(select,command){
+  select.disabled=true;
+  sendDashboardCommand(command,select.value).then(function(){select.disabled=false;},function(){select.disabled=false;});
 }
 function sendDashboardWorkflow(action){
   return sendDashboardCommand('DashboardWorkflow',action);
@@ -1723,15 +1738,18 @@ document.addEventListener('DOMContentLoaded',function(){
 <main class='main-content wp-settings-page'>
   <div class='wp-settings-columns'>
     <section class='dashboard-column'>
-      <h2 class='dashboard-title'>HEAT PUMP</h2>
+      <h2 class='dashboard-title wp-settings-service-title'>SERVICE &amp; ADVANCED</h2>
       <div class='dashboard-section'>
-        <div class='dashboard-row'><span>Current error</span><span id='TOP44-Value' class='dashboard-value'>--</span><span id='TOP44-Description' class='dashboard-hidden'></span></div>
+        <div class='wp-settings-note'>Changes in this section directly affect heat pump service parameters.</div>
         <div class='dashboard-row'><span>Reset current error</span><button class='btn btn-danger wp-settings-button' onclick='wpResetError()'>RESET</button></div>
         <div class='dashboard-section-title'>Water pump</div>
         <div class='dashboard-row'><input id='wpMaxPumpSlider' class='wp-settings-slider' type='range' min='0' max='100' step='1' oninput="updCell('wpMaxPumpDraft',this.value+' %')"><button class='btn btn-primary wp-settings-button' onclick='wpSetMaxPump()'>SET</button></div>
         <div class='dashboard-row'><span>Selected max flow</span><span id='wpMaxPumpDraft' class='dashboard-value'>--</span></div>
         <div class='dashboard-row'><span>Current max flow</span><span id='wpMaxPumpCurrent' class='dashboard-value'>--</span><span id='TOP95-Value' class='dashboard-hidden'></span><span id='TOP95-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Service mode (100%)</span><div class='dashboard-workflow-actions'><button class='btn btn-ghost' onclick='wpSetServicePump(1)'>Start</button><button class='btn btn-danger' onclick='wpSetServicePump(0)'>Stop</button></div></div>
+        <div class='dashboard-section-title'>Defrost</div>
+        <div class='dashboard-row'><span>Force defrost routine</span><button class='btn btn-primary wp-settings-button' onclick='wpForceDefrost()'>DEFROST</button></div>
+        <div class='dashboard-row'><span>Defrosting state</span><span id='TOP26-Description' class='dashboard-value'>--</span><span id='TOP26-Value' class='dashboard-hidden'></span></div>
         <div class='dashboard-section-title'>Backup heater</div>
         <div class='dashboard-row'><span>Start delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetHeaterStartDelta','TOP97',-1,-10,-2)">&#8964;</button><span class='dashboard-value'><span id='TOP97-Value'>--</span> &deg;C</span><span id='TOP97-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetHeaterStartDelta','TOP97',1,-10,-2)">&#8963;</button></div></div>
         <div class='dashboard-row'><span>Stop delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetHeaterStopDelta','TOP98',-1,-8,0)">&#8964;</button><span class='dashboard-value'><span id='TOP98-Value'>--</span> &deg;C</span><span id='TOP98-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetHeaterStopDelta','TOP98',1,-8,0)">&#8963;</button></div></div>
@@ -1740,21 +1758,16 @@ document.addEventListener('DOMContentLoaded',function(){
     </section>
 
     <section class='dashboard-column'>
-      <h2 class='dashboard-title'>OPERATION</h2>
+      <h2 class='dashboard-title'>SYSTEM CONFIGURATION</h2>
       <div class='dashboard-section'>
         <div class='dashboard-row'><span>Panasonic main scheduler</span><div class='dashboard-control'><span id='TOP13-Description' class='dashboard-value'>--</span><span id='TOP13-Value' class='dashboard-hidden'></span><label class='dashboard-toggle'><input id='wpScheduleToggle' type='checkbox' onchange="wpToggle(this,'SetMainSchedule')"><span class='dashboard-toggle-slider'></span></label></div></div>
-        <div class='dashboard-row'><label for='wpOperationMode'>Operation mode</label><select id='wpOperationMode' class='wp-settings-select' onchange="wpSelectCommand(this,'SetOperationMode')"><option value='0'>Heat only</option><option value='1'>Cool only</option><option value='2'>Auto</option><option value='3'>DHW only</option><option value='4'>Heat + DHW</option><option value='5'>Cool + DHW</option><option value='6'>Auto + DHW</option></select><span id='TOP4-Value' class='dashboard-hidden'></span><span id='TOP4-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><label for='wpQuietMode'>Quiet mode</label><select id='wpQuietMode' class='wp-settings-select' onchange="wpSelectCommand(this,'SetQuietMode')"><option value='0'>Off</option><option value='1'>Level 1</option><option value='2'>Level 2</option><option value='3'>Level 3</option></select><span id='TOP18-Value' class='dashboard-hidden'></span><span id='TOP18-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Force defrost routine</span><button class='btn btn-primary wp-settings-button' onclick='wpForceDefrost()'>DEFROST</button></div>
-        <div class='dashboard-row'><span>Defrosting state</span><span id='TOP26-Description' class='dashboard-value'>--</span><span id='TOP26-Value' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><label for='wpZones'>Active zones</label><select id='wpZones' class='wp-settings-select' onchange="wpSelectCommand(this,'SetZones')"><option value='0'>Zone 1</option><option value='1'>Zone 2</option><option value='2'>Zone 1 + 2</option></select><span id='TOP94-Value' class='dashboard-hidden'></span><span id='TOP94-Description' class='dashboard-hidden'></span></div>
       </div>
     </section>
 
     <section class='dashboard-column'>
       <h2 class='dashboard-title'>HEAT</h2>
       <div class='dashboard-section'>
-        <div class='dashboard-row'><label for='wpZones'>Set active zones</label><select id='wpZones' class='wp-settings-select' onchange="wpSelectCommand(this,'SetZones')"><option value='0'>Zone 1</option><option value='1'>Zone 2</option><option value='2'>Zone 1 + 2</option></select><span id='TOP94-Value' class='dashboard-hidden'></span><span id='TOP94-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><label for='wpPowerfulMode'>Powerful mode</label><select id='wpPowerfulMode' class='wp-settings-select' onchange="wpSelectCommand(this,'SetPowerfulMode')"><option value='0'>Off</option><option value='1'>30 min</option><option value='2'>60 min</option><option value='3'>90 min</option></select><span id='TOP17-Value' class='dashboard-hidden'></span><span id='TOP17-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Heat delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetFloorHeatDelta','TOP23',-1,1,15)">&#8964;</button><span class='dashboard-value'><span id='TOP23-Value'>--</span> &deg;C</span><span id='TOP23-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetFloorHeatDelta','TOP23',1,1,15)">&#8963;</button></div></div>
         <div class='dashboard-row' id='wpBufferDeltaRow'><span>Buffer tank delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetBufferDelta','TOP113',-1,0,10)">&#8964;</button><span class='dashboard-value'><span id='TOP113-Value'>--</span> &deg;C</span><span id='TOP113-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetBufferDelta','TOP113',1,0,10)">&#8963;</button></div><span id='TOP99-Value' class='dashboard-hidden'></span><span id='TOP99-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Cool delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetFloorCoolDelta','TOP24',-1,1,15)">&#8964;</button><span class='dashboard-value'><span id='TOP24-Value'>--</span> &deg;C</span><span id='TOP24-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetFloorCoolDelta','TOP24',1,1,15)">&#8963;</button></div></div>
@@ -1766,17 +1779,12 @@ document.addEventListener('DOMContentLoaded',function(){
     </section>
 
     <section class='dashboard-column'>
-      <h2 class='dashboard-title'>DHW</h2>
+      <h2 class='dashboard-title'>DHW SETTINGS</h2>
       <div class='dashboard-section'>
-        <div class='dashboard-row'><span>DHW setpoint</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetDHWTemp','TOP9',-1,40,75)">&#8964;</button><span class='dashboard-value'><span id='TOP9-Value'>--</span> &deg;C</span><span id='TOP9-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetDHWTemp','TOP9',1,40,75)">&#8963;</button></div></div>
-        <div class='dashboard-row'><span>Current temperature</span><span class='dashboard-value'><span id='TOP10-Value'>--</span> &deg;C</span><span id='TOP10-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Force DHW</span><div class='dashboard-workflow-actions'><button id='wpStartDhw' class='btn btn-ghost' onclick="wpStartWorkflow('dhw')">Start</button><button id='wpCancelDhw' class='btn btn-danger' onclick="wpCancelWorkflow('dhw')">Cancel</button></div><span id='TOP2-Value' class='dashboard-hidden'></span><span id='TOP2-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Sterilization setpoint</span><span class='dashboard-value'><span id='TOP70-Value'>--</span> &deg;C</span><span id='TOP70-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Force sterilization</span><div class='dashboard-workflow-actions'><button id='wpStartSterilization' class='btn btn-ghost' onclick="wpStartWorkflow('sterilization')">Start</button><button id='wpCancelSterilization' class='btn btn-danger' onclick="wpCancelWorkflow('sterilization')">Cancel</button></div><span id='TOP69-Value' class='dashboard-hidden'></span><span id='TOP69-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>DHW delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetDHWHeatDelta','TOP22',-1,-12,-2)">&#8964;</button><span class='dashboard-value'><span id='TOP22-Value'>--</span> &deg;C</span><span id='TOP22-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetDHWHeatDelta','TOP22',1,-12,-2)">&#8963;</button></div></div>
         <div class='dashboard-section-title'>Limits</div>
         <div class='dashboard-row'><span>Block Force DHW above</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpConfigStep('dhwBlockAbove',-1)">&#8964;</button><span class='dashboard-value'><span id='wpDhwBlockValue'>--</span> &deg;C</span><button class='dashboard-step' onclick="wpConfigStep('dhwBlockAbove',1)">&#8963;</button></div></div>
-        <div class='wp-settings-note'>Force DHW and sterilization use the safe WP Dashboard workflows and restore the previous operating mode.</div>
+        <div class='wp-settings-note'>This limit blocks the Force DHW workflow on WP Dashboard when the tank is already warm enough.</div>
         <div id='wpSettingsStatus' class='dashboard-command-status'></div>
       </div>
     </section>
@@ -1788,7 +1796,6 @@ static const char wpSettingsJS[] FLASHPROG = R"====(
 <script>
 var wpValues={};
 var wpConfig={heatMin:20,heatMax:65,dhwBlockAbove:75};
-var wpWorkflow={type:'none',stage:'idle',message:'Loading ...'};
 var wpRefreshPromise=null;
 var wpCommandBusy=false;
 function wpItems(data){return [].concat(data.heatpump||[],data['heatpump extra']||[],data['heatpump optional']||[]);}
@@ -1799,23 +1806,15 @@ function wpPumpRaw(percentValue){return Math.round(Number(percentValue)/100*(254
 function wpSync(){
   if(!wpCommandBusy)document.querySelectorAll('.wp-settings-page button,.wp-settings-page select,.wp-settings-page input').forEach(function(control){control.disabled=false;});
   var schedule=document.getElementById('wpScheduleToggle');if(schedule)schedule.checked=Number(wpValues.TOP13)!==0;
-  var operationMode=Number(wpValues.TOP4);if(operationMode===7)operationMode=2;if(operationMode===8)operationMode=6;
-  var operationSelect=document.getElementById('wpOperationMode');if(operationSelect&&document.activeElement!==operationSelect&&!isNaN(operationMode))operationSelect.value=String(operationMode);
-  wpSetSelect('wpQuietMode','TOP18');wpSetSelect('wpZones','TOP94');wpSetSelect('wpPowerfulMode','TOP17');
+  wpSetSelect('wpZones','TOP94');
   var slider=document.getElementById('wpMaxPumpSlider');if(slider&&document.activeElement!==slider&&!isNaN(Number(wpValues.TOP95))){var pumpPercent=wpPumpPercent(wpValues.TOP95);slider.value=String(pumpPercent);updCell('wpMaxPumpDraft',String(pumpPercent)+' %');updCell('wpMaxPumpCurrent',String(pumpPercent)+' %');}
   var buffer=document.getElementById('wpBufferDeltaRow');if(buffer){var bufferDisabled=Number(wpValues.TOP99)===0;buffer.style.opacity=bufferDisabled?'.45':'1';buffer.querySelectorAll('button').forEach(function(button){button.disabled=bufferDisabled;});}
   updCell('wpHeatMinValue',String(wpConfig.heatMin));updCell('wpHeatMaxValue',String(wpConfig.heatMax));updCell('wpDhwBlockValue',String(wpConfig.dhwBlockAbove));
-  var busy=wpWorkflow.type!=='none';
-  document.getElementById('wpStartDhw').disabled=busy||Number(wpValues.TOP2)!==0||Number(wpValues.TOP10)>=Number(wpConfig.dhwBlockAbove);
-  document.getElementById('wpCancelDhw').disabled=wpWorkflow.type!=='dhw';
-  document.getElementById('wpStartSterilization').disabled=busy||Number(wpValues.TOP69)!==0;
-  document.getElementById('wpCancelSterilization').disabled=wpWorkflow.type!=='sterilization';
-  if(wpWorkflow.message)wpStatus(wpWorkflow.message,false);
   if(wpCommandBusy)document.querySelectorAll('.wp-settings-page button,.wp-settings-page select,.wp-settings-page input').forEach(function(control){control.disabled=true;});
 }
 function wpRefresh(){
   if(wpRefreshPromise)return wpRefreshPromise;
-  wpRefreshPromise=fetch('/json',{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(data){wpItems(data).forEach(function(item){wpValues[item.Topic]=item.Value;updCell(item.Topic+'-Value',String(item.Value));updCell(item.Topic+'-Description',String(item.Description));});return fetch('/wpsettingsconfig',{cache:'no-store'});}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(data){wpConfig=data;return fetch('/dashboardworkflow',{cache:'no-store'});}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(data){wpWorkflow=data;wpRefreshPromise=null;wpSync();}).catch(function(e){wpRefreshPromise=null;wpStatus('Update failed: '+e.message,true);});
+  wpRefreshPromise=fetch('/json',{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(data){wpItems(data).forEach(function(item){wpValues[item.Topic]=item.Value;updCell(item.Topic+'-Value',String(item.Value));updCell(item.Topic+'-Description',String(item.Description));});return fetch('/wpsettingsconfig',{cache:'no-store'});}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(data){wpConfig=data;wpRefreshPromise=null;wpSync();}).catch(function(e){wpRefreshPromise=null;wpStatus('Update failed: '+e.message,true);});
   return wpRefreshPromise;
 }
 function wpSend(command,value){if(wpCommandBusy){wpStatus('Please wait for the current command to finish',false);return Promise.resolve(false);}wpCommandBusy=true;wpSync();wpStatus('Sending '+command+' ...',false);return fetch('/command?'+encodeURIComponent(command)+'='+encodeURIComponent(value),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();}).then(function(message){wpStatus(message.trim()||'Command sent',false);return new Promise(function(resolve){window.setTimeout(resolve,1400);});}).then(function(){wpCommandBusy=false;wpSync();wpRefresh();return true;}).catch(function(e){wpCommandBusy=false;wpSync();wpStatus('Command failed: '+e.message,true);throw e;});}
@@ -1826,9 +1825,6 @@ function wpSetMaxPump(){wpSend('SetMaxPumpDuty',wpPumpRaw(document.getElementByI
 function wpSetServicePump(state){if(state&&!window.confirm('Run the water pump in 100% service mode?'))return;wpSend('SetPump',state);}
 function wpResetError(){if(window.confirm('Reset the current heat pump error?'))wpSend('SetReset',1);}
 function wpForceDefrost(){if(window.confirm('Start the force defrost routine?'))wpSend('SetForceDefrost',1);}
-function wpWorkflowCommand(action){wpSend('DashboardWorkflow',action);}
-function wpStartWorkflow(type){var label=type==='dhw'?'forced DHW':'forced sterilization';if(window.confirm('Start '+label+' cycle?'))wpWorkflowCommand(type==='dhw'?'start_dhw':'start_sterilization');}
-function wpCancelWorkflow(type){var label=type==='dhw'?'forced DHW':'forced sterilization';if(window.confirm('Cancel '+label+' and restore the previous operating mode?'))wpWorkflowCommand(type==='dhw'?'cancel_dhw':'cancel_sterilization');}
 function wpConfigStep(field,delta){var next=Number(wpConfig[field])+delta;var command='';if(field==='heatMin'){next=Math.max(20,Math.min(wpConfig.heatMax,next));command='WpHeatMin';}else if(field==='heatMax'){next=Math.max(wpConfig.heatMin,Math.min(100,next));command='WpHeatMax';}else{next=Math.max(40,Math.min(100,next));command='WpDhwBlockAbove';}wpConfig[field]=next;wpSync();wpSend(command,next);}
 document.addEventListener('DOMContentLoaded',function(){wpRefresh();startWebsockets();monitorWebSocket();window.setInterval(wpRefresh,10000);});
 </script>
