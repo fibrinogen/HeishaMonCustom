@@ -1,25 +1,25 @@
 #pragma once
 
-// SD history is deliberately disabled until the physical wiring is known.
-// Enable it with build flags after selecting non-conflicting pins.
+// SD history uses the dedicated microSD wiring on the HeishaMon PCB.
+// Initialization remains non-fatal when no card is inserted.
 #ifndef HEISHAMON_SD_HISTORY_ENABLED
-#define HEISHAMON_SD_HISTORY_ENABLED 0
+#define HEISHAMON_SD_HISTORY_ENABLED 1
 #endif
 
 #ifndef HEISHAMON_SD_CS_PIN
-#define HEISHAMON_SD_CS_PIN -1
+#define HEISHAMON_SD_CS_PIN 34
 #endif
 
 #ifndef HEISHAMON_SD_SCK_PIN
-#define HEISHAMON_SD_SCK_PIN -1
+#define HEISHAMON_SD_SCK_PIN 36
 #endif
 
 #ifndef HEISHAMON_SD_MISO_PIN
-#define HEISHAMON_SD_MISO_PIN -1
+#define HEISHAMON_SD_MISO_PIN 37
 #endif
 
 #ifndef HEISHAMON_SD_MOSI_PIN
-#define HEISHAMON_SD_MOSI_PIN -1
+#define HEISHAMON_SD_MOSI_PIN 35
 #endif
 
 #ifndef HEISHAMON_SD_FREQUENCY
