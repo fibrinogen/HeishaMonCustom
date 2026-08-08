@@ -1417,6 +1417,8 @@ static void appendDiagnosticsJson(JsonDocument &document) {
   system["uptimeSeconds"] = (uint32_t)(millis() / 1000UL);
   system["freeHeap"] = ESP.getFreeHeap();
   system["firmware"] = heishamon_version;
+  system["customVersion"] = CUSTOM_FEATURES_VERSION;
+  system["heishamonBaseVersion"] = HEISHAMON_BASE_VERSION;
 
   JsonObject operation = document["operation"].to<JsonObject>();
   float value = 0;

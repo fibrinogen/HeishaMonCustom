@@ -846,7 +846,7 @@ static const char webBodyStart[] FLASHPROG = R"====(
 <aside class='sidemenu' id='sideMenu'>
   <div class='sidemenu-header'>
     <h2>HeishaMon</h2>
-    <p id='sideVersion'>)====" HEISHAMON_VERSION R"====(</p>
+    <p id='sideVersion'>)====" HEISHAMON_VERSION R"====( )====" CUSTOM_FEATURES_VERSION R"====(<br><small>Base: )====" HEISHAMON_BASE_VERSION R"====(</small></p>
   </div>
   
   <!-- DARK MODE TOGGLE -->
@@ -3436,6 +3436,12 @@ R"====(    <strong>Board:</strong> HeishaMon Small (ESP8266)<br>
 )===="
 #endif
 R"====(  </div>
+  <div class='firmware-info'>
+    <strong>Installed firmware versions</strong><br>
+    <strong>Custom build:</strong> )====" CUSTOM_FEATURES_VERSION R"====(<br>
+    <strong>HeishaMon base:</strong> )====" HEISHAMON_BASE_VERSION R"====(<br>
+    Custom functionality is maintained separately from the upstream HeishaMon protocol implementation.
+  </div>
   <div class='panel'>
     <div class='panel-header'><h3>Firmware Update</h3></div>
     <div style='padding:24px'>
