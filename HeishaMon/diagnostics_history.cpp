@@ -1104,7 +1104,13 @@ static bool saveHistoryConfig() {
 }
 
 #if HEISHAMON_SD_HISTORY_ENABLED
+#if defined(ESP32)
+// Keep the SD card on the second ESP32-S3 SPI controller.  The global SPI
+// instance is FSPI and is used by the W5500 Ethernet driver.
+static SPIClass sdSpi(HSPI);
+#else
 static SPIClass sdSpi(FSPI);
+#endif
 
 static void setSdError(const char *message) {
   sdState.active = false;
