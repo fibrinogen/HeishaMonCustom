@@ -15,12 +15,11 @@
 #include "src/common/webserver.h"
 #include "dallas.h"
 #include "s0.h"
-#include "HeishaOT.h"
 #include "gpio.h"
 
 #define HEATPUMP_VALUE_LEN    16
 
-#if defined(ESP32)
+#if defined(ESP32) && !defined(HEISHAMON_DISABLE_MQTT_TLS)
   #ifndef TLS_SUPPORT
     #define TLS_SUPPORT 1
   #endif
@@ -67,7 +66,6 @@ struct settingsStruct {
   bool logMqtt = false; //log to mqtt from start
   bool logHexdump = false; //log hexdump from start
   bool logSerial1 = true; //log to serial1 (gpio2) from start
-  bool opentherm = false; //opentherm enable flag
   bool hotspot = true; //enable wifi hotspot when wifi is not connected
 #ifdef ESP32
   bool proxy = true; //cztaw proxy port enable flag

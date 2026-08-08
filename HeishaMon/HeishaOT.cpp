@@ -1,3 +1,20 @@
+#ifdef HEISHAMON_DISABLE_OPENTHERM
+
+#include "HeishaOT.h"
+
+const char* mqtt_topic_opentherm_read PROGMEM = "";
+const char* mqtt_topic_opentherm_write PROGMEM = "";
+struct heishaOTDataStruct_t heishaOTDataStruct[] = {
+  { nullptr, 0, { .b = false }, 0 }
+};
+
+void HeishaOTSetup() {}
+void HeishaOTLoop(char *, PubSubClient &, char *) {}
+void mqttOTCallback(char *, char *) {}
+void openthermJsonOutput(struct webserver_t *) {}
+
+#else
+
 #include "src/opentherm/opentherm.h"
 #include "HeishaOT.h"
 #include "decode.h"
@@ -675,3 +692,4 @@ void openthermJsonOutput(struct webserver_t *client) {
   webserver_send_content_P(client, PSTR("}}"), 2);       //this is the last line in JSON, keep this at the end 
 }
 
+#endif

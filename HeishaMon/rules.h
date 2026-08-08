@@ -17,6 +17,22 @@
 
 #include "src/common/mem.h"
 
+#ifdef HEISHAMON_DISABLE_RULES
+
+// Keep the public interface available to the unchanged HeishaMon modules,
+// while omitting the rules engine itself from the firmware build.
+static uint8_t nrrules = 0;
+
+static inline void rules_boot(void) {}
+static inline void rules_deinitialize(void) {}
+static inline int rules_parse(char *) { return -1; }
+static inline void rules_setup(void) {}
+static inline void rules_timer_cb(int) {}
+static inline void rules_event_cb(const char *, const char *) {}
+static inline void rules_execute(void) {}
+
+#else
+
 extern uint8_t nrrules;
 
 void rules_boot(void);
@@ -26,5 +42,7 @@ void rules_setup(void);
 void rules_timer_cb(int nr);
 void rules_event_cb(const char *prefix, const char *name);
 void rules_execute(void);
+
+#endif
 
 #endif

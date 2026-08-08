@@ -264,7 +264,6 @@ void loadSettings(settingsStruct *heishamonSettings) {
           heishamonSettings->logHexdump = ( jsonDoc[F("logHexdump")] == "enabled" ) ? true : false;
           heishamonSettings->logSerial1 = ( jsonDoc[F("logSerial1")] == "enabled" ) ? true : false;
           heishamonSettings->optionalPCB = ( jsonDoc[F("optionalPCB")] == "enabled" ) ? true : false;
-          heishamonSettings->opentherm = ( jsonDoc[F("opentherm")] == "enabled" ) ? true : false;
 #ifdef ESP32          
           heishamonSettings->proxy = ( jsonDoc[F("proxy")] == "enabled" ) ? true : false;
 #endif          
@@ -487,11 +486,6 @@ void settingsToJson(JsonDocument &jsonDoc, settingsStruct *heishamonSettings) {
   } else {
     jsonDoc[F("optionalPCB")] = "disabled";
   }
-  if (heishamonSettings->opentherm) {
-    jsonDoc[F("opentherm")] = "enabled";
-  } else {
-    jsonDoc[F("opentherm")] = "disabled";
-  }
 #ifdef ESP32  
   if (heishamonSettings->proxy) {
     jsonDoc[F("proxy")] = "enabled";
@@ -638,8 +632,6 @@ int saveSettings(struct webserver_t *client, settingsStruct *heishamonSettings) 
   jsonDoc[F("logHexdump")] = String("disabled");
   jsonDoc[F("logSerial1")] = String("disabled");
   jsonDoc[F("optionalPCB")] = String("disabled");
-  jsonDoc[F("opentherm")] = String("disabled");
-
 #ifdef ESP32  
   jsonDoc[F("proxy")] = String("disabled");
 #endif  
@@ -686,8 +678,6 @@ int saveSettings(struct webserver_t *client, settingsStruct *heishamonSettings) 
       jsonDoc[F("logSerial1")] = tmp->value;
     } else if (strcmp(tmp->name.c_str(), "optionalPCB") == 0) {
       jsonDoc[F("optionalPCB")] = tmp->value;
-    } else if (strcmp(tmp->name.c_str(), "opentherm") == 0) {
-      jsonDoc[F("opentherm")] = tmp->value;
 #ifdef ESP32      
     } else if (strcmp(tmp->name.c_str(), "proxy") == 0) {
       jsonDoc[F("proxy")] = tmp->value;
@@ -1359,9 +1349,6 @@ int handleRoot(struct webserver_t *client, float readpercentage, int mqttReconne
         if (heishamonSettings->use_s0) {
           webserver_send_content_P(client, webBodyRootS0Tab, strlen_P(webBodyRootS0Tab));
         }
-        if (heishamonSettings->opentherm) {
-          webserver_send_content_P(client, webBodyRootOpenthermTab, strlen_P(webBodyRootOpenthermTab));
-        }
         webserver_send_content_P(client, webTabnavClose, strlen_P(webTabnavClose));
         if (heishamonSettings->listenonly) {
           webserver_send_content_P(client, webBodyRootStatusListenOnly, strlen_P(webBodyRootStatusListenOnly));
@@ -1373,9 +1360,6 @@ int handleRoot(struct webserver_t *client, float readpercentage, int mqttReconne
         if (heishamonSettings->use_1wire) {
           webserver_send_content_P(client, webBodyRootDallasValues, strlen_P(webBodyRootDallasValues));
         }
-        if (heishamonSettings->opentherm) {
-          webserver_send_content_P(client, webBodyRootOpenthermValues, strlen_P(webBodyRootOpenthermValues));
-        }        
         if (heishamonSettings->use_s0) {
           webserver_send_content_P(client, webBodyRootS0Values, strlen_P(webBodyRootS0Values));
         }
@@ -1567,10 +1551,6 @@ int handleJsonOutput(struct webserver_t *client, char* actData, char* actDataExt
     if (heishamonSettings->use_s0 ) {
       webserver_send_content_P(client, PSTR(",\"s0\":"), 6);
       s0JsonOutput(client);
-    }
-    if (heishamonSettings->opentherm) {
-      webserver_send_content_P(client, PSTR(",\"opentherm\":"), 13);
-      openthermJsonOutput(client);
     }
     webserver_send_content_P(client, PSTR("}"), 1);
   }

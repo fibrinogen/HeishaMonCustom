@@ -1120,8 +1120,6 @@ function startWebsockets(){
             updCell('s0port-'+j.data.s0values.s0port+'-Watt',j.data.s0values.Watt);
             updCell('s0port-'+j.data.s0values.s0port+'-Watthour',j.data.s0values.Watthour);
             updCell('s0port-'+j.data.s0values.s0port+'-WatthourTotal',j.data.s0values.WatthourTotal);
-          } else if(j.data.opentherm){
-            updCell(j.data.opentherm.name+'-value',j.data.opentherm.value);
           } else if(j.data.dallasRescan){
             refreshDallasTable();
           }
@@ -1376,17 +1374,6 @@ async function refreshTable(){
         tb.appendChild(row);
       });
     }
-    if(d&&d.opentherm&&typeof d.opentherm==='object'){
-      var tb=document.getElementById('openthermvalues');tb.innerHTML='';
-      for(var key in d.opentherm){if(Object.hasOwn(d.opentherm,key)){
-        var row=document.createElement('tr');
-        var nc=document.createElement('td');nc.id=key;nc.textContent=key;
-        var tc=document.createElement('td');tc.id=key+'-type';tc.textContent=d.opentherm[key].type;
-        var vc=document.createElement('td');vc.id=key+'-value';vc.textContent=d.opentherm[key].value;
-        row.appendChild(nc);row.appendChild(tc);row.appendChild(vc);
-        tb.appendChild(row);
-      }}
-    }
   } catch(e){console.error(e);}
 }
 function buildRow(item,idKey){
@@ -1544,9 +1531,6 @@ static const char webBodyRootDallasTab[] FLASHPROG = R"====(
 static const char webBodyRootS0Tab[] FLASHPROG = R"====(
 <button class='tabnav-btn' data-tab='S0' onclick="openTable('S0')">S0 kWh</button>
 )====";
-static const char webBodyRootOpenthermTab[] FLASHPROG = R"====(
-<button class='tabnav-btn' data-tab='Opentherm' onclick="openTable('Opentherm')">Opentherm</button>
-)====";
 static const char webTabnavClose[] FLASHPROG = R"====(
   <button class='tabnav-btn' data-tab='Console' onclick="openTable('Console')">Console</button>
 </nav>
@@ -1587,18 +1571,6 @@ static const char webBodyRootS0Values[] FLASHPROG = R"====(
     <th>Port</th><th>Watt</th><th>Wh</th><th>Wh Total</th><th>Pulse Quality</th><th>Avg Pulse Width</th>
   </tr></thead><tbody id='s0values'>
     <tr><td colspan='6' style='color:var(--text-muted);padding:24px;text-align:center'>Loading…</td></tr>
-  </tbody></table>
-</div></div>
-)====";
-
-static const char webBodyRootOpenthermValues[] FLASHPROG = R"====(
-<div id='Opentherm' class='tab-pane'>
-<div class='panel'>
-  <div class='panel-header'><h3>Opentherm Values</h3><span class='panel-meta'>Live</span></div>
-  <table><thead><tr>
-    <th>Name</th><th>Type</th><th>Value</th>
-  </tr></thead><tbody id='openthermvalues'>
-    <tr><td colspan='3' style='color:var(--text-muted);padding:24px;text-align:center'>Loading…</td></tr>
   </tbody></table>
 </div></div>
 )====";
@@ -2680,7 +2652,6 @@ static const char settingsForm2[] FLASHPROG = R"====(
     <div class='setting-row'><label class='setting-label'>Debug hexdump from start</label><div class='checkbox-wrap'><input type='checkbox' name='logHexdump' value='enabled'></div></div>
     <div class='setting-row'><label class='setting-label'>Debug log to serial1 (GPIO2)</label><div class='checkbox-wrap'><input type='checkbox' name='logSerial1' value='enabled'></div></div>
     <div class='setting-row'><label class='setting-label'>Emulate optional PCB</label><div class='checkbox-wrap'><input type='checkbox' name='optionalPCB' value='enabled'></div></div>
-    <div class='setting-row'><label class='setting-label'>Enable Opentherm processing</label><div class='checkbox-wrap'><input type='checkbox' name='opentherm' value='enabled'></div></div>
     <div class='setting-row'><label class='setting-label'>Force load rules on boot</label><div style='display:flex;align-items:center;gap:10px'><div class='checkbox-wrap'><input type='checkbox' name='force_rules' value='enabled'></div><span class='setting-hint' style='display:block;margin-top:4px'>Rules load normally, but skip after crashes to prevent boot loops. Enable to override.</span></div></div>
   </div></div>
   <div class='panel' style='margin-bottom:16px'>
@@ -2781,7 +2752,6 @@ static const char settingsForm2[] FLASHPROG = R"====(
     <div class='setting-row'><label class='setting-label'>Debug hexdump from start</label><div class='checkbox-wrap'><input type='checkbox' name='logHexdump' value='enabled'></div></div>
     <div class='setting-row'><label class='setting-label'>Debug log USB</label><div class='checkbox-wrap'><input type='checkbox' name='logSerial1' value='enabled'></div></div>
     <div class='setting-row'><label class='setting-label'>Emulate optional PCB</label><div class='checkbox-wrap'><input type='checkbox' name='optionalPCB' value='enabled'></div></div>
-    <div class='setting-row'><label class='setting-label'>Enable Opentherm processing</label><div class='checkbox-wrap'><input type='checkbox' name='opentherm' value='enabled'></div></div>
     <div class='setting-row'><label class='setting-label'>Enable CZ-TAW1 proxy port</label><div class='checkbox-wrap'><input type='checkbox' name='proxy' value='enabled'></div></div>
     <div class='setting-row'><label class='setting-label'>Force rules on boot</label><div class='checkbox-wrap'><input type='checkbox' name='force_rules' value='enabled'></div></div>
   </div></div>

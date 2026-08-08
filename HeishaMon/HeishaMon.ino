@@ -18,7 +18,9 @@
   #define PROXYRX 9
   #define PROXYTX 8
   #define ENABLEPIN 5
+#ifndef HEISHAMON_DISABLE_OPENTHERM
   #define ENABLEOTPIN 4
+#endif
   #define LEDPIN 42
   #define BOOTPIN 0
 #include <WiFi.h>
@@ -472,10 +474,6 @@ void mqtt_reconnect()
     if (mqtt_client.connect(heishamonSettings.wifi_hostname, heishamonSettings.mqtt_username, heishamonSettings.mqtt_password, topic, 1, true, "Offline"))
     {
       mqttReconnects++;
-      if (heishamonSettings.opentherm) {
-        sprintf(topic, "%s/%s/#", heishamonSettings.mqtt_topic_base, mqtt_topic_opentherm_read);
-        mqtt_client.subscribe(topic);
-      }
       sprintf(topic, "%s/%s/#", heishamonSettings.mqtt_topic_base, mqtt_topic_commands);
       mqtt_client.subscribe(topic);
       sprintf(topic, "%s/%s/#", heishamonSettings.mqtt_topic_base, mqtt_topic_gpio);
@@ -1011,9 +1009,6 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
       decode_heatpump_data(msg, actData, mqtt_client, log_message, heishamonSettings.mqtt_topic_base, heishamonSettings.updateAllTime);
       memcpy(actData, msg, DATASIZE);
 #endif
-    } else if (strncmp(topic_command, mqtt_topic_opentherm_read, strlen(mqtt_topic_opentherm_read)) == 0)  {
-      char* topic_otcommand = topic_command + strlen(mqtt_topic_opentherm_read) + 1; //strip the opentherm subtopic from the topic
-      mqttOTCallback(topic_otcommand, msg);
     } else if (strncmp(topic_command, mqtt_topic_gpio, strlen(mqtt_topic_gpio)) == 0)  {
       char* topic_gpiocommand = topic_command + strlen(mqtt_topic_gpio) + 1; //strip the gpio subtopic from the topic
       mqttGPIOCallback(topic_gpiocommand, msg);
@@ -1402,9 +1397,8 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
           case 110: {
               int ret = saveSettings(client, &heishamonSettings);
               #ifdef ESP8266
-              if ((!heishamonSettings.opentherm) && (heishamonSettings.listenonly)) {
+              if (heishamonSettings.listenonly) {
                 //make sure we disable TX to heatpump-RX using the mosfet so this line is floating and will not disturb cz-taw1
-                //does not work for opentherm version currently
                 digitalWrite(ENABLEPIN, LOW);
               } else {
                 digitalWrite(ENABLEPIN, HIGH);
@@ -1414,11 +1408,6 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
                 digitalWrite(ENABLEPIN, LOW);
               } else {
                 digitalWrite(ENABLEPIN, HIGH);
-              }
-              if (!heishamonSettings.opentherm) {
-                digitalWrite(ENABLEOTPIN, LOW);
-              } else {
-                digitalWrite(ENABLEOTPIN, HIGH);
               }
               #endif
               switch (client->route) {
@@ -1658,7 +1647,7 @@ void switchSerial() {
   heatpumpSerial.flush();
   //swap to gpio13 (D7) and gpio15 (D8)
   heatpumpSerial.swap();
-  //turn on GPIO's on tx/rx for opentherm part
+  //enable the alternate UART pins after swapping the serial interface
   pinMode(1, FUNCTION_3);
   pinMode(3, FUNCTION_3);
 #elif defined(ESP32)
@@ -1677,11 +1666,6 @@ void switchSerial() {
 
   //mosfet output enable
   pinMode(ENABLEPIN, OUTPUT);
-  #if defined (ESP32)
-  //OT 24v booster disable from boot
-  pinMode(ENABLEOTPIN, OUTPUT);
-  digitalWrite(ENABLEOTPIN, LOW);
-  #endif
 
   //try to detect if cz-taw1 is connected in parallel
   if (!heishamonSettings.listenonly) {
@@ -1942,19 +1926,6 @@ void setup() {
   dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
   dnsServer.start(DNS_PORT, "*", apIP);
 
-  loggingSerial.println(F("Check OT config..."));
-  //OT begin must be after serial setup
-  if (heishamonSettings.opentherm) {
-    #if defined(ESP8266)
-    //always enable mosfets if opentherm is used
-    digitalWrite(ENABLEPIN, HIGH);
-    #else
-    //dedicated OT enable pin on ESP32 model
-    digitalWrite(ENABLEOTPIN, HIGH);
-    #endif
-    HeishaOTSetup();
-  }
-
   loggingSerial.println(F("Enabling rules.."));
   if (heishamonSettings.force_rules == false) {
 #if defined(ESP8266)
@@ -2058,10 +2029,6 @@ void loop() {
   ArduinoOTA.handle();
 
   mqtt_client.loop();
-
-  if (heishamonSettings.opentherm) {
-    HeishaOTLoop(actData, mqtt_client, heishamonSettings.mqtt_topic_base);
-  }
 
   readHeatpump();
   customFeaturesLoop(mqtt_client, heishamonSettings.mqtt_topic_base);

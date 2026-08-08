@@ -46,7 +46,7 @@ bool ExternalSensorRegistry::validateTopic(const char *topic, char *message,
   }
   static const char *reserved[] = {
     "commands/", "main/", "extra/", "optional/", "1wire/", "s0/", "gpio/",
-    "opentherm/", "SendRawValue", "LWT", "ip"
+    "SendRawValue", "LWT", "ip"
   };
   for (const char *prefix : reserved) {
     if (strncmp(topic, prefix, strlen(prefix)) == 0) {
