@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <math.h>
+#include <stdlib.h>
 
 struct SchedulerClock {
   bool valid;
@@ -60,4 +61,13 @@ inline bool schedulerCompare(float actual, SchedulerCompareOperator op, float ex
     case SCHEDULER_COMPARE_GREATER: return actual > expected;
     default: return false;
   }
+}
+
+inline bool schedulerParseFiniteNumber(const char *text, float &value) {
+  if (text == nullptr || text[0] == '\0') return false;
+  char *end = nullptr;
+  float parsed = strtof(text, &end);
+  if (end == text || *end != '\0' || !isfinite(parsed)) return false;
+  value = parsed;
+  return true;
 }

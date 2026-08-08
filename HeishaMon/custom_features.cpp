@@ -4,9 +4,11 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <time.h>
 
 #include "scheduler.h"
 #include "smart_dhw.h"
+#include "external_sensors.h"
 #include "webfunctions.h"
 
 #define DATASIZE 203
@@ -64,8 +66,12 @@ static char dashboardWorkflowMessage[128] = "Ready";
 
 static SchedulerManager schedulerManager;
 static SmartDhwController smartDhwController;
+static ExternalSensorRegistry externalSensors;
+static time_t lastNtpSyncEpoch = 0;
 
 static bool schedulerReadTopic(uint8_t topic, float *value);
+static bool schedulerReadValue(SchedulerConditionSource source, uint8_t sourceId,
+  float *value, uint32_t *ageSeconds, char *detail, size_t detailSize);
 static bool smartDhwReadTopic(uint8_t topic, float *value);
 static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType action,
   int16_t value, char *detail, size_t detailSize);
@@ -300,16 +306,24 @@ static bool schedulerReadTopic(uint8_t topic, float *value) {
 
   String topicValue = getDataValue(actData, topic);
   if (topicValue.length() == 0) return false;
-  const char *topicStr = topicValue.c_str();
-  char *end = nullptr;
-  float parsed = strtof(topicStr, &end);
-  if (end == topicStr || *end != '\0' || !isfinite(parsed)) return false;
-  *value = parsed;
-  return true;
+  return schedulerParseFiniteNumber(topicValue.c_str(), *value);
 }
 
 static bool smartDhwReadTopic(uint8_t topic, float *value) {
   return schedulerReadTopic(topic, value);
+}
+
+static bool schedulerReadValue(SchedulerConditionSource source, uint8_t sourceId,
+    float *value, uint32_t *ageSeconds, char *detail, size_t detailSize) {
+  if (source == SCHEDULER_SOURCE_MQTT) {
+    return externalSensors.read(sourceId, value, ageSeconds, detail, detailSize);
+  }
+  bool valid = schedulerReadTopic(sourceId, value);
+  if (ageSeconds != nullptr) *ageSeconds = valid ? 0 : UINT32_MAX;
+  if (!valid && detail != nullptr && detailSize > 0) {
+    snprintf(detail, detailSize, "Panasonic value TOP%u unavailable", sourceId);
+  }
+  return valid;
 }
 
 static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType action,
@@ -411,6 +425,17 @@ static int handleSchedulerStatus(struct webserver_t *client) {
   if (client->content != 0) return 0;
   JsonDocument document;
   schedulerManager.toJson(document);
+  document["ntpSynchronized"] = lastNtpSyncEpoch > 0;
+  char lastSync[20] = "Never";
+  if (lastNtpSyncEpoch > 0) {
+    struct tm local;
+    if (localtime_r(&lastNtpSyncEpoch, &local) != nullptr) {
+      strftime(lastSync, sizeof(lastSync), "%Y-%m-%d %H:%M:%S", &local);
+    }
+  }
+  document["lastNtpSync"] = lastSync;
+  JsonArray sensors = document["externalSensors"].to<JsonArray>();
+  externalSensors.appendConditionSources(sensors);
   size_t length = measureJson(document);
   char *response = (char *)malloc(length + 1);
   if (response == nullptr) {
@@ -434,6 +459,24 @@ static int handleSmartDhwStatus(struct webserver_t *client) {
   if (response == nullptr) {
     webserver_send(client, 503, (char *)"text/plain", 21);
     webserver_send_content_P(client, PSTR("Smart DHW unavailable"), 21);
+    return 0;
+  }
+  serializeJson(document, response, length + 1);
+  webserver_send(client, 200, (char *)"application/json", length);
+  webserver_send_content(client, response, length);
+  free(response);
+  return 0;
+}
+
+static int handleExternalSensorsStatus(struct webserver_t *client) {
+  if (client->content != 0) return 0;
+  JsonDocument document;
+  externalSensors.toJson(document);
+  size_t length = measureJson(document);
+  char *response = (char *)malloc(length + 1);
+  if (response == nullptr) {
+    webserver_send(client, 503, (char *)"text/plain", 28);
+    webserver_send_content_P(client, PSTR("External sensors unavailable"), 28);
     return 0;
   }
   serializeJson(document, response, length + 1);
@@ -537,6 +580,32 @@ static void handleSmartDhwArgument(struct webserver_t *client, struct arguments_
   log_message(result);
 }
 
+static void handleExternalSensorsArgument(struct webserver_t *client, struct arguments_t *args) {
+  char name[16] = {0};
+  snprintf(name, sizeof(name), "%s", (char *)args->name);
+  char value[args->len + 1];
+  snprintf(value, sizeof(value), "%.*s", args->len, args->value);
+  char response[192] = {0};
+  bool accepted = false;
+  if (strcmp(name, "save") == 0) {
+    JsonDocument document;
+    DeserializationError error = deserializeJson(document, value);
+    if (error || !document.is<JsonObject>()) snprintf(response, sizeof(response), "Invalid external sensor JSON");
+    else accepted = externalSensors.upsert(document.as<JsonObjectConst>(), response, sizeof(response));
+  } else if (strcmp(name, "delete") == 0) {
+    char *end = nullptr;
+    long id = strtol(value, &end, 10);
+    if (end == value || *end != '\0' || id < 1 || id > 255) snprintf(response, sizeof(response), "Invalid sensor ID");
+    else accepted = externalSensors.remove((uint8_t)id, response, sizeof(response));
+  } else {
+    snprintf(response, sizeof(response), "Unknown external sensor command");
+  }
+  char result[224];
+  snprintf(result, sizeof(result), "%s: %s", accepted ? "OK" : "ERROR", response);
+  appendCustomResponse(client, result);
+  log_message(result);
+}
+
 static int handleWpSettingsConfigStatus(struct webserver_t *client) {
   if (client->content == 0) {
     char response[128];
@@ -597,9 +666,12 @@ bool customFeaturesHandleUri(struct webserver_t *client, const char *uri) {
   else if (strcmp(uri, "/smartdhw") == 0) client->route = 17;
   else if (strcmp(uri, "/smartdhwapi") == 0) client->route = 18;
   else if (strcmp(uri, "/smartdhwcommand") == 0) client->route = 19;
+  else if (strcmp(uri, "/externalsensors") == 0) client->route = 24;
+  else if (strcmp(uri, "/externalsensorsapi") == 0) client->route = 25;
+  else if (strcmp(uri, "/externalsensorscommand") == 0) client->route = 26;
   else return false;
 
-  if (client->route == 14 || client->route == 19) {
+  if (client->route == 14 || client->route == 19 || client->route == 26) {
     client->userdata = malloc(1);
     if (client->userdata == nullptr) {
       log_message((char *)"Out of memory while creating custom request");
@@ -618,6 +690,10 @@ bool customFeaturesHandleArgs(struct webserver_t *client, struct arguments_t *ar
   }
   if (client->route == 19) {
     handleSmartDhwArgument(client, args);
+    return true;
+  }
+  if (client->route == 26) {
+    handleExternalSensorsArgument(client, args);
     return true;
   }
   return false;
@@ -666,18 +742,61 @@ bool customFeaturesHandleWrite(struct webserver_t *client) {
     case 16: handleWpSettingsConfigStatus(client); return true;
     case 17: handleSmartDhw(client); return true;
     case 18: handleSmartDhwStatus(client); return true;
+    case 24: handleExternalSensors(client); return true;
+    case 25: handleExternalSensorsStatus(client); return true;
+    case 26:
+      if (client->content == 0) {
+        char *response = (char *)client->userdata;
+        size_t length = response == nullptr ? 0 : strlen(response);
+        webserver_send(client, 200, (char *)"text/plain", length);
+        if (length > 0) webserver_send_content(client, response, length);
+        free(response);
+        client->userdata = nullptr;
+      }
+      return true;
     default: return false;
   }
 }
 
 void customFeaturesBegin() {
+  externalSensors.begin(log_message);
   log_message((char *)"Loading local scheduler...");
-  schedulerManager.begin(schedulerReadTopic, schedulerDispatchAction, log_message);
+  schedulerManager.begin(schedulerReadValue, schedulerDispatchAction, log_message);
   log_message((char *)"Loading Smart DHW...");
   smartDhwController.begin(&schedulerManager, smartDhwReadTopic, log_message);
 }
 
-void customFeaturesLoop() {
+bool customFeaturesHandleMqttMessage(const char *topic, const char *mqttBase,
+    const uint8_t *payload, size_t length) {
+  if (topic == nullptr || mqttBase == nullptr || payload == nullptr) return false;
+  size_t baseLength = strlen(mqttBase);
+  size_t topicLength = strlen(topic);
+  if (topicLength <= baseLength || strncmp(topic, mqttBase, baseLength) != 0 ||
+      topic[baseLength] != '/') return false;
+  return externalSensors.handleMqttMessage(topic + baseLength + 1, payload, length);
+}
+
+void customFeaturesMqttConnected(PubSubClient &client, const char *mqttBase) {
+  externalSensors.setMqttConnected(true);
+  externalSensors.subscribe(client, mqttBase);
+}
+
+void customFeaturesMqttDisconnected() {
+  externalSensors.setMqttConnected(false);
+}
+
+void customFeaturesLoop(PubSubClient &mqttClient, const char *mqttBase) {
+  time_t currentTime = time(nullptr);
+  struct tm currentLocal;
+  if (currentTime > 0 && localtime_r(&currentTime, &currentLocal) != nullptr &&
+      currentLocal.tm_year + 1900 >= 2024 && lastNtpSyncEpoch == 0) {
+    lastNtpSyncEpoch = currentTime;
+  }
+  if (!mqttClient.connected()) externalSensors.setMqttConnected(false);
+  else if (externalSensors.subscriptionsDirty()) {
+    externalSensors.setMqttConnected(true);
+    externalSensors.subscribe(mqttClient, mqttBase);
+  }
   processDashboardWorkflow();
   schedulerManager.loop();
   smartDhwController.loop();

@@ -1078,6 +1078,24 @@ int handleScheduler(struct webserver_t *client) {
   return 0;
 }
 
+int handleExternalSensors(struct webserver_t *client) {
+  switch (client->content) {
+    case 0: {
+        webserver_send(client, 200, (char *)"text/html", 0);
+        webserver_send_content_P(client, webHeader, strlen_P(webHeader));
+        webserver_send_content_P(client, webCSS, strlen_P(webCSS));
+        webserver_send_content_P(client, webBodyStart, strlen_P(webBodyStart));
+        webserver_send_content_P(client, webBodyExternalSensors, strlen_P(webBodyExternalSensors));
+      } break;
+    case 1: {
+        webserver_send_content_P(client, menuJS, strlen_P(menuJS));
+        webserver_send_content_P(client, externalSensorsJS, strlen_P(externalSensorsJS));
+        webserver_send_content_P(client, webFooter, strlen_P(webFooter));
+      } break;
+  }
+  return 0;
+}
+
 int handleSmartDhw(struct webserver_t *client) {
   switch (client->content) {
     case 0: {

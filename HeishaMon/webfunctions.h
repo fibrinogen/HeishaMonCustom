@@ -97,6 +97,7 @@ int handleRoot(struct webserver_t *client, float readpercentage, int mqttReconne
 int handleDashboard(struct webserver_t *client);
 int handleWpSettings(struct webserver_t *client);
 int handleScheduler(struct webserver_t *client);
+int handleExternalSensors(struct webserver_t *client);
 int handleSmartDhw(struct webserver_t *client);
 int handleHardware(struct webserver_t *client);
 int handleHardwareApi(struct webserver_t *client, char* actData, settingsStruct *heishamonSettings);

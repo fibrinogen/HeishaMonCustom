@@ -4,11 +4,12 @@
 #include <ArduinoJson.h>
 #include "scheduler_logic.h"
 
-#define SCHEDULER_CONFIG_VERSION 1
-#define SCHEDULER_MAX_ENTRIES 16
+#define SCHEDULER_CONFIG_VERSION 2
+#define SCHEDULER_MAX_ENTRIES 24
 #define SCHEDULER_MAX_EVENTS 10
 #define SCHEDULER_NAME_LENGTH 33
 #define SCHEDULER_DETAIL_LENGTH 128
+#define SCHEDULER_MAX_CONDITIONS 4
 
 enum SchedulerActionType : uint8_t {
   SCHEDULER_ACTION_FORCE_DHW = 0,
@@ -31,6 +32,20 @@ enum SchedulerConditionField : uint8_t {
   SCHEDULER_CONDITION_COUNT
 };
 
+enum SchedulerConditionSource : uint8_t {
+  SCHEDULER_SOURCE_LOCAL = 0,
+  SCHEDULER_SOURCE_MQTT,
+  SCHEDULER_SOURCE_COUNT
+};
+
+struct SchedulerCondition {
+  SchedulerConditionSource source;
+  SchedulerConditionField field;
+  uint8_t externalSensorId;
+  SchedulerCompareOperator compare;
+  float value;
+};
+
 enum SchedulerDispatchResult : uint8_t {
   SCHEDULER_DISPATCH_EXECUTED = 0,
   SCHEDULER_DISPATCH_NO_CHANGE,
@@ -47,9 +62,8 @@ struct SchedulerEntry {
   uint8_t minute;
   SchedulerActionType action;
   int16_t actionValue;
-  SchedulerConditionField conditionField;
-  SchedulerCompareOperator conditionOperator;
-  float conditionValue;
+  uint8_t conditionCount;
+  SchedulerCondition conditions[SCHEDULER_MAX_CONDITIONS];
   uint32_t lastExecutionKey;
 };
 
@@ -62,6 +76,8 @@ struct SchedulerEvent {
 };
 
 typedef bool (*SchedulerStateReader)(uint8_t topic, float *value);
+typedef bool (*SchedulerValueReader)(SchedulerConditionSource source, uint8_t sourceId,
+  float *value, uint32_t *ageSeconds, char *detail, size_t detailSize);
 typedef SchedulerDispatchResult (*SchedulerActionDispatcher)(SchedulerActionType action,
   int16_t value, char *detail, size_t detailSize);
 typedef void (*SchedulerLogger)(char *message);
@@ -72,7 +88,7 @@ typedef bool (*SchedulerDispatchGuard)(void *context);
 class SchedulerManager {
  public:
   SchedulerManager();
-  void begin(SchedulerStateReader stateReader, SchedulerActionDispatcher dispatcher,
+  void begin(SchedulerValueReader valueReader, SchedulerActionDispatcher dispatcher,
     SchedulerLogger logger);
   void loop();
 
@@ -124,7 +140,7 @@ class SchedulerManager {
   bool clockWasValid_;
   uint32_t lastCheckedMinuteKey_;
   unsigned long lastDispatchAt_;
-  SchedulerStateReader stateReader_;
+  SchedulerValueReader valueReader_;
   SchedulerActionDispatcher dispatcher_;
   SchedulerLogger logger_;
 
@@ -145,7 +161,9 @@ class SchedulerManager {
   bool validateEntry(const SchedulerEntry &entry, char *message, size_t messageSize) const;
   static bool parseAction(const char *name, SchedulerActionType &action);
   static bool parseCondition(const char *name, SchedulerConditionField &field);
+  static bool parseSource(const char *name, SchedulerConditionSource &source);
   static bool parseOperator(const char *name, SchedulerCompareOperator &op);
   static uint8_t conditionTopic(SchedulerConditionField field);
+  static const char *sourceName(SchedulerConditionSource source);
   void entryToJson(const SchedulerEntry &entry, JsonObject object) const;
 };

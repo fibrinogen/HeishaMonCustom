@@ -511,6 +511,7 @@ void mqtt_reconnect()
         if (heishamonSettings.use_1wire) resetlastalldatatime_dallas(); //resend all 1wire values to mqtt
         resetlastalldatatime(); //resend all heatpump values to mqtt
       }
+      customFeaturesMqttConnected(mqtt_client, heishamonSettings.mqtt_topic_base);
       //use this to receive valid heishamon raw data from other heishamon to debug this OT code
 //#define RAWDEBUG
 #ifdef RAWDEBUG
@@ -973,8 +974,10 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
       topic = topiccopy;	
     }
 	  
-	char* topic_command = topic + strlen(heishamonSettings.mqtt_topic_base) + 1; //strip base plus seperator from topic
-    if (strcmp(topic_command, mqtt_send_raw_value_topic) == 0)
+    bool customMqttHandled = customFeaturesHandleMqttMessage(topic,
+      heishamonSettings.mqtt_topic_base, (const uint8_t *)msg, length);
+    char* topic_command = topic + strlen(heishamonSettings.mqtt_topic_base) + 1; //strip base plus seperator from topic
+    if (!customMqttHandled && strcmp(topic_command, mqtt_send_raw_value_topic) == 0)
     { // send a raw hex string
       byte *rawcommand;
       rawcommand = (byte *) malloc(length);
@@ -2061,7 +2064,7 @@ void loop() {
   }
 
   readHeatpump();
-  customFeaturesLoop();
+  customFeaturesLoop(mqtt_client, heishamonSettings.mqtt_topic_base);
 
 #ifdef ESP32
   if (heishamonSettings.proxy) readProxy();
@@ -2118,6 +2121,7 @@ void loop() {
   #endif
     {
       if (mqttReconnects > 0 ) log_message(_F("Lost MQTT connection!"));
+      customFeaturesMqttDisconnected();
       if (strlen(heishamonSettings.mqtt_server) > 0) mqtt_reconnect();
     }
 

@@ -9,15 +9,15 @@ static const unsigned long SCHEDULER_DISPATCH_INTERVAL_MS = 2000UL;
 SchedulerManager::SchedulerManager()
   : count_(0), eventStart_(0), eventCount_(0), pendingStart_(0), pendingCount_(0),
     enabled_(true), clockWasValid_(false), lastCheckedMinuteKey_(UINT32_MAX),
-    lastDispatchAt_(0), stateReader_(nullptr), dispatcher_(nullptr), logger_(nullptr) {
+    lastDispatchAt_(0), valueReader_(nullptr), dispatcher_(nullptr), logger_(nullptr) {
   memset(entries_, 0, sizeof(entries_));
   memset(events_, 0, sizeof(events_));
   memset(pending_, 0, sizeof(pending_));
 }
 
-void SchedulerManager::begin(SchedulerStateReader stateReader,
+void SchedulerManager::begin(SchedulerValueReader valueReader,
     SchedulerActionDispatcher dispatcher, SchedulerLogger logger) {
-  stateReader_ = stateReader;
+  valueReader_ = valueReader;
   dispatcher_ = dispatcher;
   logger_ = logger;
   if (!load()) log("[SCHED] no valid scheduler configuration loaded; using safe defaults");
@@ -91,24 +91,55 @@ void SchedulerManager::checkSchedules(const SchedulerClock &clock) {
 
 bool SchedulerManager::evaluateCondition(const SchedulerEntry &entry,
     char *detail, size_t detailSize) {
-  if (entry.conditionField == SCHEDULER_CONDITION_NONE) {
+  if (entry.conditionCount == 0) {
     snprintf(detail, detailSize, "No condition");
     return true;
   }
-  if (stateReader_ == nullptr) {
-    snprintf(detail, detailSize, "Condition state reader unavailable");
+  if (valueReader_ == nullptr) {
+    snprintf(detail, detailSize, "Condition value provider unavailable");
     return false;
   }
-  float actual = 0;
-  if (!stateReader_(conditionTopic(entry.conditionField), &actual) || !isfinite(actual)) {
-    snprintf(detail, detailSize, "%s unavailable", conditionName(entry.conditionField));
-    return false;
+  size_t used = 0;
+  for (uint8_t i = 0; i < entry.conditionCount; i++) {
+    const SchedulerCondition &condition = entry.conditions[i];
+    float actual = 0;
+    uint32_t ageSeconds = 0;
+    char providerDetail[64] = {0};
+    uint8_t sourceId = condition.source == SCHEDULER_SOURCE_LOCAL ?
+      conditionTopic(condition.field) : condition.externalSensorId;
+    if (!valueReader_(condition.source, sourceId, &actual, &ageSeconds,
+        providerDetail, sizeof(providerDetail)) || !isfinite(actual)) {
+      if (providerDetail[0] != '\0') {
+        snprintf(detail, detailSize, "%s", providerDetail);
+      } else if (condition.source == SCHEDULER_SOURCE_LOCAL) {
+        snprintf(detail, detailSize, "%s unavailable", conditionName(condition.field));
+      } else {
+        snprintf(detail, detailSize, "External sensor %u unavailable", condition.externalSensorId);
+      }
+      return false;
+    }
+    bool result = schedulerCompare(actual, condition.compare, condition.value);
+    char part[96];
+    if (condition.source == SCHEDULER_SOURCE_LOCAL) {
+      snprintf(part, sizeof(part), "%s %.2f %s %.2f -> %s",
+        conditionName(condition.field), actual, operatorName(condition.compare),
+        condition.value, result ? "true" : "false");
+    } else {
+      snprintf(part, sizeof(part), "External sensor %u %.2f %s %.2f -> %s",
+        condition.externalSensorId, actual, operatorName(condition.compare),
+        condition.value, result ? "true" : "false");
+    }
+    if (i > 0 && used + 5 < detailSize) {
+      strlcpy(detail + used, " AND ", detailSize - used);
+      used += 5;
+    }
+    if (used < detailSize) {
+      strlcpy(detail + used, part, detailSize - used);
+      used = strlen(detail);
+    }
+    if (!result) return false;
   }
-  bool result = schedulerCompare(actual, entry.conditionOperator, entry.conditionValue);
-  snprintf(detail, detailSize, "%s %.2f %s %.2f -> %s",
-    conditionName(entry.conditionField), actual, operatorName(entry.conditionOperator),
-    entry.conditionValue, result ? "true" : "false");
-  return result;
+  return true;
 }
 
 bool SchedulerManager::enqueue(const SchedulerEntry &entry, const char *conditionDetail,
@@ -272,10 +303,25 @@ bool SchedulerManager::validateEntry(const SchedulerEntry &entry,
       break;
     default: break;
   }
-  if (entry.conditionField >= SCHEDULER_CONDITION_COUNT ||
-      entry.conditionOperator > SCHEDULER_COMPARE_GREATER || !isfinite(entry.conditionValue) ||
-      entry.conditionValue < -100.0f || entry.conditionValue > 200.0f) {
-    snprintf(message, messageSize, "Invalid condition"); return false;
+  if (entry.conditionCount > SCHEDULER_MAX_CONDITIONS) {
+    snprintf(message, messageSize, "At most %u conditions are supported", SCHEDULER_MAX_CONDITIONS);
+    return false;
+  }
+  for (uint8_t i = 0; i < entry.conditionCount; i++) {
+    const SchedulerCondition &condition = entry.conditions[i];
+    if (condition.source >= SCHEDULER_SOURCE_COUNT ||
+        condition.compare > SCHEDULER_COMPARE_GREATER || !isfinite(condition.value) ||
+        condition.value < -100.0f || condition.value > 200.0f) {
+      snprintf(message, messageSize, "Invalid condition"); return false;
+    }
+    if (condition.source == SCHEDULER_SOURCE_LOCAL) {
+      if (condition.field == SCHEDULER_CONDITION_NONE ||
+          condition.field >= SCHEDULER_CONDITION_COUNT) {
+        snprintf(message, messageSize, "Invalid local condition"); return false;
+      }
+    } else if (condition.externalSensorId == 0) {
+      snprintf(message, messageSize, "Invalid external sensor ID"); return false;
+    }
   }
   snprintf(message, messageSize, "OK");
   return true;
@@ -307,17 +353,56 @@ bool SchedulerManager::parseEntry(JsonObjectConst object, SchedulerEntry &entry,
   entry.hour = (uint8_t)hour;
   entry.minute = (uint8_t)minute;
   entry.actionValue = (int16_t)actionValue;
-  entry.conditionValue = object["conditionValue"] | 0.0f;
   entry.lastExecutionKey = UINT32_MAX;
 
   if (!parseAction(object["action"] | "", entry.action)) {
     snprintf(message, messageSize, "Unknown action"); return false;
   }
-  if (!parseCondition(object["conditionField"] | "none", entry.conditionField)) {
-    snprintf(message, messageSize, "Unknown condition field"); return false;
-  }
-  if (!parseOperator(object["conditionOperator"] | "<", entry.conditionOperator)) {
-    snprintf(message, messageSize, "Unknown condition operator"); return false;
+  JsonArrayConst conditions = object["conditions"].as<JsonArrayConst>();
+  if (!conditions.isNull()) {
+    for (JsonObjectConst conditionObject : conditions) {
+      if (entry.conditionCount >= SCHEDULER_MAX_CONDITIONS) {
+        snprintf(message, messageSize, "At most %u conditions are supported", SCHEDULER_MAX_CONDITIONS);
+        return false;
+      }
+      SchedulerCondition &condition = entry.conditions[entry.conditionCount];
+      if (!parseSource(conditionObject["source"] | "local", condition.source)) {
+        snprintf(message, messageSize, "Unknown condition source"); return false;
+      }
+      if (!parseOperator(conditionObject["operator"] | "<", condition.compare)) {
+        snprintf(message, messageSize, "Unknown condition operator"); return false;
+      }
+      condition.value = conditionObject["value"] | 0.0f;
+      if (condition.source == SCHEDULER_SOURCE_LOCAL) {
+        if (!parseCondition(conditionObject["field"] | "none", condition.field)) {
+          snprintf(message, messageSize, "Unknown condition field"); return false;
+        }
+        condition.externalSensorId = 0;
+      } else {
+        condition.field = SCHEDULER_CONDITION_NONE;
+        long sensorId = conditionObject["sensorId"] | 0L;
+        if (sensorId < 1 || sensorId > 255) {
+          snprintf(message, messageSize, "Invalid external sensor ID"); return false;
+        }
+        condition.externalSensorId = (uint8_t)sensorId;
+      }
+      entry.conditionCount++;
+    }
+  } else {
+    SchedulerConditionField field;
+    SchedulerCompareOperator compare;
+    if (!parseCondition(object["conditionField"] | "none", field) ||
+        !parseOperator(object["conditionOperator"] | "<", compare)) {
+      snprintf(message, messageSize, "Unknown legacy condition"); return false;
+    }
+    if (field != SCHEDULER_CONDITION_NONE) {
+      entry.conditionCount = 1;
+      entry.conditions[0].source = SCHEDULER_SOURCE_LOCAL;
+      entry.conditions[0].field = field;
+      entry.conditions[0].externalSensorId = 0;
+      entry.conditions[0].compare = compare;
+      entry.conditions[0].value = object["conditionValue"] | 0.0f;
+    }
   }
   return validateEntry(entry, message, messageSize);
 }
@@ -332,7 +417,10 @@ bool SchedulerManager::upsert(JsonObjectConst object, char *message, size_t mess
   bool adding = index < 0;
   SchedulerEntry previous = {};
   if (adding) {
-    if (count_ >= SCHEDULER_MAX_ENTRIES) { snprintf(message, messageSize, "Maximum of 16 schedules reached"); return false; }
+    if (count_ >= SCHEDULER_MAX_ENTRIES) {
+      snprintf(message, messageSize, "Maximum of %u schedules reached", SCHEDULER_MAX_ENTRIES);
+      return false;
+    }
     entry.id = nextId();
     if (entry.id == 0) { snprintf(message, messageSize, "No schedule ID available"); return false; }
     entries_[count_++] = entry;
@@ -436,7 +524,8 @@ bool SchedulerManager::load() {
   JsonDocument document;
   DeserializationError error = deserializeJson(document, file);
   file.close();
-  if (error || (document["version"] | 0) != SCHEDULER_CONFIG_VERSION) {
+  int version = document["version"] | 0;
+  if (error || (version != 1 && version != SCHEDULER_CONFIG_VERSION)) {
     enabled_ = false;
     return false;
   }
@@ -480,9 +569,28 @@ void SchedulerManager::entryToJson(const SchedulerEntry &entry, JsonObject objec
   object["minute"] = entry.minute;
   object["action"] = actionName(entry.action);
   object["actionValue"] = entry.actionValue;
-  object["conditionField"] = conditionName(entry.conditionField);
-  object["conditionOperator"] = operatorName(entry.conditionOperator);
-  object["conditionValue"] = entry.conditionValue;
+  JsonArray conditions = object["conditions"].to<JsonArray>();
+  for (uint8_t i = 0; i < entry.conditionCount; i++) {
+    const SchedulerCondition &condition = entry.conditions[i];
+    JsonObject conditionObject = conditions.add<JsonObject>();
+    conditionObject["source"] = sourceName(condition.source);
+    conditionObject["operator"] = operatorName(condition.compare);
+    conditionObject["value"] = condition.value;
+    if (condition.source == SCHEDULER_SOURCE_LOCAL) {
+      conditionObject["field"] = conditionName(condition.field);
+    } else {
+      conditionObject["sensorId"] = condition.externalSensorId;
+    }
+  }
+  if (entry.conditionCount > 0 && entry.conditions[0].source == SCHEDULER_SOURCE_LOCAL) {
+    object["conditionField"] = conditionName(entry.conditions[0].field);
+    object["conditionOperator"] = operatorName(entry.conditions[0].compare);
+    object["conditionValue"] = entry.conditions[0].value;
+  } else {
+    object["conditionField"] = "none";
+    object["conditionOperator"] = "<";
+    object["conditionValue"] = 0;
+  }
 }
 
 void SchedulerManager::toJson(JsonDocument &document) const {
@@ -501,6 +609,45 @@ void SchedulerManager::toJson(JsonDocument &document) const {
   }
   document["localTime"] = localTime;
   document["pendingActions"] = pendingCount_;
+  float mainScheduleState = 0;
+  uint32_t mainScheduleAge = 0;
+  char mainScheduleDetail[64] = {0};
+  bool mainScheduleKnown = valueReader_ != nullptr && valueReader_(SCHEDULER_SOURCE_LOCAL,
+    13, &mainScheduleState, &mainScheduleAge, mainScheduleDetail,
+    sizeof(mainScheduleDetail));
+  document["panasonicSchedulerKnown"] = mainScheduleKnown;
+  if (mainScheduleKnown) document["panasonicSchedulerEnabled"] = lroundf(mainScheduleState) != 0;
+  else document["panasonicSchedulerEnabled"] = nullptr;
+  document["localSchedulerIndependent"] = true;
+
+  char nextAction[96] = "None configured";
+  if (clockValid()) {
+    SchedulerClock current;
+    readClock(current);
+    uint16_t currentMinutes = (uint16_t)current.hour * 60U + current.minute;
+    uint8_t bestDayOffset = 8;
+    uint16_t bestMinutes = 1440;
+    const SchedulerEntry *bestEntry = nullptr;
+    for (uint8_t dayOffset = 0; dayOffset <= 7; dayOffset++) {
+      uint8_t weekDay = (uint8_t)((current.weekDay + dayOffset) % 7);
+      for (uint8_t i = 0; i < count_; i++) {
+        const SchedulerEntry &entry = entries_[i];
+        if (!entry.enabled || (entry.dayMask & (1U << weekDay)) == 0) continue;
+        uint16_t entryMinutes = (uint16_t)entry.hour * 60U + entry.minute;
+        if (dayOffset == 0 && entryMinutes <= currentMinutes) continue;
+        if (dayOffset < bestDayOffset ||
+            (dayOffset == bestDayOffset && entryMinutes < bestMinutes)) {
+          bestDayOffset = dayOffset;
+          bestMinutes = entryMinutes;
+          bestEntry = &entry;
+        }
+      }
+    }
+    if (bestEntry != nullptr) snprintf(nextAction, sizeof(nextAction),
+      "%s at %02u:%02u (%u day%s)", bestEntry->name, bestEntry->hour,
+      bestEntry->minute, bestDayOffset, bestDayOffset == 1 ? "" : "s");
+  }
+  document["nextScheduledAction"] = nextAction;
 
   JsonArray entries = document["entries"].to<JsonArray>();
   for (uint8_t i = 0; i < count_; i++) entryToJson(entries_[i], entries.add<JsonObject>());
@@ -530,6 +677,10 @@ const char *SchedulerManager::conditionName(SchedulerConditionField field) {
   return field < SCHEDULER_CONDITION_COUNT ? names[field] : "unknown";
 }
 
+const char *SchedulerManager::sourceName(SchedulerConditionSource source) {
+  return source == SCHEDULER_SOURCE_MQTT ? "mqtt" : "local";
+}
+
 const char *SchedulerManager::operatorName(SchedulerCompareOperator op) {
   static const char *names[] = {"<", "<=", "==", ">=", ">"};
   return op <= SCHEDULER_COMPARE_GREATER ? names[op] : "?";
@@ -545,6 +696,18 @@ bool SchedulerManager::parseAction(const char *name, SchedulerActionType &action
 bool SchedulerManager::parseCondition(const char *name, SchedulerConditionField &field) {
   for (uint8_t i = 0; i < SCHEDULER_CONDITION_COUNT; i++) {
     if (strcmp(name, conditionName((SchedulerConditionField)i)) == 0) { field = (SchedulerConditionField)i; return true; }
+  }
+  return false;
+}
+
+bool SchedulerManager::parseSource(const char *name, SchedulerConditionSource &source) {
+  if (strcmp(name, "local") == 0) {
+    source = SCHEDULER_SOURCE_LOCAL;
+    return true;
+  }
+  if (strcmp(name, "mqtt") == 0 || strcmp(name, "external_mqtt") == 0) {
+    source = SCHEDULER_SOURCE_MQTT;
+    return true;
   }
   return false;
 }

@@ -39,6 +39,15 @@ int main() {
   assert(schedulerCompare(42.005f, SCHEDULER_COMPARE_EQUAL, 42.0f));
   assert(schedulerCompare(42.0f, SCHEDULER_COMPARE_GREATER_EQUAL, 42.0f));
 
+  // Strict numeric parsing rejects empty, partial and non-finite payloads.
+  float parsed = 0;
+  assert(schedulerParseFiniteNumber("63.2", parsed) && parsed == 63.2f);
+  assert(schedulerParseFiniteNumber("-250", parsed) && parsed == -250.0f);
+  assert(!schedulerParseFiniteNumber("", parsed));
+  assert(!schedulerParseFiniteNumber("63.2 C", parsed));
+  assert(!schedulerParseFiniteNumber("nan", parsed));
+  assert(!schedulerParseFiniteNumber("1e999", parsed));
+
   // 8: an invalid clock pauses execution.
   SchedulerClock invalidClock = clockAt(1970, 0, 3, 18, 0, false);
   assert(!schedulerTimeMatches(true, 0x7F, 18, 0, invalidClock, never));
