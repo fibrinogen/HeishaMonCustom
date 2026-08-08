@@ -19,7 +19,6 @@ static uint8_t ntpservers = 0;
 
 void log_message(char* string);
 void log_message(const __FlashStringHelper *msg);
-bool send_command(byte* command, int length);
 
 int dBmToQuality(int dBm) {
   if (dBm == 31)
@@ -1122,26 +1121,149 @@ static bool hardwareDataValid(const char *data) {
     (uint8_t)data[3] == 0x10;
 }
 
+struct HardwareModelInfo {
+  uint8_t bytes[10];
+  const char *model;
+  const char *type;
+  float capacity;
+  const char *power;
+};
+
+// TOP92 identifies the heat pump with the ten bytes at offsets 129..138.
+// This table is based on the maintained HeatPumpType.md catalogue.
+static const HardwareModelInfo hardwareModels[] PROGMEM = {
+  {{0xE2, 0xCF, 0x0B, 0x13, 0x33, 0x32, 0xD1, 0x0C, 0x16, 0x33}, "WH-MDC05H3E5", "HP", 5.0, "1ph"},
+  {{0xE2, 0xCF, 0x0B, 0x14, 0x33, 0x42, 0xD1, 0x0B, 0x17, 0x33}, "WH-MDC07H3E5", "HP", 7.0, "1ph"},
+  {{0xE2, 0xCF, 0x0D, 0x77, 0x09, 0x12, 0xD0, 0x0B, 0x05, 0x11}, "WH-UX09HE5", "T-CAP", 9.0, "1ph"},
+  {{0xE2, 0xCF, 0x0C, 0x88, 0x05, 0x12, 0xD0, 0x0B, 0x97, 0x05}, "WH-UD09HE8", "HP", 9.0, "3ph"},
+  {{0xE2, 0xCF, 0x0D, 0x85, 0x05, 0x12, 0xD0, 0x0C, 0x94, 0x05}, "WH-UX09HE8", "T-CAP", 9.0, "3ph"},
+  {{0xE2, 0xCF, 0x0D, 0x86, 0x05, 0x12, 0xD0, 0x0C, 0x95, 0x05}, "WH-UX12HE8", "T-CAP", 12.0, "3ph"},
+  {{0xE2, 0xCF, 0x0D, 0x87, 0x05, 0x12, 0xD0, 0x0C, 0x96, 0x05}, "WH-UX16HE8", "T-CAP", 16.0, "3ph"},
+  {{0xE2, 0xCE, 0x0D, 0x71, 0x81, 0x72, 0xCE, 0x0C, 0x92, 0x81}, "WH-UD05HE5", "HP", 5.0, "1ph"},
+  {{0x62, 0xD2, 0x0B, 0x43, 0x54, 0x42, 0xD2, 0x0B, 0x72, 0x66}, "WH-UD09JE5", "HP", 9.0, "1ph"},
+  {{0xC2, 0xD3, 0x0B, 0x33, 0x65, 0xB2, 0xD3, 0x0B, 0x94, 0x65}, "WH-MDC05J3E5", "HP", 5.0, "1ph"},
+  {{0xE2, 0xCF, 0x0B, 0x15, 0x33, 0x42, 0xD1, 0x0B, 0x18, 0x33}, "WH-MDC09H3E5", "HP", 9.0, "1ph"},
+  {{0xE2, 0xCF, 0x0B, 0x41, 0x34, 0x82, 0xD1, 0x0B, 0x31, 0x35}, "WH-MXC09H3E5", "T-CAP", 9.0, "1ph"},
+  {{0x62, 0xD2, 0x0B, 0x45, 0x54, 0x42, 0xD2, 0x0B, 0x47, 0x55}, "WH-UD09JE5", "HP - All-In-One", 9.0, "1ph"},
+  {{0xE2, 0xCF, 0x0C, 0x74, 0x09, 0x12, 0xD0, 0x0D, 0x95, 0x05}, "WH-UX12HE8", "T-CAP - All-In-One", 12.0, "3ph"},
+  {{0xE2, 0xCF, 0x0B, 0x82, 0x05, 0x12, 0xD0, 0x0C, 0x91, 0x05}, "WH-UQ09HE8", "T-CAP - Super Quiet", 9.0, "3ph"},
+  {{0xE2, 0xCF, 0x0C, 0x55, 0x14, 0x12, 0xD0, 0x0B, 0x15, 0x08}, "WH-UD09HE5", "HP", 9.0, "1 ph"},
+  {{0xE2, 0xCF, 0x0C, 0x43, 0x00, 0x12, 0xD0, 0x0B, 0x15, 0x08}, "WH-UD09HE5", "HP - All-In-One", 9.0, "1 ph"},
+  {{0x62, 0xD2, 0x0B, 0x45, 0x54, 0x32, 0xD2, 0x0C, 0x45, 0x55}, "WH-UD05JE5", "HP - All-In-One", 5.0, "1ph"},
+  {{0x62, 0xD2, 0x0B, 0x43, 0x54, 0x42, 0xD2, 0x0C, 0x46, 0x55}, "WH-UD07JE5", "HP", 7.0, "1 ph"},
+  {{0xE2, 0xCF, 0x0C, 0x54, 0x14, 0x12, 0xD0, 0x0B, 0x14, 0x08}, "WH-UD07HE5-1", "HP", 7.0, "1 ph"},
+  {{0xC2, 0xD3, 0x0B, 0x34, 0x65, 0xB2, 0xD3, 0x0B, 0x95, 0x65}, "WH-MDC07J3E5", "HP", 7.0, "1ph"},
+  {{0xC2, 0xD3, 0x0B, 0x35, 0x65, 0xB2, 0xD3, 0x0B, 0x96, 0x65}, "WH-MDC09J3E5", "HP", 9.0, "1ph"},
+  {{0x62, 0xD2, 0x0B, 0x41, 0x54, 0x32, 0xD2, 0x0C, 0x45, 0x55}, "WH-UD05JE5", "HP", 5.0, "1ph"},
+  {{0x32, 0xD4, 0x0B, 0x87, 0x84, 0x73, 0x90, 0x0C, 0x84, 0x84}, "WH-MXC09J3E8", "T-CAP", 9.0, "3ph"},
+  {{0x32, 0xD4, 0x0B, 0x88, 0x84, 0x73, 0x90, 0x0C, 0x85, 0x84}, "WH-MXC12J9E8", "T-CAP", 12.0, "3ph"},
+  {{0xE2, 0xCF, 0x0B, 0x75, 0x09, 0x12, 0xD0, 0x0C, 0x06, 0x11}, "WH-UD12HE5", "T-CAP", 12.0, "1ph"},
+  {{0x42, 0xD4, 0x0B, 0x83, 0x71, 0x42, 0xD2, 0x0C, 0x46, 0x55}, "WH-UD07JE5", "HP - All-In-One Compact", 7.0, "1ph"},
+  {{0xC2, 0xD3, 0x0C, 0x34, 0x65, 0xB2, 0xD3, 0x0B, 0x95, 0x65}, "WH-MDC07J3E5", "HP (new version)", 7.0, "1ph"},
+  {{0xC2, 0xD3, 0x0C, 0x33, 0x65, 0xB2, 0xD3, 0x0B, 0x94, 0x65}, "WH-MDC05J3E5", "HP (new version)", 5.0, "1ph"},
+  {{0xE2, 0xCF, 0x0B, 0x83, 0x05, 0x12, 0xD0, 0x0D, 0x92, 0x05}, "WH-UQ12HE8", "T-CAP - Super Quiet", 12.0, "3ph"},
+  {{0xE2, 0xCF, 0x0C, 0x78, 0x09, 0x12, 0xD0, 0x0B, 0x06, 0x11}, "WH-UX12HE5", "T-CAP", 12.0, "1ph"},
+  {{0xC2, 0xD3, 0x0C, 0x35, 0x65, 0xB2, 0xD3, 0x0B, 0x96, 0x65}, "WH-MDC09J3E5", "HP (new version?)", 9.0, "1ph"},
+  {{0x32, 0xD4, 0x0B, 0x99, 0x77, 0x62, 0x90, 0x0B, 0x01, 0x78}, "WH-MXC09J3E5", "T-CAP", 9.0, "1ph"},
+  {{0x42, 0xD4, 0x0B, 0x15, 0x76, 0x12, 0xD0, 0x0B, 0x10, 0x11}, "WH-UD12HE5", "HP - All-In-One Compact", 12.0, "1ph"},
+  {{0xE2, 0xD5, 0x0C, 0x29, 0x99, 0x83, 0x92, 0x0C, 0x28, 0x98}, "WH-WDG07LE5", "HP - All-In-One L-series", 7.0, "1ph"},
+  {{0xE2, 0xCF, 0x0D, 0x85, 0x05, 0x12, 0xD0, 0x0E, 0x94, 0x05}, "WH-UX09HE8", "T-CAP - new version", 9.0, "3ph"},
+  {{0xE2, 0xD5, 0x0D, 0x36, 0x99, 0x02, 0xD6, 0x0F, 0x67, 0x95}, "WH-UDZ07KE5", "HP - All-In-One K-series - AN", 7.0, "1ph"},
+  {{0xE2, 0xD5, 0x0B, 0x08, 0x95, 0x02, 0xD6, 0x0E, 0x66, 0x95}, "WH-UDZ05KE5", "HP - split K-series", 5.0, "1ph"},
+  {{0xE2, 0xD5, 0x0B, 0x34, 0x99, 0x83, 0x92, 0x0C, 0x29, 0x98}, "WH-WDG09LE5", "HP - split L-series 3kW elec heating", 9.0, "1 ph"},
+  {{0xE2, 0xCF, 0x0C, 0x89, 0x05, 0x12, 0xD0, 0x0C, 0x98, 0x05}, "WH-UD12HE8", "HP", 12.0, "3ph"},
+  {{0xE2, 0xD5, 0x0B, 0x08, 0x95, 0x02, 0xD6, 0x0E, 0x67, 0x95}, "WH-UDZ07KE5", "HP - split K-series", 7.0, "1ph"},
+  {{0xE2, 0xCF, 0x0C, 0x74, 0x09, 0x12, 0xD0, 0x0C, 0x96, 0x05}, "WH-UX16HE8", "T-CAP - All-In-One", 16.0, "3ph"},
+  {{0xE2, 0xCF, 0x0C, 0x74, 0x09, 0x12, 0xD0, 0x0E, 0x95, 0x05}, "WH-UX12HE8", "T-CAP - All-In-One", 12.0, "3ph"},
+  {{0x32, 0xD4, 0x0B, 0x89, 0x84, 0x73, 0x90, 0x0C, 0x86, 0x84}, "WH-MXC16J9E8", "T-CAP", 16.0, "3ph"},
+  {{0x32, 0xD4, 0x0B, 0x00, 0x78, 0x62, 0x90, 0x0B, 0x02, 0x78}, "WH-MXC12J6E5", "T-CAP", 12.0, "1ph"},
+  {{0xE2, 0xCF, 0x0B, 0x82, 0x05, 0x12, 0xD0, 0x0D, 0x91, 0x05}, "WH-UQ09HE8", "T-CAP - Super Quiet revised model", 9.0, "3ph"},
+  {{0xE2, 0xD5, 0x0D, 0x99, 0x94, 0x02, 0xD6, 0x0D, 0x68, 0x95}, "WH-UDZ09KE5", "HP - K-series All-in-One R32", 9.0, "1ph"},
+  {{0xE2, 0xCF, 0x0C, 0x74, 0x09, 0x12, 0xD0, 0x0C, 0x95, 0x05}, "WH-UX12HE8", "T-CAP - All-In-One", 12.0, "3ph"},
+  {{0xE2, 0xD5, 0x0B, 0x34, 0x99, 0x83, 0x92, 0x0C, 0x28, 0x98}, "WH-WDG07LE5", "HP - split L-series 3kW elec heating", 7.0, "1 ph"},
+  {{0xE2, 0xCF, 0x0D, 0x77, 0x09, 0x12, 0xD0, 0x0C, 0x05, 0x11}, "WH-UX09HE5", "T-CAP", 9.0, "1ph"},
+  {{0xE2, 0xCF, 0x0B, 0x44, 0x34, 0x12, 0xD0, 0x0C, 0x34, 0x35}, "WH-MXC12H9E8", "T-CAP", 12.0, "3ph"},
+  {{0xE2, 0xD5, 0x0C, 0x67, 0x00, 0x83, 0x92, 0x0C, 0x27, 0x98}, "WH-WDG05LE5", "HP - split L-series 3kW elec heating - AN", 5.0, "1ph"},
+  {{0xE2, 0xD5, 0x0B, 0x34, 0x99, 0x83, 0x92, 0x0C, 0x27, 0x98}, "WH-WDG05LE5", "HP - split L-series 3kW elec heating", 5.0, "1ph"},
+  {{0x42, 0xD4, 0x0B, 0x83, 0x71, 0x32, 0xD2, 0x0C, 0x44, 0x55}, "WH-UD03JE5", "HP - All-In-One Compact", 3.2, "1ph"},
+  {{0xE2, 0xCF, 0x0C, 0x74, 0x09, 0x12, 0xD0, 0x0E, 0x94, 0x05}, "WH-UX09HE8", "T-CAP - All-In-One", 9.0, "3ph"},
+  {{0x12, 0xD7, 0x0D, 0x98, 0x11, 0x33, 0x94, 0x0C, 0x83, 0x10}, "WH-WXG09ME8", "T-CAP - M-series DHW 185l", 9.0, "2ph"},
+  {{0xE2, 0xD5, 0x0B, 0x08, 0x95, 0x02, 0xD6, 0x0F, 0x67, 0x95}, "WH-UDZ07KE5", "HP - split K-series (sold in Poland)", 7.0, "1ph"},
+  {{0xE2, 0xD5, 0x0D, 0x36, 0x99, 0x02, 0xD6, 0x10, 0x66, 0x95}, "WH-UDZ05KE5", "HP - All-In-One K-series - AN", 5.0, "1ph"},
+  {{0xE2, 0xD5, 0x0F, 0x99, 0x94, 0x02, 0xD6, 0x10, 0x68, 0x95}, "WH-UDZ09KE5", "HP - split K-series 9KW", 9.0, "1ph"},
+  {{0xE2, 0xD5, 0x0C, 0x67, 0x00, 0x83, 0x92, 0x0C, 0x28, 0x98}, "WH-WDG07LE5", "HP - All-In-One L-series - AN", 7.0, "1ph"},
+  {{0xE2, 0xCF, 0x0D, 0x86, 0x05, 0x12, 0xD0, 0x0E, 0x95, 0x05}, "WH-UX12HE8", "T-CAP", 12.0, "3ph"},
+  {{0x12, 0xD7, 0x0C, 0x98, 0x14, 0x35, 0x94, 0x0D, 0x83, 0x10}, "WH-WXG09ME8", "T-CAP - M-series", 9.0, "3ph"},
+  {{0xE2, 0xD5, 0x0C, 0x08, 0x95, 0x02, 0xD6, 0x10, 0x67, 0x95}, "WH-UDZ07KE5", "HP - split K-series 3kW elec heating", 7.0, "1ph"},
+  {{0xC2, 0xD3, 0x0D, 0x35, 0x65, 0xB2, 0xD3, 0x0B, 0x96, 0x65}, "WH-MDC09J3E5-1", "HP", 9.0, "1ph"},
+  {{0xE2, 0xD5, 0x0C, 0x29, 0x99, 0x83, 0x92, 0x0C, 0x29, 0x98}, "WH-WDG09LE5", "HP - All-In-One L-series", 9.0, "1ph"},
+  {{0x62, 0xD2, 0x0B, 0x45, 0x54, 0x42, 0xD2, 0x0B, 0x72, 0x66}, "WH-UD09JE5-1", "HP - All-In-One J-series", 9.0, "1ph"},
+  {{0xE2, 0xCF, 0x0B, 0x82, 0x09, 0x12, 0xD0, 0x0B, 0x10, 0x11}, "WH-UD12HE5", "HP", 12.0, "1ph"},
+  {{0x42, 0xD4, 0x0B, 0x83, 0x71, 0x32, 0xD2, 0x0C, 0x45, 0x55}, "WH-UD05JE5", "HP - All-In-One J-series", 5.0, "1ph"},
+  {{0x12, 0xD7, 0x0B, 0x47, 0x19, 0x37, 0x94, 0x0E, 0x83, 0x10}, "WH-WXG09ME8", "T-CAP - M-series DHW 260l", 9.0, "3ph"},
+  {{0xE2, 0xD5, 0x0D, 0x00, 0x09, 0x43, 0xD6, 0x0E, 0x07, 0x09}, "WH-UDZ09KE8", "HP", 9.0, "3ph"},
+  {{0xE2, 0xCF, 0x0B, 0x84, 0x05, 0x12, 0xD0, 0x0B, 0x93, 0x05}, "WH-UQ16HE8", "T-CAP - Bi-bloc H Serie", 16.0, "3ph"},
+  {{0xE2, 0xD5, 0x0B, 0x35, 0x99, 0x83, 0x92, 0x0D, 0x29, 0x98}, "WH-WDG09LE5", "HP - split L-series 6kW elec heating", 9.0, "1 ph"},
+  {{0x12, 0xD7, 0x0B, 0x98, 0x14, 0x35, 0x94, 0x0D, 0x83, 0x10}, "WH-WXG09ME8", "T-CAP - M-series", 9.0, "3ph"},
+  {{0xE2, 0xCF, 0x0C, 0x77, 0x09, 0x12, 0xD0, 0x0B, 0x05, 0x11}, "WH-UX09HE5", "T-CAP", 9.0, "1ph"},
+};
+
+static bool hardwareLookupModel(char *data, HardwareModelInfo *result) {
+  if (!hardwareDataValid(data) || result == nullptr) return false;
+  for (size_t i = 0; i < sizeof(hardwareModels) / sizeof(hardwareModels[0]); ++i) {
+    HardwareModelInfo candidate;
+    memcpy_P(&candidate, &hardwareModels[i], sizeof(candidate));
+    if (memcmp(data + 129, candidate.bytes, sizeof(candidate.bytes)) == 0) {
+      *result = candidate;
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool hardwareSupportsWaterPressure(const HardwareModelInfo *model) {
+  if (model == nullptr || model->model == nullptr) return false;
+  String name = String(model->model);
+  return name.indexOf("UDZ") >= 0 || name.indexOf("WDG") >= 0;
+}
+
 static String hardwareTopicValue(char *data, uint8_t topic) {
   if (!hardwareDataValid(data)) return String("Unavailable");
   String value = getDataValue(data, topic);
   return value.length() > 0 ? value : String("Unavailable");
 }
 
-static bool appendHardwareResponse(struct webserver_t *client, const char *message) {
-  if (client == nullptr || message == nullptr) return false;
-  char *oldResponse = (char *)client->userdata;
-  size_t oldLength = oldResponse ? strlen(oldResponse) : 0;
-  size_t messageLength = strlen(message);
-  char *newResponse = (char *)realloc(oldResponse, oldLength + messageLength + 1);
-  if (newResponse == nullptr) {
-    Serial1.printf(PSTR("Out of memory %s:#%d\n"), __FUNCTION__, __LINE__);
-    ESP.restart();
-    exit(-1);
+static String hardwareMappedTopicValue(char *data, uint8_t topic) {
+  String value = hardwareTopicValue(data, topic);
+  if (value == F("Unavailable")) return value;
+  int code = value.toInt();
+  switch (topic) {
+    case 58:
+    case 59:
+      return code == 0 ? String("Disabled") : code == 1 ? String("Enabled") : String("Unavailable");
+    case 76:
+    case 81:
+      return code == 0 ? String("Compensation curve") : code == 1 ? String("Direct") : String("Unavailable");
+    case 99:
+    case 100:
+    case 108:
+    case 109:
+      return code == 0 ? String("Disabled") : code == 1 ? String("Enabled") : String("Unavailable");
+    case 101:
+      return code == 0 ? String("Disabled") : code == 1 ? String("Buffer") : code == 2 ? String("DHW") : String("Unavailable");
+    case 106:
+      return code == 0 ? String("DeltaT") : code == 1 ? String("Maximum flow") : String("Unavailable");
+    case 107:
+      return code == 0 ? String("Water") : code == 1 ? String("Glycol") : String("Unavailable");
+    case 111:
+    case 112:
+      return code == 0 ? String("Water temperature") :
+        code == 1 ? String("Thermostat (external)") :
+        code == 2 ? String("Thermostat (internal)") :
+        code == 3 ? String("Thermistor") : String("Unavailable");
+    default:
+      return value;
   }
-  memcpy(newResponse + oldLength, message, messageLength + 1);
-  client->userdata = newResponse;
-  return true;
 }
 
 int handleHardwareApi(struct webserver_t *client, char* actData, settingsStruct *heishamonSettings) {
@@ -1152,39 +1274,41 @@ int handleHardwareApi(struct webserver_t *client, char* actData, settingsStruct 
   JsonObject root = document.to<JsonObject>();
   root[F("available")] = hardwareDataValid(actData);
 
-  // These values are decoded from the last valid 0x10 status frame. Values
-  // without a corresponding standard TOP are deliberately reported as
-  // unavailable instead of being guessed from the model.
-  root[F("model")] = hardwareTopicValue(actData, 92);
-  root[F("type")] = F("Unavailable");
-  root[F("capacity")] = F("Unavailable");
-  root[F("power")] = F("Unavailable");
+  // TOP92 is a Panasonic model code, not a printable model string. Decode it
+  // against the known model catalogue; never expose the raw hex as a model.
+  HardwareModelInfo modelInfo;
+  bool modelKnown = hardwareLookupModel(actData, &modelInfo);
+  root[F("model")] = modelKnown ? String(modelInfo.model) : String("Unknown");
+  root[F("type")] = modelKnown ? String(modelInfo.type) : String("Unknown");
+  if (modelKnown) {
+    root[F("capacity")] = String(modelInfo.capacity, modelInfo.capacity == (int)modelInfo.capacity ? 0 : 1) + F(" kW");
+    String phase = String(modelInfo.power);
+    root[F("power")] = phase.startsWith("1") ? F("1 Phase") : phase.startsWith("2") ? F("2 Phase") : F("3 Phase");
+  } else {
+    root[F("capacity")] = F("Unknown");
+    root[F("power")] = F("Unknown");
+  }
   root[F("operationHours")] = hardwareTopicValue(actData, 11);
   root[F("operationCounter")] = hardwareTopicValue(actData, 12);
-  root[F("roomHeaterHours")] = hardwareTopicValue(actData, 90);
-  root[F("dhwHeaterHours")] = hardwareTopicValue(actData, 91);
-  root[F("highPressure")] = hardwareTopicValue(actData, 64);
-  root[F("lowPressure")] = hardwareTopicValue(actData, 66);
-  root[F("flowRate")] = hardwareTopicValue(actData, 1);
-  root[F("waterPressure")] = hardwareTopicValue(actData, 115);
-  root[F("heatingMode")] = hardwareTopicValue(actData, 76);
-  root[F("roomHeaterState")] = hardwareTopicValue(actData, 59);
-  root[F("dhwHeaterState")] = hardwareTopicValue(actData, 58);
-  root[F("activeZones")] = hardwareTopicValue(actData, 94);
-  root[F("bufferInstalled")] = hardwareTopicValue(actData, 99);
+  root[F("backupHeatHours")] = hardwareTopicValue(actData, 90);
+  root[F("backupDhwHours")] = hardwareTopicValue(actData, 91);
+  root[F("waterPressure")] = modelKnown && hardwareSupportsWaterPressure(&modelInfo) ?
+    hardwareTopicValue(actData, 115) : String("n/a");
+  root[F("heatingMode")] = hardwareMappedTopicValue(actData, 76);
+  // MQTT-Topics.md defines TOP112 as zone 1 and TOP111 as zone 2.
+  root[F("zone1Sensor")] = hardwareMappedTopicValue(actData, 112);
+  root[F("zone2Sensor")] = hardwareMappedTopicValue(actData, 111);
+  root[F("roomHeaterState")] = hardwareMappedTopicValue(actData, 59);
+  root[F("bufferInstalled")] = hardwareMappedTopicValue(actData, 99);
   root[F("bufferTankDelta")] = hardwareTopicValue(actData, 113);
-  root[F("dhwInstalled")] = hardwareTopicValue(actData, 100);
-  root[F("coolingMode")] = hardwareTopicValue(actData, 81);
-  root[F("solarMode")] = hardwareTopicValue(actData, 101);
-  root[F("pumpFlowMode")] = hardwareTopicValue(actData, 106);
-  root[F("liquidType")] = hardwareTopicValue(actData, 107);
-  root[F("externalSensor")] = hardwareTopicValue(actData, 108);
-  root[F("antiFreezeMode")] = hardwareTopicValue(actData, 109);
-
-  String zone1Value = hardwareTopicValue(actData, 111);
-  String zone2Value = hardwareTopicValue(actData, 112);
-  root[F("zone1Control")] = zone1Value == F("Unavailable") ? -1 : zone1Value.toInt();
-  root[F("zone2Control")] = zone2Value == F("Unavailable") ? -1 : zone2Value.toInt();
+  root[F("dhwInstalled")] = hardwareMappedTopicValue(actData, 100);
+  root[F("dhwHeaterState")] = hardwareMappedTopicValue(actData, 58);
+  root[F("coolingMode")] = hardwareMappedTopicValue(actData, 81);
+  root[F("solarMode")] = hardwareMappedTopicValue(actData, 101);
+  root[F("pumpFlowMode")] = hardwareMappedTopicValue(actData, 106);
+  root[F("liquidType")] = hardwareMappedTopicValue(actData, 107);
+  root[F("externalSensor")] = hardwareMappedTopicValue(actData, 108);
+  root[F("antiFreezeMode")] = hardwareMappedTopicValue(actData, 109);
 
   size_t length = measureJson(document);
   char *response = (char *)malloc(length + 1);
@@ -1199,49 +1323,6 @@ int handleHardwareApi(struct webserver_t *client, char* actData, settingsStruct 
   free(response);
   return 0;
 }
-
-int handleSetHardware(struct webserver_t *client, struct arguments_t *args, char* actData, settingsStruct *heishamonSettings) {
-  (void)actData;
-  if (args == nullptr || heishamonSettings == nullptr) return 0;
-
-  char response[256] = {0};
-  if (strcmp((char *)args->name, "zone1control") != 0) {
-    snprintf(response, sizeof(response), "ERROR: Unknown hardware setting '%s'\n", args->name);
-    appendHardwareResponse(client, response);
-    return 0;
-  }
-  if (heishamonSettings->listenonly) {
-    appendHardwareResponse(client, "ERROR: HeishaMon is in listen-only mode\n");
-    return 0;
-  }
-  if (args->len == 0 || args->len >= 16) {
-    appendHardwareResponse(client, "ERROR: Invalid zone1control value\n");
-    return 0;
-  }
-
-  char value[16] = {0};
-  memcpy(value, args->value, args->len);
-  char *end = nullptr;
-  long controlValue = strtol(value, &end, 10);
-  if (end == value || *end != '\0' || controlValue < 0 || controlValue > 1) {
-    appendHardwareResponse(client, "ERROR: zone1control must be 0 or 1\n");
-    return 0;
-  }
-
-  unsigned char command[256] = {0};
-  char logMessage[256] = {0};
-  unsigned int length = set_heatingcontrol(value, command, logMessage);
-  if (length == 0 || !send_command(command, length)) {
-    appendHardwareResponse(client, "ERROR: Heat-pump command was not accepted\n");
-    return 0;
-  }
-
-  snprintf(response, sizeof(response), "OK: %s\n", logMessage);
-  appendHardwareResponse(client, response);
-  log_message(logMessage);
-  return 0;
-}
-
 
 int handleRoot(struct webserver_t *client, float readpercentage, int mqttReconnects, settingsStruct *heishamonSettings) {
   switch (client->content) {

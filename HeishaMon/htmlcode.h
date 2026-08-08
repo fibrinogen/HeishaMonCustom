@@ -423,6 +423,17 @@ input:disabled + .theme-slider-compact {
 .scheduler-event-result.executed,.scheduler-event-result.no-change{color:var(--green)}
 .scheduler-event-result.failed,.scheduler-event-result.busy{color:var(--red)}
 .smart-dhw-page{max-width:1180px;margin:0 auto}
+.hardware-page{max-width:1280px;margin:0 auto}
+.hardware-top-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+.hardware-card{padding:0 14px 12px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg)}
+.hardware-card-title{padding:13px 0 10px;border-bottom:1px solid var(--border);color:#25bdf1;font-size:15px;font-weight:600}
+.hardware-row{display:flex;justify-content:space-between;align-items:center;gap:16px;min-height:39px;padding:7px 6px;color:var(--text-secondary);font-size:12px}
+.hardware-value{color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;text-align:right}
+.hardware-note{margin:10px 6px 2px;padding-top:10px;border-top:1px solid var(--border);color:var(--text-muted);font-size:10.5px;line-height:1.4}
+.hardware-config-card{margin-top:14px}
+.hardware-config-list{max-width:650px;padding-top:7px}
+.hardware-extra{margin-top:14px}
+@media(max-width:900px){.hardware-top-grid{grid-template-columns:1fr}}
 .smart-dhw-status{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
 .smart-dhw-status .scheduler-status-card{min-width:0}
 .smart-dhw-wide{grid-column:span 2}
@@ -2161,78 +2172,56 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>`;
 });
 </script>
-<main class='main-content smart-dhw-page'>
+<main class='main-content hardware-page'>
   <div class='scheduler-heading'><div><h1>Hardware</h1><p>Heat pump hardware information and configuration.</p></div></div>
-  
-  <div class='smart-dhw-status'>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Model</span><span id='hardwareModel' class='scheduler-status-value'>Loading ...</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Type</span><span id='hardwareType' class='scheduler-status-value'>Unavailable</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Capacity</span><span id='hardwareCapacity' class='scheduler-status-value'>Unavailable</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Power</span><span id='hardwarePower' class='scheduler-status-value'>Unavailable</span></div>
+  <div class='hardware-top-grid'>
+    <section class='hardware-card'>
+      <div class='hardware-card-title'>Hardware information</div>
+      <div class='hardware-row'><span>Model</span><span id='hardwareModel' class='hardware-value'>Loading ...</span></div>
+      <div class='hardware-row'><span>Type</span><span id='hardwareType' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>Heat capacity</span><span id='hardwareCapacity' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>Power connection</span><span id='hardwarePower' class='hardware-value'>--</span></div>
+      <div class='hardware-note'>Note:<br>If the model information is unknown, this means the HeishaMon firmware does not recognize the model yet. It has no impact on functionality.</div>
+    </section>
+    <section class='hardware-card'>
+      <div class='hardware-card-title'>Operation information</div>
+      <div class='hardware-row'><span>Operation hours</span><span id='operationHours' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>Operation counter</span><span id='operationCounter' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>Backup heater hours (DHW)</span><span id='backupDhwHours' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>Backup heater hours (HEAT)</span><span id='backupHeatHours' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>Water pressure (bar)</span><span id='waterPressure' class='hardware-value'>--</span></div>
+    </section>
   </div>
 
-  <section class='scheduler-panel'>
-    <div class='scheduler-panel-header'><h2>Operation statistics</h2><span class='dashboard-muted'>Total operation hours and counters</span></div>
-    <div class='smart-dhw-config'>
-      <section class='smart-dhw-card'>
-        <h3>Operation</h3>
-        <div class='smart-dhw-row'><label>Operation hours</label><span id='operationHours' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>Operation counter</label><span id='operationCounter' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>Room heater hours</label><span id='roomHeaterHours' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>DHW heater hours</label><span id='dhwHeaterHours' class='scheduler-mono'>--</span></div>
-      </section>
-      <section class='smart-dhw-card'>
-        <h3>Pressure & Flow</h3>
-        <div class='smart-dhw-row'><label>High pressure</label><span id='highPressure' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>Low pressure</label><span id='lowPressure' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>Flow rate</label><span id='flowRate' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>Water pressure</label><span id='waterPressure' class='scheduler-mono'>--</span></div>
-      </section>
+  <section class='hardware-card hardware-config-card'>
+    <div class='hardware-card-title'>Hardware configuration</div>
+    <div class='hardware-config-list'>
+      <div class='hardware-row'><span>Heating mode</span><span id='heatingMode' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>Zone 1 control method / sensor</span><span id='zone1Sensor' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>Zone 2 control method / sensor</span><span id='zone2Sensor' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>Room heater state</span><span id='roomHeaterState' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>Buffer installed</span><span id='bufferInstalled' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>Buffer tank delta</span><span id='bufferTankDelta' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>DHW installed</span><span id='dhwInstalled' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>DHW heater state</span><span id='dhwHeaterState' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>Cooling mode</span><span id='coolingMode' class='hardware-value'>--</span></div>
+      <div class='hardware-row'><span>Solar mode</span><span id='solarMode' class='hardware-value'>--</span></div>
     </div>
   </section>
 
-  <section class='scheduler-panel'>
-    <div class='scheduler-panel-header'><h2>Hardware configuration</h2><span class='dashboard-muted'>Read-only hardware settings</span></div>
-    <div class='smart-dhw-config'>
-      <section class='smart-dhw-card'>
-        <h3>System</h3>
-        <div class='smart-dhw-row'><label>Heating installed</label><span id='heatingInstalled' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>Cooling installed</label><span id='coolingInstalled' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>Solar installed</label><span id='solarInstalled' class='scheduler-mono'>--</span></div>
-      </section>
-      <section class='smart-dhw-card'>
-        <h3>Zones</h3>
-        <div class='smart-dhw-row'><label>Zone 1 control</label><div class='smart-dhw-unit'><select id='zone1Control' class='scheduler-input' disabled><option value='0'>Room sensor</option><option value='1'>Water sensor</option></select><button class='btn btn-primary' onclick='setZone1Control()'>SET</button></div></div>
-        <div class='smart-dhw-row'><label>Active zones</label><span id='activeZones' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>Buffer installed</label><span id='bufferInstalled' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>Buffer tank delta</label><span id='bufferTankDelta' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>DHW installed</label><span id='dhwInstalled' class='scheduler-mono'>--</span></div>
-      </section>
+  <section class='hardware-card hardware-extra'>
+    <div class='hardware-card-title'>Additional decoded information</div>
+    <div class='hardware-top-grid'>
+      <div>
+        <div class='hardware-row'><span>Pump flowrate mode</span><span id='pumpFlowMode' class='hardware-value'>--</span></div>
+        <div class='hardware-row'><span>Liquid type</span><span id='liquidType' class='hardware-value'>--</span></div>
+      </div>
+      <div>
+        <div class='hardware-row'><span>Alternative external sensor</span><span id='externalSensor' class='hardware-value'>--</span></div>
+        <div class='hardware-row'><span>Anti-freeze mode</span><span id='antiFreezeMode' class='hardware-value'>--</span></div>
+      </div>
     </div>
   </section>
-
-  <section class='scheduler-panel'>
-    <div class='scheduler-panel-header'><h2>Additional settings</h2><span class='dashboard-muted'>Hardware-specific configuration</span></div>
-    <div class='smart-dhw-config'>
-      <section class='smart-dhw-card'>
-        <h3>Modes</h3>
-        <div class='smart-dhw-row'><label>Heating mode</label><span id='heatingMode' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>Room heater state</label><span id='roomHeaterState' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>DHW heater state</label><span id='dhwHeaterState' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>Cooling mode</label><span id='coolingMode' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>Solar mode</label><span id='solarMode' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>Pump flowrate mode</label><span id='pumpFlowMode' class='scheduler-mono'>--</span></div>
-      </section>
-      <section class='smart-dhw-card'>
-        <h3>Liquid & Sensor</h3>
-        <div class='smart-dhw-row'><label>Liquid type</label><span id='liquidType' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>External sensor</label><span id='externalSensor' class='scheduler-mono'>--</span></div>
-        <div class='smart-dhw-row'><label>Anti-freeze mode</label><span id='antiFreezeMode' class='scheduler-mono'>--</span></div>
-      </section>
-    </div>
-  </section>
-  
-  <div id='hardwareCommandStatus' class='scheduler-command-status'></div>
 </main>
 )===";
 
@@ -2240,60 +2229,29 @@ document.addEventListener('DOMContentLoaded',function(){
 // HARDWARE PAGE JAVASCRIPT
 // ─────────────────────────────────────────────────────────────────────────────
 static const char hardwareJS[] FLASHPROG = R"===(<script>
-var hardwareBusy = false;
 var hardwareRefreshPromise = null;
 
 function hardwareDisplay(value) {
   return value === undefined || value === null || value === '' ? '--' : String(value);
 }
 
-function hardwareStatus(message, isError) {
-  var el = document.getElementById('hardwareCommandStatus');
-  el.textContent = message || '';
-  el.style.color = isError ? 'var(--red)' : 'var(--text-muted)';
-}
-
-function hardwareSetControls(disabled) {
-  document.querySelectorAll('.smart-dhw-page button,.smart-dhw-page input,.smart-dhw-page select').forEach(function(control) {
-    control.disabled = disabled;
-  });
-}
-
 function hardwareRender(data) {
-  // Hardware info
   document.getElementById('hardwareModel').textContent = hardwareDisplay(data.model);
   document.getElementById('hardwareType').textContent = hardwareDisplay(data.type);
   document.getElementById('hardwareCapacity').textContent = hardwareDisplay(data.capacity);
   document.getElementById('hardwarePower').textContent = hardwareDisplay(data.power);
-  
-  // Operation statistics
   document.getElementById('operationHours').textContent = hardwareDisplay(data.operationHours);
   document.getElementById('operationCounter').textContent = hardwareDisplay(data.operationCounter);
-  document.getElementById('roomHeaterHours').textContent = hardwareDisplay(data.roomHeaterHours);
-  document.getElementById('dhwHeaterHours').textContent = hardwareDisplay(data.dhwHeaterHours);
-  document.getElementById('highPressure').textContent = hardwareDisplay(data.highPressure);
-  document.getElementById('lowPressure').textContent = hardwareDisplay(data.lowPressure);
-  document.getElementById('flowRate').textContent = hardwareDisplay(data.flowRate);
+  document.getElementById('backupDhwHours').textContent = hardwareDisplay(data.backupDhwHours);
+  document.getElementById('backupHeatHours').textContent = hardwareDisplay(data.backupHeatHours);
   document.getElementById('waterPressure').textContent = hardwareDisplay(data.waterPressure);
-  
-  // Hardware configuration
-  document.getElementById('heatingInstalled').textContent = hardwareDisplay(data.heatingInstalled);
-  document.getElementById('coolingInstalled').textContent = hardwareDisplay(data.coolingInstalled);
-  document.getElementById('solarInstalled').textContent = hardwareDisplay(data.solarInstalled);
-  document.getElementById('activeZones').textContent = hardwareDisplay(data.activeZones);
+  document.getElementById('heatingMode').textContent = hardwareDisplay(data.heatingMode);
+  document.getElementById('zone1Sensor').textContent = hardwareDisplay(data.zone1Sensor);
+  document.getElementById('zone2Sensor').textContent = hardwareDisplay(data.zone2Sensor);
+  document.getElementById('roomHeaterState').textContent = hardwareDisplay(data.roomHeaterState);
   document.getElementById('bufferInstalled').textContent = hardwareDisplay(data.bufferInstalled);
   document.getElementById('bufferTankDelta').textContent = hardwareDisplay(data.bufferTankDelta);
   document.getElementById('dhwInstalled').textContent = hardwareDisplay(data.dhwInstalled);
-  
-  // Zone 1 control
-  var zone1ControlSelect = document.getElementById('zone1Control');
-  if (data.zone1Control !== undefined && data.zone1Control >= 0) {
-    zone1ControlSelect.value = String(data.zone1Control);
-  }
-  
-  // Additional settings
-  document.getElementById('heatingMode').textContent = hardwareDisplay(data.heatingMode);
-  document.getElementById('roomHeaterState').textContent = hardwareDisplay(data.roomHeaterState);
   document.getElementById('dhwHeaterState').textContent = hardwareDisplay(data.dhwHeaterState);
   document.getElementById('coolingMode').textContent = hardwareDisplay(data.coolingMode);
   document.getElementById('solarMode').textContent = hardwareDisplay(data.solarMode);
@@ -2302,7 +2260,6 @@ function hardwareRender(data) {
   document.getElementById('externalSensor').textContent = hardwareDisplay(data.externalSensor);
   document.getElementById('antiFreezeMode').textContent = hardwareDisplay(data.antiFreezeMode);
   
-  hardwareSetControls(hardwareBusy);
 }
 
 function hardwareRefresh() {
@@ -2320,45 +2277,10 @@ function hardwareRefresh() {
     })
     .catch(function(error) {
       hardwareRefreshPromise = null;
-      hardwareStatus('Refresh failed: ' + error.message, true);
+      console.error('Hardware refresh failed: ' + error.message);
       throw error;
-    });
+  });
   return hardwareRefreshPromise;
-}
-
-function setZone1Control() {
-  if (hardwareBusy) {
-    hardwareStatus('Please wait for the current command.', false);
-    return Promise.reject(new Error('busy'));
-  }
-  
-  var select = document.getElementById('zone1Control');
-  var value = select.value;
-  
-  hardwareBusy = true;
-  hardwareSetControls(true);
-  
-  return fetch('/sethardware?zone1control=' + encodeURIComponent(value), {cache: 'no-store'})
-    .then(function(response) {
-      if (!response.ok) throw new Error('HTTP ' + response.status);
-      return response.text();
-    })
-    .then(function(message) {
-      if (/^ERROR:/m.test(message)) throw new Error(message.replace(/^ERROR:\s*/, '').trim());
-      hardwareStatus(message.replace(/^OK:\s*/, '').trim() || 'Done', false);
-      return hardwareRefresh();
-    })
-    .then(function(data) {
-      hardwareBusy = false;
-      hardwareRender(data);
-      return data;
-    })
-    .catch(function(error) {
-      hardwareBusy = false;
-      hardwareSetControls(false);
-      if (error.message !== 'busy') hardwareStatus('Command failed: ' + error.message, true);
-      throw error;
-    });
 }
 
 document.addEventListener('DOMContentLoaded', function() {

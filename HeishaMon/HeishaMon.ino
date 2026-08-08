@@ -1077,15 +1077,6 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
           client->route = 21;
         } else if (strcmp_P((char *)dat, PSTR("/hardwareapi")) == 0) {
           client->route = 22;
-        } else if (strcmp_P((char *)dat, PSTR("/sethardware")) == 0) {
-          client->route = 23;
-          client->userdata = malloc(1);
-          if (client->userdata == NULL) {
-            loggingSerial.printf(PSTR("Out of memory %s:#%d\n"), __FUNCTION__, __LINE__);
-            ESP.restart();
-            exit(-1);
-          }
-          *((char *)client->userdata) = '\0';
         } else if (strcmp_P((char *)dat, PSTR("/json")) == 0) {
           client->route = 20;
         } else if (strcmp_P((char *)dat, PSTR("/reboot")) == 0) {
@@ -1194,10 +1185,6 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
           return 0;
         }
         switch (client->route) {
-          case 23: {
-              handleSetHardware(client, args, actData, &heishamonSettings);
-              return 0;
-            } break;
           case 60: {
               sprintf_P(log_msg, PSTR("Dallas alias changed address %s to alias %s"), args->name, args->value);
               log_message(log_msg);
@@ -1348,19 +1335,6 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
             } break;
           case 22: {
               return handleHardwareApi(client, actData, &heishamonSettings);
-            } break;
-          case 23: {
-              if (client->content == 0) {
-                char *response = (char *)client->userdata;
-                uint16_t length = response ? (uint16_t)strlen(response) : 0;
-                webserver_send(client, 200, (char *)"text/plain", length);
-                if (length > 0) {
-                  webserver_send_content(client, response, length);
-                }
-                free(response);
-                client->userdata = NULL;
-              }
-              return 0;
             } break;
           case 20: {
               return handleJsonOutput(client, actData, actDataExtra, actOptData, &heishamonSettings, extraDataBlockAvailable);
