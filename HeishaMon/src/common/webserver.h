@@ -89,8 +89,10 @@ typedef struct sendlist_t {
   union {
     void *ptr;
   } data;
-  uint16_t type:1;
-  uint16_t size:15;
+  // Keep the full 16-bit payload length. A 15-bit field silently truncated
+  // embedded pages larger than 32767 bytes and produced malformed HTML.
+  uint32_t type:1;
+  uint32_t size:31;
 #if WEBSERVER_MAX_SENDLIST == 0
   struct sendlist_t *next;
 #endif
