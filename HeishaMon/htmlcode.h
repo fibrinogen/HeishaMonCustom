@@ -390,7 +390,7 @@ input:disabled + .theme-slider-compact {
 .scheduler-panel-header h2{margin:0;color:var(--text-primary);font-size:14px}
 .scheduler-table-wrap{overflow-x:auto}
 .scheduler-table{width:100%;border-collapse:collapse;min-width:850px}
-.scheduler-table th{position:sticky;top:0;background:var(--bg-base);z-index:1;padding:10px 12px;color:var(--text-muted);font-size:10px;font-weight:600;text-align:left;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.scheduler-table th{position:sticky;top:56px;background:var(--bg-base);z-index:1;padding:10px 12px;color:var(--text-muted);font-size:10px;font-weight:600;text-align:left;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
 .scheduler-table td{padding:11px 12px;color:var(--text-secondary);font-size:11.5px;border-bottom:1px solid rgba(42,48,64,.55);vertical-align:middle}
 .scheduler-table tr:last-child td{border-bottom:0}
 .scheduler-table tr:hover td{background:var(--bg-elevated)}
@@ -1378,6 +1378,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
+<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -1532,6 +1533,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
+<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -1799,6 +1801,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
+<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -2051,6 +2054,8 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
+<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -2138,6 +2143,232 @@ document.addEventListener('DOMContentLoaded',function(){smartDhwRefresh();window
 )====";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// HARDWARE PAGE
+// ─────────────────────────────────────────────────────────────────────────────
+static const char webBodyHardware[] FLASHPROG = R"===(<script>
+document.addEventListener('DOMContentLoaded',function(){
+  document.title='Hardware - HeishaMon';
+  document.getElementById('sideNav').innerHTML=`
+<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
+<a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
+<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
+<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
+<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
+<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
+<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>`;
+});
+</script>
+<main class='main-content smart-dhw-page'>
+  <div class='scheduler-heading'><div><h1>Hardware</h1><p>Heat pump hardware information and configuration.</p></div></div>
+  
+  <div class='smart-dhw-status'>
+    <div class='scheduler-status-card'><span class='scheduler-status-label'>Model</span><span id='hardwareModel' class='scheduler-status-value'>Loading ...</span></div>
+    <div class='scheduler-status-card'><span class='scheduler-status-label'>Type</span><span id='hardwareType' class='scheduler-status-value'>Unavailable</span></div>
+    <div class='scheduler-status-card'><span class='scheduler-status-label'>Capacity</span><span id='hardwareCapacity' class='scheduler-status-value'>Unavailable</span></div>
+    <div class='scheduler-status-card'><span class='scheduler-status-label'>Power</span><span id='hardwarePower' class='scheduler-status-value'>Unavailable</span></div>
+  </div>
+
+  <section class='scheduler-panel'>
+    <div class='scheduler-panel-header'><h2>Operation statistics</h2><span class='dashboard-muted'>Total operation hours and counters</span></div>
+    <div class='smart-dhw-config'>
+      <section class='smart-dhw-card'>
+        <h3>Operation</h3>
+        <div class='smart-dhw-row'><label>Operation hours</label><span id='operationHours' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>Operation counter</label><span id='operationCounter' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>Room heater hours</label><span id='roomHeaterHours' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>DHW heater hours</label><span id='dhwHeaterHours' class='scheduler-mono'>--</span></div>
+      </section>
+      <section class='smart-dhw-card'>
+        <h3>Pressure & Flow</h3>
+        <div class='smart-dhw-row'><label>High pressure</label><span id='highPressure' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>Low pressure</label><span id='lowPressure' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>Flow rate</label><span id='flowRate' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>Water pressure</label><span id='waterPressure' class='scheduler-mono'>--</span></div>
+      </section>
+    </div>
+  </section>
+
+  <section class='scheduler-panel'>
+    <div class='scheduler-panel-header'><h2>Hardware configuration</h2><span class='dashboard-muted'>Read-only hardware settings</span></div>
+    <div class='smart-dhw-config'>
+      <section class='smart-dhw-card'>
+        <h3>System</h3>
+        <div class='smart-dhw-row'><label>Heating installed</label><span id='heatingInstalled' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>Cooling installed</label><span id='coolingInstalled' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>Solar installed</label><span id='solarInstalled' class='scheduler-mono'>--</span></div>
+      </section>
+      <section class='smart-dhw-card'>
+        <h3>Zones</h3>
+        <div class='smart-dhw-row'><label>Zone 1 control</label><div class='smart-dhw-unit'><select id='zone1Control' class='scheduler-input' disabled><option value='0'>Room sensor</option><option value='1'>Water sensor</option></select><button class='btn btn-primary' onclick='setZone1Control()'>SET</button></div></div>
+        <div class='smart-dhw-row'><label>Active zones</label><span id='activeZones' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>Buffer installed</label><span id='bufferInstalled' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>Buffer tank delta</label><span id='bufferTankDelta' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>DHW installed</label><span id='dhwInstalled' class='scheduler-mono'>--</span></div>
+      </section>
+    </div>
+  </section>
+
+  <section class='scheduler-panel'>
+    <div class='scheduler-panel-header'><h2>Additional settings</h2><span class='dashboard-muted'>Hardware-specific configuration</span></div>
+    <div class='smart-dhw-config'>
+      <section class='smart-dhw-card'>
+        <h3>Modes</h3>
+        <div class='smart-dhw-row'><label>Heating mode</label><span id='heatingMode' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>Room heater state</label><span id='roomHeaterState' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>DHW heater state</label><span id='dhwHeaterState' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>Cooling mode</label><span id='coolingMode' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>Solar mode</label><span id='solarMode' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>Pump flowrate mode</label><span id='pumpFlowMode' class='scheduler-mono'>--</span></div>
+      </section>
+      <section class='smart-dhw-card'>
+        <h3>Liquid & Sensor</h3>
+        <div class='smart-dhw-row'><label>Liquid type</label><span id='liquidType' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>External sensor</label><span id='externalSensor' class='scheduler-mono'>--</span></div>
+        <div class='smart-dhw-row'><label>Anti-freeze mode</label><span id='antiFreezeMode' class='scheduler-mono'>--</span></div>
+      </section>
+    </div>
+  </section>
+  
+  <div id='hardwareCommandStatus' class='scheduler-command-status'></div>
+</main>
+)===";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HARDWARE PAGE JAVASCRIPT
+// ─────────────────────────────────────────────────────────────────────────────
+static const char hardwareJS[] FLASHPROG = R"===(<script>
+var hardwareBusy = false;
+var hardwareRefreshPromise = null;
+
+function hardwareDisplay(value) {
+  return value === undefined || value === null || value === '' ? '--' : String(value);
+}
+
+function hardwareStatus(message, isError) {
+  var el = document.getElementById('hardwareCommandStatus');
+  el.textContent = message || '';
+  el.style.color = isError ? 'var(--red)' : 'var(--text-muted)';
+}
+
+function hardwareSetControls(disabled) {
+  document.querySelectorAll('.smart-dhw-page button,.smart-dhw-page input,.smart-dhw-page select').forEach(function(control) {
+    control.disabled = disabled;
+  });
+}
+
+function hardwareRender(data) {
+  // Hardware info
+  document.getElementById('hardwareModel').textContent = hardwareDisplay(data.model);
+  document.getElementById('hardwareType').textContent = hardwareDisplay(data.type);
+  document.getElementById('hardwareCapacity').textContent = hardwareDisplay(data.capacity);
+  document.getElementById('hardwarePower').textContent = hardwareDisplay(data.power);
+  
+  // Operation statistics
+  document.getElementById('operationHours').textContent = hardwareDisplay(data.operationHours);
+  document.getElementById('operationCounter').textContent = hardwareDisplay(data.operationCounter);
+  document.getElementById('roomHeaterHours').textContent = hardwareDisplay(data.roomHeaterHours);
+  document.getElementById('dhwHeaterHours').textContent = hardwareDisplay(data.dhwHeaterHours);
+  document.getElementById('highPressure').textContent = hardwareDisplay(data.highPressure);
+  document.getElementById('lowPressure').textContent = hardwareDisplay(data.lowPressure);
+  document.getElementById('flowRate').textContent = hardwareDisplay(data.flowRate);
+  document.getElementById('waterPressure').textContent = hardwareDisplay(data.waterPressure);
+  
+  // Hardware configuration
+  document.getElementById('heatingInstalled').textContent = hardwareDisplay(data.heatingInstalled);
+  document.getElementById('coolingInstalled').textContent = hardwareDisplay(data.coolingInstalled);
+  document.getElementById('solarInstalled').textContent = hardwareDisplay(data.solarInstalled);
+  document.getElementById('activeZones').textContent = hardwareDisplay(data.activeZones);
+  document.getElementById('bufferInstalled').textContent = hardwareDisplay(data.bufferInstalled);
+  document.getElementById('bufferTankDelta').textContent = hardwareDisplay(data.bufferTankDelta);
+  document.getElementById('dhwInstalled').textContent = hardwareDisplay(data.dhwInstalled);
+  
+  // Zone 1 control
+  var zone1ControlSelect = document.getElementById('zone1Control');
+  if (data.zone1Control !== undefined && data.zone1Control >= 0) {
+    zone1ControlSelect.value = String(data.zone1Control);
+  }
+  
+  // Additional settings
+  document.getElementById('heatingMode').textContent = hardwareDisplay(data.heatingMode);
+  document.getElementById('roomHeaterState').textContent = hardwareDisplay(data.roomHeaterState);
+  document.getElementById('dhwHeaterState').textContent = hardwareDisplay(data.dhwHeaterState);
+  document.getElementById('coolingMode').textContent = hardwareDisplay(data.coolingMode);
+  document.getElementById('solarMode').textContent = hardwareDisplay(data.solarMode);
+  document.getElementById('pumpFlowMode').textContent = hardwareDisplay(data.pumpFlowMode);
+  document.getElementById('liquidType').textContent = hardwareDisplay(data.liquidType);
+  document.getElementById('externalSensor').textContent = hardwareDisplay(data.externalSensor);
+  document.getElementById('antiFreezeMode').textContent = hardwareDisplay(data.antiFreezeMode);
+  
+  hardwareSetControls(hardwareBusy);
+}
+
+function hardwareRefresh() {
+  if (hardwareRefreshPromise) return hardwareRefreshPromise;
+  
+  hardwareRefreshPromise = fetch('/hardwareapi', {cache: 'no-store'})
+    .then(function(response) {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.json();
+    })
+    .then(function(data) {
+      hardwareRefreshPromise = null;
+      hardwareRender(data);
+      return data;
+    })
+    .catch(function(error) {
+      hardwareRefreshPromise = null;
+      hardwareStatus('Refresh failed: ' + error.message, true);
+      throw error;
+    });
+  return hardwareRefreshPromise;
+}
+
+function setZone1Control() {
+  if (hardwareBusy) {
+    hardwareStatus('Please wait for the current command.', false);
+    return Promise.reject(new Error('busy'));
+  }
+  
+  var select = document.getElementById('zone1Control');
+  var value = select.value;
+  
+  hardwareBusy = true;
+  hardwareSetControls(true);
+  
+  return fetch('/sethardware?zone1control=' + encodeURIComponent(value), {cache: 'no-store'})
+    .then(function(response) {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.text();
+    })
+    .then(function(message) {
+      if (/^ERROR:/m.test(message)) throw new Error(message.replace(/^ERROR:\s*/, '').trim());
+      hardwareStatus(message.replace(/^OK:\s*/, '').trim() || 'Done', false);
+      return hardwareRefresh();
+    })
+    .then(function(data) {
+      hardwareBusy = false;
+      hardwareRender(data);
+      return data;
+    })
+    .catch(function(error) {
+      hardwareBusy = false;
+      hardwareSetControls(false);
+      if (error.message !== 'busy') hardwareStatus('Command failed: ' + error.message, true);
+      throw error;
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  hardwareRefresh();
+  window.setInterval(hardwareRefresh, 30000); // Refresh every 30 seconds
+});
+</script>
+)===";
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SETTINGS PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 static const char settingsJS[] FLASHPROG = R"====(
@@ -2198,6 +2429,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
+<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -2622,6 +2854,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
+<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>
@@ -3085,6 +3318,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
+<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
 <a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>

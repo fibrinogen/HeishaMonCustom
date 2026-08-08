@@ -19,6 +19,7 @@ static uint8_t ntpservers = 0;
 
 void log_message(char* string);
 void log_message(const __FlashStringHelper *msg);
+bool send_command(byte* command, int length);
 
 int dBmToQuality(int dBm) {
   if (dBm == 31)
@@ -1093,6 +1094,151 @@ int handleSmartDhw(struct webserver_t *client) {
         webserver_send_content_P(client, webFooter, strlen_P(webFooter));
       } break;
   }
+  return 0;
+}
+
+int handleHardware(struct webserver_t *client) {
+  switch (client->content) {
+    case 0: {
+        webserver_send(client, 200, (char *)"text/html", 0);
+        webserver_send_content_P(client, webHeader, strlen_P(webHeader));
+        webserver_send_content_P(client, webCSS, strlen_P(webCSS));
+        webserver_send_content_P(client, webBodyStart, strlen_P(webBodyStart));
+        webserver_send_content_P(client, webBodyHardware, strlen_P(webBodyHardware));
+        webserver_send_content_P(client, hardwareJS, strlen_P(hardwareJS));
+      } break;
+    case 1: {
+        webserver_send_content_P(client, menuJS, strlen_P(menuJS));
+        webserver_send_content_P(client, webFooter, strlen_P(webFooter));
+      } break;
+  }
+  return 0;
+}
+
+
+static bool hardwareDataValid(const char *data) {
+  return data != nullptr && (uint8_t)data[0] == 0x71 &&
+    (uint8_t)data[1] == 0xC8 && (uint8_t)data[2] == 0x01 &&
+    (uint8_t)data[3] == 0x10;
+}
+
+static String hardwareTopicValue(char *data, uint8_t topic) {
+  if (!hardwareDataValid(data)) return String("Unavailable");
+  String value = getDataValue(data, topic);
+  return value.length() > 0 ? value : String("Unavailable");
+}
+
+static bool appendHardwareResponse(struct webserver_t *client, const char *message) {
+  if (client == nullptr || message == nullptr) return false;
+  char *oldResponse = (char *)client->userdata;
+  size_t oldLength = oldResponse ? strlen(oldResponse) : 0;
+  size_t messageLength = strlen(message);
+  char *newResponse = (char *)realloc(oldResponse, oldLength + messageLength + 1);
+  if (newResponse == nullptr) {
+    Serial1.printf(PSTR("Out of memory %s:#%d\n"), __FUNCTION__, __LINE__);
+    ESP.restart();
+    exit(-1);
+  }
+  memcpy(newResponse + oldLength, message, messageLength + 1);
+  client->userdata = newResponse;
+  return true;
+}
+
+int handleHardwareApi(struct webserver_t *client, char* actData, settingsStruct *heishamonSettings) {
+  if (client->content != 0) return 0;
+  (void)heishamonSettings;
+
+  JsonDocument document;
+  JsonObject root = document.to<JsonObject>();
+  root[F("available")] = hardwareDataValid(actData);
+
+  // These values are decoded from the last valid 0x10 status frame. Values
+  // without a corresponding standard TOP are deliberately reported as
+  // unavailable instead of being guessed from the model.
+  root[F("model")] = hardwareTopicValue(actData, 92);
+  root[F("type")] = F("Unavailable");
+  root[F("capacity")] = F("Unavailable");
+  root[F("power")] = F("Unavailable");
+  root[F("operationHours")] = hardwareTopicValue(actData, 11);
+  root[F("operationCounter")] = hardwareTopicValue(actData, 12);
+  root[F("roomHeaterHours")] = hardwareTopicValue(actData, 90);
+  root[F("dhwHeaterHours")] = hardwareTopicValue(actData, 91);
+  root[F("highPressure")] = hardwareTopicValue(actData, 64);
+  root[F("lowPressure")] = hardwareTopicValue(actData, 66);
+  root[F("flowRate")] = hardwareTopicValue(actData, 1);
+  root[F("waterPressure")] = hardwareTopicValue(actData, 115);
+  root[F("heatingMode")] = hardwareTopicValue(actData, 76);
+  root[F("roomHeaterState")] = hardwareTopicValue(actData, 59);
+  root[F("dhwHeaterState")] = hardwareTopicValue(actData, 58);
+  root[F("activeZones")] = hardwareTopicValue(actData, 94);
+  root[F("bufferInstalled")] = hardwareTopicValue(actData, 99);
+  root[F("bufferTankDelta")] = hardwareTopicValue(actData, 113);
+  root[F("dhwInstalled")] = hardwareTopicValue(actData, 100);
+  root[F("coolingMode")] = hardwareTopicValue(actData, 81);
+  root[F("solarMode")] = hardwareTopicValue(actData, 101);
+  root[F("pumpFlowMode")] = hardwareTopicValue(actData, 106);
+  root[F("liquidType")] = hardwareTopicValue(actData, 107);
+  root[F("externalSensor")] = hardwareTopicValue(actData, 108);
+  root[F("antiFreezeMode")] = hardwareTopicValue(actData, 109);
+
+  String zone1Value = hardwareTopicValue(actData, 111);
+  String zone2Value = hardwareTopicValue(actData, 112);
+  root[F("zone1Control")] = zone1Value == F("Unavailable") ? -1 : zone1Value.toInt();
+  root[F("zone2Control")] = zone2Value == F("Unavailable") ? -1 : zone2Value.toInt();
+
+  size_t length = measureJson(document);
+  char *response = (char *)malloc(length + 1);
+  if (response == nullptr) {
+    Serial1.printf(PSTR("Out of memory %s:#%d\n"), __FUNCTION__, __LINE__);
+    ESP.restart();
+    exit(-1);
+  }
+  serializeJson(document, response, length + 1);
+  webserver_send(client, 200, (char *)"application/json", 0);
+  webserver_send_content(client, response, (uint16_t)length);
+  free(response);
+  return 0;
+}
+
+int handleSetHardware(struct webserver_t *client, struct arguments_t *args, char* actData, settingsStruct *heishamonSettings) {
+  (void)actData;
+  if (args == nullptr || heishamonSettings == nullptr) return 0;
+
+  char response[256] = {0};
+  if (strcmp((char *)args->name, "zone1control") != 0) {
+    snprintf(response, sizeof(response), "ERROR: Unknown hardware setting '%s'\n", args->name);
+    appendHardwareResponse(client, response);
+    return 0;
+  }
+  if (heishamonSettings->listenonly) {
+    appendHardwareResponse(client, "ERROR: HeishaMon is in listen-only mode\n");
+    return 0;
+  }
+  if (args->len == 0 || args->len >= 16) {
+    appendHardwareResponse(client, "ERROR: Invalid zone1control value\n");
+    return 0;
+  }
+
+  char value[16] = {0};
+  memcpy(value, args->value, args->len);
+  char *end = nullptr;
+  long controlValue = strtol(value, &end, 10);
+  if (end == value || *end != '\0' || controlValue < 0 || controlValue > 1) {
+    appendHardwareResponse(client, "ERROR: zone1control must be 0 or 1\n");
+    return 0;
+  }
+
+  unsigned char command[256] = {0};
+  char logMessage[256] = {0};
+  unsigned int length = set_heatingcontrol(value, command, logMessage);
+  if (length == 0 || !send_command(command, length)) {
+    appendHardwareResponse(client, "ERROR: Heat-pump command was not accepted\n");
+    return 0;
+  }
+
+  snprintf(response, sizeof(response), "OK: %s\n", logMessage);
+  appendHardwareResponse(client, response);
+  log_message(logMessage);
   return 0;
 }
 
