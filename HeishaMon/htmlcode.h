@@ -137,6 +137,15 @@ body{
 }
 .sidemenu-nav a:hover{background:var(--bg-elevated);color:var(--text-primary)}
 .sidemenu-nav a.active{background:var(--accent-glow);color:var(--accent);font-weight:600}
+.sidemenu-group{margin-bottom:2px}
+.sidemenu-group-toggle{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;border:0;border-radius:var(--radius);margin:0;background:transparent;color:var(--text-secondary);font:400 13px 'Sora',sans-serif;text-align:left;cursor:pointer;transition:background .18s,color .18s}
+.sidemenu-group-toggle:hover,.sidemenu-group-toggle.active{background:var(--bg-elevated);color:var(--text-primary)}
+.sidemenu-group-toggle.active{color:var(--accent);font-weight:600}
+.sidemenu-group-toggle .nav-chevron{margin-left:auto;transition:transform .18s}
+.sidemenu-group.open .nav-chevron{transform:rotate(90deg)}
+.sidemenu-submenu{display:none;padding-left:12px}
+.sidemenu-group.open .sidemenu-submenu{display:block}
+.sidemenu-submenu a{font-size:12px;padding:8px 10px}
 .sidemenu-nav a.danger{color:var(--red)}
 .sidemenu-nav a.danger:hover{background:var(--red-glow)}
 .sidemenu-nav .nav-icon{width:16px;text-align:center;opacity:.7}
@@ -954,14 +963,85 @@ function markActiveNav() {
     if (!target || target.charAt(0) !== '/') return;
     link.classList.toggle('active', target === current);
   });
+  var group = nav.querySelector('[data-custom-nav]');
+  if (group) {
+    var customPaths = ['/dashboard','/wpsettings','/scheduler','/externalsensors','/smartdhw','/hardware'];
+    var customActive = customPaths.indexOf(current) >= 0;
+    var toggle = group.querySelector('.sidemenu-group-toggle');
+    group.classList.toggle('open', customActive || group.classList.contains('user-open'));
+    if (toggle) {
+      toggle.classList.toggle('active', customActive);
+      toggle.setAttribute('aria-expanded', group.classList.contains('open') ? 'true' : 'false');
+    }
+  }
+}
+
+function createNavLink(href, label, icon, className) {
+  var link = document.createElement('a');
+  link.href = href;
+  if (className) link.className = className;
+  var iconElement = document.createElement('span');
+  iconElement.className = 'nav-icon';
+  iconElement.textContent = icon;
+  link.appendChild(iconElement);
+  link.appendChild(document.createTextNode(' ' + label));
+  if (href === '/reboot') link.onclick = function() { return window.confirm('Reboot the device?'); };
+  return link;
+}
+
+function groupCustomNav() {
+  var nav = document.getElementById('sideNav');
+  if (!nav || nav.querySelector('[data-custom-nav]') || !nav.querySelector('a[href]')) return;
+  var group = document.createElement('div');
+  group.className = 'sidemenu-group';
+  group.setAttribute('data-custom-nav', 'true');
+  var toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'sidemenu-group-toggle';
+  toggle.setAttribute('aria-expanded', 'false');
+  var icon = document.createElement('span');
+  icon.className = 'nav-icon';
+  icon.textContent = '◆';
+  toggle.appendChild(icon);
+  toggle.appendChild(document.createTextNode(' Custom Features'));
+  var chevron = document.createElement('span');
+  chevron.className = 'nav-chevron';
+  chevron.textContent = '›';
+  toggle.appendChild(chevron);
+  toggle.onclick = function() {
+    group.classList.toggle('user-open');
+    group.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', group.classList.contains('open') ? 'true' : 'false');
+  };
+  group.appendChild(toggle);
+  var submenu = document.createElement('div');
+  submenu.className = 'sidemenu-submenu';
+  submenu.appendChild(createNavLink('/dashboard', 'WP Dashboard', '▣'));
+  submenu.appendChild(createNavLink('/wpsettings', 'WP Settings', '⚙'));
+  submenu.appendChild(createNavLink('/scheduler', 'Scheduler', '◷'));
+  submenu.appendChild(createNavLink('/externalsensors', 'External Sensors', '◉'));
+  submenu.appendChild(createNavLink('/smartdhw', 'Smart DHW', '♨'));
+  submenu.appendChild(createNavLink('/hardware', 'Hardware', '⚙'));
+  group.appendChild(submenu);
+  nav.innerHTML = '';
+  nav.appendChild(createNavLink('/', 'Home', '↳'));
+  nav.appendChild(group);
+  nav.appendChild(createNavLink('/firmware', 'Firmware', '⇧'));
+  nav.appendChild(createNavLink('/reboot', 'Reboot', '↻', 'danger'));
+  nav.appendChild(createNavLink('/rules', 'Rules', '⌘'));
+  nav.appendChild(createNavLink('/settings', 'Settings', '⚙'));
+  markActiveNav();
 }
 
 function initActiveNav() {
   var nav = document.getElementById('sideNav');
   if (!nav) return;
-  markActiveNav();
+  groupCustomNav();
   if (window.MutationObserver) {
-    new MutationObserver(markActiveNav).observe(nav, {childList:true});
+    new MutationObserver(function() {
+      if (!nav.querySelector('[data-custom-nav]')) groupCustomNav();
+      else markActiveNav();
+    }).observe(nav, {childList:true, subtree:true});
   }
 }
 
