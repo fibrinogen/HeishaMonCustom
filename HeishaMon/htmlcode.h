@@ -1016,8 +1016,8 @@ function groupCustomNav() {
   group.appendChild(toggle);
   var submenu = document.createElement('div');
   submenu.className = 'sidemenu-submenu';
-  submenu.appendChild(createNavLink('/dashboard', 'WP Dashboard', '▣'));
-  submenu.appendChild(createNavLink('/wpsettings', 'WP Settings', '⚙'));
+  submenu.appendChild(createNavLink('/dashboard', 'Dashboard', '▣'));
+  submenu.appendChild(createNavLink('/wpsettings', 'Settings', '⚙'));
   submenu.appendChild(createNavLink('/scheduler', 'Scheduler', '◷'));
   submenu.appendChild(createNavLink('/externalsensors', 'External Sensors', '◉'));
   submenu.appendChild(createNavLink('/smartdhw', 'Smart DHW', '♨'));
@@ -1478,8 +1478,8 @@ document.addEventListener('DOMContentLoaded',function(){
   var nav=document.getElementById('sideNav');
   nav.innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
+<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
@@ -1617,11 +1617,11 @@ static const char webBodyRootConsole[] FLASHPROG = R"====(
 static const char webBodyDashboard[] FLASHPROG = R"====(
 <script>
 document.addEventListener('DOMContentLoaded',function(){
-  document.title='WP Dashboard - HeishaMon';
+  document.title='Dashboard - HeishaMon';
   document.getElementById('sideNav').innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
+<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
@@ -1887,11 +1887,11 @@ document.addEventListener('DOMContentLoaded',function(){
 static const char webBodyWpSettings[] FLASHPROG = R"====(
 <script>
 document.addEventListener('DOMContentLoaded',function(){
-  document.title='WP Settings - HeishaMon';
+  document.title='Settings - HeishaMon';
   document.getElementById('sideNav').innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
+<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
@@ -1941,7 +1941,7 @@ document.addEventListener('DOMContentLoaded',function(){
         <div class='dashboard-section-title'>Custom - Heat water temp limits</div>
         <div class='dashboard-row'><span>Minimum temp.</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpConfigStep('heatMin',-1)">&#8964;</button><span class='dashboard-value'><span id='wpHeatMinValue'>--</span> &deg;C</span><button class='dashboard-step' onclick="wpConfigStep('heatMin',1)">&#8963;</button></div></div>
         <div class='dashboard-row'><span>Maximum temp.</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpConfigStep('heatMax',-1)">&#8964;</button><span class='dashboard-value'><span id='wpHeatMaxValue'>--</span> &deg;C</span><button class='dashboard-step' onclick="wpConfigStep('heatMax',1)">&#8963;</button></div></div>
-        <div class='wp-settings-note'>These limits constrain direct Zone 1 water-temperature changes on WP Dashboard.</div>
+        <div class='wp-settings-note'>These limits constrain direct Zone 1 water-temperature changes on Dashboard.</div>
       </div>
     </section>
 
@@ -1951,7 +1951,7 @@ document.addEventListener('DOMContentLoaded',function(){
         <div class='dashboard-row'><span>DHW delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetDHWHeatDelta','TOP22',-1,-12,-2)">&#8964;</button><span class='dashboard-value'><span id='TOP22-Value'>--</span> &deg;C</span><span id='TOP22-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetDHWHeatDelta','TOP22',1,-12,-2)">&#8963;</button></div></div>
         <div class='dashboard-section-title'>Limits</div>
         <div class='dashboard-row'><span>Block Force DHW above</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpConfigStep('dhwBlockAbove',-1)">&#8964;</button><span class='dashboard-value'><span id='wpDhwBlockValue'>--</span> &deg;C</span><button class='dashboard-step' onclick="wpConfigStep('dhwBlockAbove',1)">&#8963;</button></div></div>
-        <div class='wp-settings-note'>This limit blocks the Force DHW workflow on WP Dashboard when the tank is already warm enough.</div>
+        <div class='wp-settings-note'>This limit blocks the Force DHW workflow on Dashboard when the tank is already warm enough.</div>
         <div id='wpSettingsStatus' class='dashboard-command-status'></div>
       </div>
     </section>
@@ -2006,8 +2006,8 @@ document.addEventListener('DOMContentLoaded',function(){
   document.title='Scheduler - HeishaMon';
   document.getElementById('sideNav').innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
+<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
@@ -2070,7 +2070,7 @@ document.addEventListener('DOMContentLoaded',function(){
         <div class='scheduler-field'><label for='schedulerAction'>Action</label><select id='schedulerAction' class='scheduler-input' onchange='schedulerActionChanged()'><option value='force_dhw'>Force DHW workflow</option><option value='heatpump_on'>Heat pump on</option><option value='heatpump_off'>Heat pump off</option><option value='set_operation_mode'>Set operating mode</option><option value='set_dhw_target'>Set DHW target</option><option value='set_z1_request'>Set Zone 1 request</option><option value='set_quiet_mode'>Set quiet mode</option></select></div>
         <div id='schedulerActionValueField' class='scheduler-field'><label for='schedulerActionValue'>Action value</label><div id='schedulerActionValueContainer'></div></div>
         <div class='scheduler-field full'><label>Conditions (all must be true)</label><div id='schedulerConditions'></div><button type='button' class='btn btn-ghost' onclick='schedulerAddCondition()'>+ Add condition</button></div>
-        <div class='scheduler-field full'><div class='scheduler-form-note'>Force DHW uses the same protected workflow as WP Dashboard. Conditions are evaluated from the latest Panasonic values at the scheduled minute. If time or a required value is unavailable, nothing is sent.</div></div>
+        <div class='scheduler-field full'><div class='scheduler-form-note'>Force DHW uses the same protected workflow as Dashboard. Conditions are evaluated from the latest Panasonic values at the scheduled minute. If time or a required value is unavailable, nothing is sent.</div></div>
       </div>
     </div>
     <div class='scheduler-editor-footer'><button class='btn btn-ghost' onclick='schedulerCloseEditor()'>Cancel</button><button id='schedulerSaveButton' class='btn btn-primary' onclick='schedulerSaveEditor()'>Save schedule</button></div>
@@ -2153,8 +2153,8 @@ static const char webBodyExternalSensors[] FLASHPROG = R"====(
 <script>
 document.addEventListener('DOMContentLoaded',function(){document.title='External Sensors - HeishaMon';document.getElementById('sideNav').innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
+<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
@@ -2200,8 +2200,8 @@ document.addEventListener('DOMContentLoaded',function(){
   document.title='Smart DHW - HeishaMon';
   document.getElementById('sideNav').innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
+<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
@@ -2300,8 +2300,8 @@ document.addEventListener('DOMContentLoaded',function(){
   document.title='Hardware - HeishaMon';
   document.getElementById('sideNav').innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
+<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
@@ -2487,8 +2487,8 @@ document.addEventListener('DOMContentLoaded',function(){
   var nav=document.getElementById('sideNav');
   nav.innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
+<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
@@ -2912,8 +2912,8 @@ document.addEventListener('DOMContentLoaded',function(){
   var nav=document.getElementById('sideNav');
   nav.innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
+<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
@@ -3378,8 +3378,8 @@ document.addEventListener('DOMContentLoaded',function(){
   var nav=document.getElementById('sideNav');
   nav.innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
+<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
 <a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
