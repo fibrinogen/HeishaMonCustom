@@ -43,8 +43,7 @@
 #include "webfunctions.h"
 #include "decode.h"
 #include "commands.h"
-#include "scheduler.h"
-#include "smart_dhw.h"
+#include "custom_features.h"
 #include "rules.h"
 #include "version.h"
 
@@ -117,48 +116,6 @@ char actData[DATASIZE] = { '\0' };
 char actDataExtra[DATASIZE] = { '\0' };
 char actOptData[OPTDATASIZE]  = { '\0' };
 unsigned long lastHeatpumpDataAt = 0;
-
-enum DashboardWorkflowType : uint8_t {
-  DASHBOARD_WORKFLOW_NONE = 0,
-  DASHBOARD_WORKFLOW_DHW,
-  DASHBOARD_WORKFLOW_STERILIZATION
-};
-
-enum DashboardWorkflowStage : uint8_t {
-  DASHBOARD_WORKFLOW_IDLE = 0,
-  DASHBOARD_WORKFLOW_WAIT_FORCE,
-  DASHBOARD_WORKFLOW_ACTIVE,
-  DASHBOARD_WORKFLOW_WAIT_RESTORE
-};
-
-struct DashboardWorkflowState {
-  DashboardWorkflowType type;
-  DashboardWorkflowStage stage;
-  int8_t previousMode;
-  bool modeChanged;
-  bool observedActive;
-  unsigned long nextActionAt;
-  unsigned long forceSentAt;
-};
-
-DashboardWorkflowState dashboardWorkflow = {
-  DASHBOARD_WORKFLOW_NONE,
-  DASHBOARD_WORKFLOW_IDLE,
-  -1,
-  false,
-  false,
-  0,
-  0
-};
-char dashboardWorkflowMessage[128] = "Ready";
-
-SchedulerManager schedulerManager;
-SmartDhwController smartDhwController;
-static bool schedulerReadTopic(uint8_t topic, float *value);
-static bool smartDhwReadTopic(uint8_t topic, float *value);
-static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType action,
-  int16_t value, char *detail, size_t detailSize);
-
 // log message to sprintf to
 #define LOG_MSG_SIZE 256
 char log_msg[LOG_MSG_SIZE];
@@ -996,520 +953,6 @@ bool send_command(byte* command, int length) {
 }
 #endif
 
-static bool dashboardWorkflowTimeReached(unsigned long target) {
-  return (long)(millis() - target) >= 0;
-}
-
-static bool dashboardWorkflowHasData() {
-  return (actData[0] == 0x71) && (actData[1] == 0xC8) && (actData[2] == 0x01);
-}
-
-static int dashboardWorkflowTopicValue(uint8_t topic) {
-  return getDataValue(actData, topic).toInt();
-}
-
-static const char *dashboardWorkflowTypeName() {
-  switch (dashboardWorkflow.type) {
-    case DASHBOARD_WORKFLOW_DHW: return "dhw";
-    case DASHBOARD_WORKFLOW_STERILIZATION: return "sterilization";
-    default: return "none";
-  }
-}
-
-static const char *dashboardWorkflowStageName() {
-  switch (dashboardWorkflow.stage) {
-    case DASHBOARD_WORKFLOW_WAIT_FORCE: return "preparing";
-    case DASHBOARD_WORKFLOW_ACTIVE: return "active";
-    case DASHBOARD_WORKFLOW_WAIT_RESTORE: return "stopping";
-    default: return "idle";
-  }
-}
-
-static void dashboardWorkflowSetMessage(const char *message) {
-  snprintf(dashboardWorkflowMessage, sizeof(dashboardWorkflowMessage), "%s", message);
-  log_message(dashboardWorkflowMessage);
-}
-
-static void dashboardWorkflowReset(const char *message) {
-  dashboardWorkflow.type = DASHBOARD_WORKFLOW_NONE;
-  dashboardWorkflow.stage = DASHBOARD_WORKFLOW_IDLE;
-  dashboardWorkflow.previousMode = -1;
-  dashboardWorkflow.modeChanged = false;
-  dashboardWorkflow.observedActive = false;
-  dashboardWorkflow.nextActionAt = 0;
-  dashboardWorkflow.forceSentAt = 0;
-  dashboardWorkflowSetMessage(message);
-}
-
-static bool dashboardWorkflowSendCommand(bool operationModeCommand, int value) {
-  unsigned char cmd[256] = { 0 };
-  char valueString[12] = { 0 };
-  char commandLog[256] = { 0 };
-  snprintf(valueString, sizeof(valueString), "%d", value);
-
-  unsigned int len;
-  if (operationModeCommand) {
-    len = set_operation_mode(valueString, cmd, commandLog);
-  } else if (dashboardWorkflow.type == DASHBOARD_WORKFLOW_DHW) {
-    len = set_force_DHW(valueString, cmd, commandLog);
-  } else if (dashboardWorkflow.type == DASHBOARD_WORKFLOW_STERILIZATION) {
-    len = set_force_sterilization(valueString, cmd, commandLog);
-  } else {
-    return false;
-  }
-
-  log_message(commandLog);
-  return send_command(cmd, len);
-}
-
-static void dashboardWorkflowScheduleRestore(unsigned long delayMs, const char *message) {
-  dashboardWorkflow.stage = DASHBOARD_WORKFLOW_WAIT_RESTORE;
-  dashboardWorkflow.nextActionAt = millis() + delayMs;
-  dashboardWorkflowSetMessage(message);
-}
-
-static bool dashboardWorkflowStart(DashboardWorkflowType type, char *response, size_t responseSize) {
-  if (heishamonSettings.listenonly) {
-    snprintf(response, responseSize, "Dashboard workflow unavailable in listen-only mode");
-    return false;
-  }
-  if (!dashboardWorkflowHasData()) {
-    snprintf(response, responseSize, "No valid heat pump data available yet");
-    return false;
-  }
-  if (dashboardWorkflow.type != DASHBOARD_WORKFLOW_NONE) {
-    snprintf(response, responseSize, "Another dashboard workflow is already running");
-    return false;
-  }
-
-  if (type == DASHBOARD_WORKFLOW_DHW &&
-      dashboardWorkflowTopicValue(10) >= heishamonSettings.wpDhwBlockAbove) {
-    snprintf(response, responseSize, "DHW temperature is at or above the configured Force DHW limit");
-    return false;
-  }
-
-  uint8_t stateTopic = (type == DASHBOARD_WORKFLOW_DHW) ? 2 : 69;
-  if (dashboardWorkflowTopicValue(stateTopic) != 0) {
-    snprintf(response, responseSize, "The requested function is already active outside this dashboard workflow");
-    return false;
-  }
-
-  int currentMode = dashboardWorkflowTopicValue(4);
-  if (currentMode == 7) currentMode = 2;
-  if (currentMode == 8) currentMode = 6;
-  if ((currentMode < 0) || (currentMode > 6)) {
-    snprintf(response, responseSize, "Current operating mode is unknown");
-    return false;
-  }
-
-  dashboardWorkflow.type = type;
-  dashboardWorkflow.stage = DASHBOARD_WORKFLOW_WAIT_FORCE;
-  dashboardWorkflow.previousMode = currentMode;
-  dashboardWorkflow.modeChanged = (currentMode != 3);
-  dashboardWorkflow.observedActive = false;
-  dashboardWorkflow.forceSentAt = 0;
-
-  if (dashboardWorkflow.modeChanged && !dashboardWorkflowSendCommand(true, 3)) {
-    dashboardWorkflowReset("Could not switch to DHW-only mode");
-    snprintf(response, responseSize, "Could not switch to DHW-only mode");
-    return false;
-  }
-
-  dashboardWorkflow.nextActionAt = millis() + (dashboardWorkflow.modeChanged ? 2500UL : 250UL);
-  dashboardWorkflowSetMessage(type == DASHBOARD_WORKFLOW_DHW ?
-    "Preparing forced DHW cycle" : "Preparing forced sterilization cycle");
-  snprintf(response, responseSize, "Workflow started");
-  return true;
-}
-
-static bool dashboardWorkflowCancel(DashboardWorkflowType type, char *response, size_t responseSize) {
-  if (dashboardWorkflow.type != type) {
-    snprintf(response, responseSize, "This workflow is not running");
-    return false;
-  }
-  if (dashboardWorkflow.stage == DASHBOARD_WORKFLOW_WAIT_RESTORE) {
-    snprintf(response, responseSize, "Workflow is already stopping");
-    return true;
-  }
-
-  if (dashboardWorkflow.stage == DASHBOARD_WORKFLOW_ACTIVE) {
-    dashboardWorkflowSendCommand(false, 0);
-  }
-  dashboardWorkflowScheduleRestore(10000UL, type == DASHBOARD_WORKFLOW_DHW ?
-    "Forced DHW cancelled; restoring operating mode" :
-    "Forced sterilization cancelled; restoring operating mode");
-  snprintf(response, responseSize, "Workflow cancellation requested");
-  return true;
-}
-
-static bool dashboardWorkflowRequest(const char *action, char *response, size_t responseSize) {
-  if (strcmp(action, "start_dhw") == 0) {
-    return dashboardWorkflowStart(DASHBOARD_WORKFLOW_DHW, response, responseSize);
-  }
-  if (strcmp(action, "cancel_dhw") == 0) {
-    return dashboardWorkflowCancel(DASHBOARD_WORKFLOW_DHW, response, responseSize);
-  }
-  if (strcmp(action, "start_sterilization") == 0) {
-    return dashboardWorkflowStart(DASHBOARD_WORKFLOW_STERILIZATION, response, responseSize);
-  }
-  if (strcmp(action, "cancel_sterilization") == 0) {
-    return dashboardWorkflowCancel(DASHBOARD_WORKFLOW_STERILIZATION, response, responseSize);
-  }
-  snprintf(response, responseSize, "Unknown dashboard workflow action");
-  return false;
-}
-
-static void processDashboardWorkflow() {
-  if (dashboardWorkflow.type == DASHBOARD_WORKFLOW_NONE) return;
-
-  if (dashboardWorkflow.stage == DASHBOARD_WORKFLOW_WAIT_FORCE &&
-      dashboardWorkflowTimeReached(dashboardWorkflow.nextActionAt)) {
-    if (dashboardWorkflowSendCommand(false, 1)) {
-      dashboardWorkflow.stage = DASHBOARD_WORKFLOW_ACTIVE;
-      dashboardWorkflow.forceSentAt = millis();
-      dashboardWorkflowSetMessage(dashboardWorkflow.type == DASHBOARD_WORKFLOW_DHW ?
-        "Forced DHW cycle active" : "Forced sterilization cycle active");
-    } else {
-      dashboardWorkflowScheduleRestore(1000UL, "Could not send force command; restoring operating mode");
-    }
-    return;
-  }
-
-  if (dashboardWorkflow.stage == DASHBOARD_WORKFLOW_ACTIVE && dashboardWorkflowHasData()) {
-    uint8_t stateTopic = (dashboardWorkflow.type == DASHBOARD_WORKFLOW_DHW) ? 2 : 69;
-    int actualState = dashboardWorkflowTopicValue(stateTopic);
-    if (actualState == 1) dashboardWorkflow.observedActive = true;
-
-    if (!dashboardWorkflow.observedActive &&
-        ((unsigned long)(millis() - dashboardWorkflow.forceSentAt) > 60000UL)) {
-      dashboardWorkflowScheduleRestore(1000UL, "Force state was not confirmed; restoring operating mode");
-      return;
-    }
-
-    int dhwActual = dashboardWorkflowTopicValue(10);
-    int dhwTarget = dashboardWorkflowTopicValue(9);
-    if (dashboardWorkflow.observedActive && actualState == 0 && (dhwActual + 2 >= dhwTarget)) {
-      if (dashboardWorkflow.type == DASHBOARD_WORKFLOW_DHW) {
-        dashboardWorkflowScheduleRestore(15UL * 60UL * 1000UL,
-          "Forced DHW complete; operating mode will be restored in 15 minutes");
-      } else {
-        dashboardWorkflowScheduleRestore(10000UL,
-          "Sterilization complete; restoring operating mode");
-      }
-    }
-    return;
-  }
-
-  if (dashboardWorkflow.stage == DASHBOARD_WORKFLOW_WAIT_RESTORE &&
-      dashboardWorkflowTimeReached(dashboardWorkflow.nextActionAt)) {
-    int previousMode = dashboardWorkflow.previousMode;
-    if (dashboardWorkflow.modeChanged && previousMode >= 0 && previousMode <= 6) {
-      if (!dashboardWorkflowSendCommand(true, previousMode)) {
-        dashboardWorkflow.nextActionAt = millis() + 5000UL;
-        dashboardWorkflowSetMessage("Operating mode restore failed; retrying");
-        return;
-      }
-    }
-    dashboardWorkflowReset("Dashboard workflow finished");
-  }
-}
-
-static int handleDashboardWorkflowStatus(struct webserver_t *client) {
-  if (client->content == 0) {
-    char response[320];
-    snprintf(response, sizeof(response),
-      "{\"type\":\"%s\",\"stage\":\"%s\",\"previousMode\":%d,\"message\":\"%s\"}",
-      dashboardWorkflowTypeName(), dashboardWorkflowStageName(),
-      dashboardWorkflow.previousMode, dashboardWorkflowMessage);
-    webserver_send(client, 200, (char *)"application/json", strlen(response));
-    webserver_send_content(client, response, strlen(response));
-  }
-  return 0;
-}
-
-static bool schedulerReadTopic(uint8_t topic, float *value) {
-  if (value == nullptr || topic >= NUMBER_OF_TOPICS || actData[0] == '\0') return false;
-  String topicValue = getDataValue(actData, topic);
-  if (topicValue.length() == 0) return false;
-  char *end = nullptr;
-  float parsed = strtof(topicValue.c_str(), &end);
-  if (end == topicValue.c_str() || *end != '\0' || !isfinite(parsed)) return false;
-  *value = parsed;
-  return true;
-}
-
-static bool smartDhwReadTopic(uint8_t topic, float *value) {
-  unsigned long maximumAge = (unsigned long)heishamonSettings.waitTime * 4000UL;
-  if (maximumAge < 60000UL) maximumAge = 60000UL;
-  if (lastHeatpumpDataAt == 0 ||
-      (unsigned long)(millis() - lastHeatpumpDataAt) > maximumAge) return false;
-  return schedulerReadTopic(topic, value);
-}
-
-static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType action,
-    int16_t value, char *detail, size_t detailSize) {
-  if (heishamonSettings.listenonly) {
-    snprintf(detail, detailSize, "Listen-only mode");
-    return SCHEDULER_DISPATCH_FAILED;
-  }
-
-  float current = 0;
-  uint8_t stateTopic = 255;
-  int desired = value;
-  switch (action) {
-    case SCHEDULER_ACTION_HEATPUMP_ON: stateTopic = 0; desired = 1; break;
-    case SCHEDULER_ACTION_HEATPUMP_OFF: stateTopic = 0; desired = 0; break;
-    case SCHEDULER_ACTION_SET_OPERATION_MODE: stateTopic = 4; break;
-    case SCHEDULER_ACTION_SET_DHW_TARGET: stateTopic = 9; break;
-    case SCHEDULER_ACTION_SET_Z1_REQUEST: stateTopic = 27; break;
-    case SCHEDULER_ACTION_SET_QUIET_MODE: stateTopic = 18; break;
-    default: break;
-  }
-
-  if (stateTopic != 255 && schedulerReadTopic(stateTopic, &current)) {
-    int normalizedCurrent = (int)lroundf(current);
-    if (action == SCHEDULER_ACTION_SET_OPERATION_MODE) {
-      if (normalizedCurrent == 7) normalizedCurrent = 2;
-      if (normalizedCurrent == 8) normalizedCurrent = 6;
-    }
-    if (normalizedCurrent == desired) {
-      snprintf(detail, detailSize, "%s already has requested value %d",
-        SchedulerManager::actionName(action), desired);
-      return SCHEDULER_DISPATCH_NO_CHANGE;
-    }
-  }
-
-  if (action == SCHEDULER_ACTION_FORCE_DHW) {
-    if (dashboardWorkflow.type != DASHBOARD_WORKFLOW_NONE) {
-      snprintf(detail, detailSize, "Dashboard workflow is busy");
-      return SCHEDULER_DISPATCH_BUSY;
-    }
-    char workflowResponse[128] = {0};
-    if (!dashboardWorkflowStart(DASHBOARD_WORKFLOW_DHW, workflowResponse, sizeof(workflowResponse))) {
-      strlcpy(detail, workflowResponse, detailSize);
-      return SCHEDULER_DISPATCH_FAILED;
-    }
-    strlcpy(detail, workflowResponse, detailSize);
-    return SCHEDULER_DISPATCH_EXECUTED;
-  }
-
-  if (dashboardWorkflow.type != DASHBOARD_WORKFLOW_NONE) {
-    snprintf(detail, detailSize, "Dashboard workflow is busy");
-    return SCHEDULER_DISPATCH_BUSY;
-  }
-
-  unsigned char command[256] = {0};
-  char commandLog[256] = {0};
-  char valueString[16];
-  snprintf(valueString, sizeof(valueString), "%d", desired);
-  unsigned int length = 0;
-  switch (action) {
-    case SCHEDULER_ACTION_HEATPUMP_ON:
-    case SCHEDULER_ACTION_HEATPUMP_OFF:
-      length = set_heatpump_state(valueString, command, commandLog); break;
-    case SCHEDULER_ACTION_SET_OPERATION_MODE:
-      length = set_operation_mode(valueString, command, commandLog); break;
-    case SCHEDULER_ACTION_SET_DHW_TARGET:
-      length = set_DHW_temp(valueString, command, commandLog); break;
-    case SCHEDULER_ACTION_SET_Z1_REQUEST:
-      length = set_z1_heat_request_temperature(valueString, command, commandLog); break;
-    case SCHEDULER_ACTION_SET_QUIET_MODE:
-      length = set_quiet_mode(valueString, command, commandLog); break;
-    default:
-      snprintf(detail, detailSize, "Unsupported action");
-      return SCHEDULER_DISPATCH_FAILED;
-  }
-
-  if (length == 0 || !send_command(command, length)) {
-    snprintf(detail, detailSize, "Panasonic command queue rejected action");
-    return SCHEDULER_DISPATCH_FAILED;
-  }
-  strlcpy(detail, commandLog, detailSize);
-  return SCHEDULER_DISPATCH_EXECUTED;
-}
-
-static int handleSchedulerStatus(struct webserver_t *client) {
-  if (client->content != 0) return 0;
-
-  JsonDocument document;
-  schedulerManager.toJson(document);
-  size_t length = measureJson(document);
-  char *response = (char *)malloc(length + 1);
-  if (response == nullptr) {
-    webserver_send(client, 503, (char *)"text/plain", 20);
-    webserver_send_content_P(client, PSTR("Scheduler unavailable"), 20);
-    return 0;
-  }
-  serializeJson(document, response, length + 1);
-  client->userdata = response;
-  webserver_send(client, 200, (char *)"application/json", length);
-  webserver_send_content(client, response, length);
-  return 0;
-}
-
-static int handleSmartDhwStatus(struct webserver_t *client) {
-  if (client->content != 0) return 0;
-  JsonDocument document;
-  smartDhwController.toJson(document);
-  size_t length = measureJson(document);
-  char *response = (char *)malloc(length + 1);
-  if (response == nullptr) {
-    webserver_send(client, 503, (char *)"text/plain", 21);
-    webserver_send_content_P(client, PSTR("Smart DHW unavailable"), 21);
-    return 0;
-  }
-  serializeJson(document, response, length + 1);
-  client->userdata = response;
-  webserver_send(client, 200, (char *)"application/json", length);
-  webserver_send_content(client, response, length);
-  return 0;
-}
-
-static void appendSchedulerResponse(struct webserver_t *client, const char *message) {
-  size_t oldLength = client->userdata == nullptr ? 0 : strlen((char *)client->userdata);
-  size_t addLength = strlen(message);
-  char *response = (char *)realloc(client->userdata, oldLength + addLength + 2);
-  if (response == nullptr) {
-    loggingSerial.printf(PSTR("Out of memory %s:#%d\n"), __FUNCTION__, __LINE__);
-    ESP.restart();
-    exit(-1);
-  }
-  client->userdata = response;
-  memcpy(response + oldLength, message, addLength);
-  response[oldLength + addLength] = '\n';
-  response[oldLength + addLength + 1] = '\0';
-}
-
-static void handleSchedulerArgument(struct webserver_t *client, struct arguments_t *args) {
-  char name[24] = {0};
-  snprintf(name, sizeof(name), "%s", (char *)args->name);
-  char value[args->len + 1];
-  snprintf(value, sizeof(value), "%.*s", args->len, args->value);
-  char response[160] = {0};
-  bool accepted = false;
-
-  if (strcmp(name, "save") == 0) {
-    JsonDocument document;
-    DeserializationError error = deserializeJson(document, value);
-    if (error || !document.is<JsonObject>()) {
-      snprintf(response, sizeof(response), "Invalid scheduler JSON");
-    } else {
-      accepted = schedulerManager.upsert(document.as<JsonObjectConst>(), response, sizeof(response));
-    }
-  } else if (strcmp(name, "delete") == 0 || strcmp(name, "run") == 0) {
-    char *end = nullptr;
-    long id = strtol(value, &end, 10);
-    if (end == value || *end != '\0' || id < 1 || id > 255) {
-      snprintf(response, sizeof(response), "Invalid schedule ID");
-    } else if (strcmp(name, "delete") == 0) {
-      accepted = schedulerManager.remove((uint8_t)id, response, sizeof(response));
-    } else {
-      accepted = schedulerManager.runNow((uint8_t)id, response, sizeof(response));
-    }
-  } else if (strcmp(name, "enabled") == 0) {
-    if (strcmp(value, "0") != 0 && strcmp(value, "1") != 0) {
-      snprintf(response, sizeof(response), "Scheduler enabled must be 0 or 1");
-    } else {
-      accepted = schedulerManager.setEnabled(strcmp(value, "1") == 0, response, sizeof(response));
-    }
-  } else {
-    snprintf(response, sizeof(response), "Unknown scheduler command");
-  }
-
-  char result[192];
-  snprintf(result, sizeof(result), "%s: %s", accepted ? "OK" : "ERROR", response);
-  appendSchedulerResponse(client, result);
-  log_message(result);
-}
-
-static void handleSmartDhwArgument(struct webserver_t *client, struct arguments_t *args) {
-  char name[16] = {0};
-  snprintf(name, sizeof(name), "%s", (char *)args->name);
-  char value[args->len + 1];
-  snprintf(value, sizeof(value), "%.*s", args->len, args->value);
-  char response[192] = {0};
-  bool accepted = false;
-
-  if (strcmp(name, "save") == 0) {
-    JsonDocument document;
-    DeserializationError error = deserializeJson(document, value);
-    if (error || !document.is<JsonObject>()) {
-      snprintf(response, sizeof(response), "Invalid Smart DHW JSON");
-    } else {
-      accepted = smartDhwController.update(document.as<JsonObjectConst>(),
-        response, sizeof(response));
-    }
-  } else if (strcmp(name, "test") == 0) {
-    if (strcmp(value, "evening") == 0) {
-      accepted = smartDhwController.testDecision(SMART_DHW_SLOT_EVENING,
-        response, sizeof(response));
-    } else if (strcmp(value, "morning") == 0) {
-      accepted = smartDhwController.testDecision(SMART_DHW_SLOT_MORNING,
-        response, sizeof(response));
-    } else {
-      snprintf(response, sizeof(response), "Test must be evening or morning");
-    }
-  } else {
-    snprintf(response, sizeof(response), "Unknown Smart DHW command");
-  }
-
-  char result[224];
-  snprintf(result, sizeof(result), "%s: %s", accepted ? "OK" : "ERROR", response);
-  appendSchedulerResponse(client, result);
-  log_message(result);
-}
-
-static int handleWpSettingsConfigStatus(struct webserver_t *client) {
-  if (client->content == 0) {
-    char response[128];
-    snprintf(response, sizeof(response),
-      "{\"heatMin\":%d,\"heatMax\":%d,\"dhwBlockAbove\":%d}",
-      heishamonSettings.wpHeatMin, heishamonSettings.wpHeatMax,
-      heishamonSettings.wpDhwBlockAbove);
-    webserver_send(client, 200, (char *)"application/json", strlen(response));
-    webserver_send_content(client, response, strlen(response));
-  }
-  return 0;
-}
-
-static bool updateWpSettingsConfig(const char *name, const char *value,
-    char *response, size_t responseSize) {
-  char *end = NULL;
-  long parsed = strtol(value, &end, 10);
-  if ((end == value) || (*end != '\0')) {
-    snprintf(response, responseSize, "Invalid numeric WP setting");
-    return false;
-  }
-
-  if (strcmp(name, "WpHeatMin") == 0) {
-    if (parsed < 20 || parsed > heishamonSettings.wpHeatMax) {
-      snprintf(response, responseSize, "Heat minimum must be between 20 and the configured maximum");
-      return false;
-    }
-    heishamonSettings.wpHeatMin = parsed;
-  } else if (strcmp(name, "WpHeatMax") == 0) {
-    if (parsed < heishamonSettings.wpHeatMin || parsed > 100) {
-      snprintf(response, responseSize, "Heat maximum must be between the configured minimum and 100");
-      return false;
-    }
-    heishamonSettings.wpHeatMax = parsed;
-  } else if (strcmp(name, "WpDhwBlockAbove") == 0) {
-    if (parsed < 40 || parsed > 100) {
-      snprintf(response, responseSize, "DHW limit must be between 40 and 100");
-      return false;
-    }
-    heishamonSettings.wpDhwBlockAbove = parsed;
-  } else {
-    return false;
-  }
-
-  JsonDocument jsonDoc;
-  settingsToJson(jsonDoc, &heishamonSettings);
-  saveJsonToFile(jsonDoc, "/config.json");
-  snprintf(response, responseSize, "WP setting saved");
-  return true;
-}
-
 // Callback function that is called when a message has been pushed to one of your topics.
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
   if (mqttcallbackinprogress) {
@@ -1618,42 +1061,14 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
         return 0;
       } break;
     case WEBSERVER_CLIENT_REQUEST_URI: {
-        if (strcmp_P((char *)dat, PSTR("/")) == 0) {
+        if (customFeaturesHandleUri(client, (char *)dat)) {
+          return 0;
+        } else if (strcmp_P((char *)dat, PSTR("/")) == 0) {
           client->route = 1;
         } else if (strcmp_P((char *)dat, PSTR("/dashboard")) == 0) {
           client->route = 10;
-        } else if (strcmp_P((char *)dat, PSTR("/dashboardworkflow")) == 0) {
-          client->route = 15;
         } else if (strcmp_P((char *)dat, PSTR("/wpsettings")) == 0) {
           client->route = 11;
-        } else if (strcmp_P((char *)dat, PSTR("/wpsettingsconfig")) == 0) {
-          client->route = 16;
-        } else if (strcmp_P((char *)dat, PSTR("/scheduler")) == 0) {
-          client->route = 12;
-        } else if (strcmp_P((char *)dat, PSTR("/schedulerapi")) == 0) {
-          client->route = 13;
-        } else if (strcmp_P((char *)dat, PSTR("/schedulercommand")) == 0) {
-          client->userdata = malloc(1);
-          if (client->userdata == nullptr) {
-            loggingSerial.printf(PSTR("Out of memory %s:#%d\n"), __FUNCTION__, __LINE__);
-            ESP.restart();
-            exit(-1);
-          }
-          ((char *)client->userdata)[0] = '\0';
-          client->route = 14;
-        } else if (strcmp_P((char *)dat, PSTR("/smartdhw")) == 0) {
-          client->route = 17;
-        } else if (strcmp_P((char *)dat, PSTR("/smartdhwapi")) == 0) {
-          client->route = 18;
-        } else if (strcmp_P((char *)dat, PSTR("/smartdhwcommand")) == 0) {
-          client->userdata = malloc(1);
-          if (client->userdata == nullptr) {
-            loggingSerial.printf(PSTR("Out of memory %s:#%d\n"), __FUNCTION__, __LINE__);
-            ESP.restart();
-            exit(-1);
-          }
-          ((char *)client->userdata)[0] = '\0';
-          client->route = 19;
         } else if (strcmp_P((char *)dat, PSTR("/json")) == 0) {
           client->route = 20;
         } else if (strcmp_P((char *)dat, PSTR("/reboot")) == 0) {
@@ -1758,15 +1173,10 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
       } break;
     case WEBSERVER_CLIENT_ARGS: {
         struct arguments_t *args = (struct arguments_t *)dat;
+        if (customFeaturesHandleArgs(client, args)) {
+          return 0;
+        }
         switch (client->route) {
-          case 14: {
-              handleSchedulerArgument(client, args);
-              return 0;
-            } break;
-          case 19: {
-              handleSmartDhwArgument(client, args);
-              return 0;
-            } break;
           case 60: {
               sprintf_P(log_msg, PSTR("Dallas alias changed address %s to alias %s"), args->name, args->value);
               log_message(log_msg);
@@ -1778,6 +1188,9 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
               return 0;
             } break;
           case 100: {
+              if (customFeaturesHandleCommandArgument(client, args)) {
+                return 0;
+              }
               unsigned char cmd[256] = { 0 };
               char cpy[args->len + 1];
               char log_msg[256] = { 0 };
@@ -1785,38 +1198,6 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
 
               memset(&cpy, 0, args->len + 1);
               snprintf((char *)&cpy, args->len + 1, "%.*s", args->len, args->value);
-
-              if (strcmp((char *)args->name, "DashboardWorkflow") == 0) {
-                char workflowResponse[160] = { 0 };
-                dashboardWorkflowRequest(cpy, workflowResponse, sizeof(workflowResponse));
-                if ((client->userdata = realloc(client->userdata,
-                    strlen((char *)client->userdata) + strlen(workflowResponse) + 2)) == NULL) {
-                  loggingSerial.printf(PSTR("Out of memory %s:#%d\n"), __FUNCTION__, __LINE__);
-                  ESP.restart();
-                  exit(-1);
-                }
-                strcat((char *)client->userdata, workflowResponse);
-                strcat((char *)client->userdata, "\n");
-                log_message(workflowResponse);
-                return 0;
-              }
-
-              if ((strcmp((char *)args->name, "WpHeatMin") == 0) ||
-                  (strcmp((char *)args->name, "WpHeatMax") == 0) ||
-                  (strcmp((char *)args->name, "WpDhwBlockAbove") == 0)) {
-                char wpResponse[160] = { 0 };
-                updateWpSettingsConfig((char *)args->name, cpy, wpResponse, sizeof(wpResponse));
-                if ((client->userdata = realloc(client->userdata,
-                    strlen((char *)client->userdata) + strlen(wpResponse) + 2)) == NULL) {
-                  loggingSerial.printf(PSTR("Out of memory %s:#%d\n"), __FUNCTION__, __LINE__);
-                  ESP.restart();
-                  exit(-1);
-                }
-                strcat((char *)client->userdata, wpResponse);
-                strcat((char *)client->userdata, "\n");
-                log_message(wpResponse);
-                return 0;
-              }
 
               for (uint8_t x = 0; x < sizeof(commands) / sizeof(commands[0]); x++) {
                 cmdStruct tmp;
@@ -1915,6 +1296,9 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
         return 0;
       } break;
     case WEBSERVER_CLIENT_WRITE: {
+        if (customFeaturesHandleWrite(client)) {
+          return 0;
+        }
         switch (client->route) {
           case 0: {
               if (client->content == 0) {
@@ -1931,42 +1315,6 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
             } break;
           case 11: {
               return handleWpSettings(client);
-            } break;
-          case 12: {
-              return handleScheduler(client);
-            } break;
-          case 13: {
-              return handleSchedulerStatus(client);
-            } break;
-          case 14: {
-              if (client->content == 0) {
-                char *response = (char *)client->userdata;
-                size_t length = response == nullptr ? 0 : strlen(response);
-                webserver_send(client, 200, (char *)"text/plain", length);
-                if (length > 0) webserver_send_content(client, response, length);
-              }
-              return 0;
-            } break;
-          case 15: {
-              return handleDashboardWorkflowStatus(client);
-            } break;
-          case 16: {
-              return handleWpSettingsConfigStatus(client);
-            } break;
-          case 17: {
-              return handleSmartDhw(client);
-            } break;
-          case 18: {
-              return handleSmartDhwStatus(client);
-            } break;
-          case 19: {
-              if (client->content == 0) {
-                char *response = (char *)client->userdata;
-                size_t length = response == nullptr ? 0 : strlen(response);
-                webserver_send(client, 200, (char *)"text/plain", length);
-                if (length > 0) webserver_send_content(client, response, length);
-              }
-              return 0;
             } break;
           case 20: {
               return handleJsonOutput(client, actData, actDataExtra, actOptData, &heishamonSettings, extraDataBlockAvailable);
@@ -2532,11 +1880,7 @@ void setup() {
   loggingSerial.println(F("Loading config from flash..."));
   loadSettings(&heishamonSettings);
 
-  loggingSerial.println(F("Loading local scheduler..."));
-  schedulerManager.begin(schedulerReadTopic, schedulerDispatchAction, log_message);
-
-  loggingSerial.println(F("Loading Smart DHW..."));
-  smartDhwController.begin(&schedulerManager, smartDhwReadTopic, log_message);
+  customFeaturesBegin();
 
   loggingSerial.println(F("Setup wifi..."));
   setupWifi(&heishamonSettings);
@@ -2697,9 +2041,7 @@ void loop() {
   }
 
   readHeatpump();
-  processDashboardWorkflow();
-  schedulerManager.loop();
-  smartDhwController.loop();
+  customFeaturesLoop();
 
 #ifdef ESP32
   if (heishamonSettings.proxy) readProxy();

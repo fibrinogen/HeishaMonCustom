@@ -119,6 +119,8 @@ String getPower(byte input) {
 }
 
 String getUintt16(char* data, byte addr) {
+  // Prevent out-of-bounds access: addr+1 must be < DATASIZE (203)
+  if (addr > DATASIZE - 2) return String();
   uint16_t value = static_cast<uint16_t>((data[addr + 1] << 8) | data[addr]);
   return (String)(value - 1);
 }

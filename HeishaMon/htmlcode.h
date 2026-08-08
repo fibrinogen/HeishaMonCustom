@@ -390,7 +390,7 @@ input:disabled + .theme-slider-compact {
 .scheduler-panel-header h2{margin:0;color:var(--text-primary);font-size:14px}
 .scheduler-table-wrap{overflow-x:auto}
 .scheduler-table{width:100%;border-collapse:collapse;min-width:850px}
-.scheduler-table th{padding:10px 12px;color:var(--text-muted);font-size:10px;font-weight:600;text-align:left;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.scheduler-table th{position:sticky;top:0;background:var(--bg-base);z-index:1;padding:10px 12px;color:var(--text-muted);font-size:10px;font-weight:600;text-align:left;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
 .scheduler-table td{padding:11px 12px;color:var(--text-secondary);font-size:11.5px;border-bottom:1px solid rgba(42,48,64,.55);vertical-align:middle}
 .scheduler-table tr:last-child td{border-bottom:0}
 .scheduler-table tr:hover td{background:var(--bg-elevated)}
