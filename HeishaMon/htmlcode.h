@@ -136,6 +136,7 @@ body{
   margin-bottom:2px;
 }
 .sidemenu-nav a:hover{background:var(--bg-elevated);color:var(--text-primary)}
+.sidemenu-nav a.active{background:var(--accent-glow);color:var(--accent);font-weight:600}
 .sidemenu-nav a.danger{color:var(--red)}
 .sidemenu-nav a.danger:hover{background:var(--red-glow)}
 .sidemenu-nav .nav-icon{width:16px;text-align:center;opacity:.7}
@@ -388,9 +389,10 @@ input:disabled + .theme-slider-compact {
 .scheduler-panel{background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:14px}
 .scheduler-panel-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 15px;border-bottom:1px solid var(--border)}
 .scheduler-panel-header h2{margin:0;color:var(--text-primary);font-size:14px}
-.scheduler-table-wrap{overflow-x:auto}
-.scheduler-table{width:100%;border-collapse:separate;border-spacing:0;min-width:850px}
-.scheduler-table th{position:sticky;top:56px;background:var(--bg-surface);z-index:5;padding:10px 12px;color:var(--text-muted);font-size:10px;font-weight:600;text-align:left;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);box-shadow:0 1px 0 var(--border)}
+.scheduler-table-wrap{overflow:auto;max-height:420px;position:relative}
+.scheduler-table{width:100%;border-collapse:collapse;min-width:850px}
+.scheduler-table thead{position:sticky;top:0;z-index:5;background:var(--bg-surface)}
+.scheduler-table th{position:static;background:var(--bg-surface);padding:10px 12px;color:var(--text-muted);font-size:10px;font-weight:600;text-align:left;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);box-shadow:0 1px 0 var(--border)}
 .scheduler-table td{padding:11px 12px;color:var(--text-secondary);font-size:11.5px;border-bottom:1px solid rgba(42,48,64,.55);vertical-align:middle}
 .scheduler-table tr:last-child td{border-bottom:0}
 .scheduler-table tr:hover td{background:var(--bg-elevated)}
@@ -943,11 +945,33 @@ function initDarkMode() {
   }
 }
 
+function markActiveNav() {
+  var nav = document.getElementById('sideNav');
+  if (!nav) return;
+  var current = window.location.pathname || '/';
+  nav.querySelectorAll('a[href]').forEach(function(link) {
+    var target = link.getAttribute('href');
+    if (!target || target.charAt(0) !== '/') return;
+    link.classList.toggle('active', target === current);
+  });
+}
+
+function initActiveNav() {
+  var nav = document.getElementById('sideNav');
+  if (!nav) return;
+  markActiveNav();
+  if (window.MutationObserver) {
+    new MutationObserver(markActiveNav).observe(nav, {childList:true});
+  }
+}
+
 // Initialize immediately when DOM is ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initDarkMode);
+  document.addEventListener('DOMContentLoaded', initActiveNav);
 } else {
   initDarkMode();
+  initActiveNav();
 }
 </script>
 )====";
@@ -1386,6 +1410,7 @@ static const char webBodyRoot1[] FLASHPROG = R"====(
 document.addEventListener('DOMContentLoaded',function(){
   var nav=document.getElementById('sideNav');
   nav.innerHTML=`
+<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
@@ -1543,8 +1568,10 @@ document.addEventListener('DOMContentLoaded',function(){
   document.title='WP Dashboard - HeishaMon';
   document.getElementById('sideNav').innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
+<a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
@@ -1812,7 +1839,9 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('sideNav').innerHTML=`
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
+<a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
@@ -1927,7 +1956,10 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/"><span class="nav-icon">&#8634;</span> Home</a>
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
+<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
+<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
@@ -2076,6 +2108,8 @@ document.addEventListener('DOMContentLoaded',function(){document.title='External
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
+<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
+<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
 <a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>`;});
 </script>
 <main class='main-content scheduler-page'>
@@ -2117,6 +2151,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
@@ -2216,6 +2251,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
@@ -2402,11 +2438,13 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
+<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>
 `;
 });
 </script>
@@ -2827,10 +2865,12 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
+<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
 <a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>
 `;
 });
@@ -3291,10 +3331,12 @@ document.addEventListener('DOMContentLoaded',function(){
 <a href="/dashboard"><span class="nav-icon">&#9635;</span> WP Dashboard</a>
 <a href="/wpsettings"><span class="nav-icon">&#9881;</span> WP Settings</a>
 <a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
+<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
 <a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
 <a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
 <a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
 <a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
+<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
 <a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>
 `;
 });
