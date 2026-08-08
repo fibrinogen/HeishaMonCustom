@@ -965,7 +965,7 @@ function markActiveNav() {
   });
   var group = nav.querySelector('[data-custom-nav]');
   if (group) {
-    var customPaths = ['/dashboard','/wpsettings','/scheduler','/externalsensors','/smartdhw','/hardware'];
+    var customPaths = ['/dashboard','/wpsettings','/scheduler','/externalsensors','/smartdhw','/hardware','/diagnostics','/history'];
     var customActive = customPaths.indexOf(current) >= 0;
     var toggle = group.querySelector('.sidemenu-group-toggle');
     group.classList.toggle('open', customActive || group.classList.contains('user-open'));
@@ -1022,6 +1022,8 @@ function groupCustomNav() {
   submenu.appendChild(createNavLink('/externalsensors', 'External Sensors', '◉'));
   submenu.appendChild(createNavLink('/smartdhw', 'Smart DHW', '♨'));
   submenu.appendChild(createNavLink('/hardware', 'Hardware', '⚙'));
+  submenu.appendChild(createNavLink('/diagnostics', 'Diagnostics', '◌'));
+  submenu.appendChild(createNavLink('/history', 'History', '▥'));
   group.appendChild(submenu);
   nav.innerHTML = '';
   nav.appendChild(createNavLink('/', 'Home', '↳'));

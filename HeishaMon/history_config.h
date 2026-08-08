@@ -1,0 +1,47 @@
+#pragma once
+
+// SD history is deliberately disabled until the physical wiring is known.
+// Enable it with build flags after selecting non-conflicting pins.
+#ifndef HEISHAMON_SD_HISTORY_ENABLED
+#define HEISHAMON_SD_HISTORY_ENABLED 0
+#endif
+
+#ifndef HEISHAMON_SD_CS_PIN
+#define HEISHAMON_SD_CS_PIN -1
+#endif
+
+#ifndef HEISHAMON_SD_SCK_PIN
+#define HEISHAMON_SD_SCK_PIN -1
+#endif
+
+#ifndef HEISHAMON_SD_MISO_PIN
+#define HEISHAMON_SD_MISO_PIN -1
+#endif
+
+#ifndef HEISHAMON_SD_MOSI_PIN
+#define HEISHAMON_SD_MOSI_PIN -1
+#endif
+
+#ifndef HEISHAMON_SD_FREQUENCY
+#define HEISHAMON_SD_FREQUENCY 4000000UL
+#endif
+
+#ifndef HEISHAMON_HISTORY_DEFAULT_INTERVAL_SECONDS
+#define HEISHAMON_HISTORY_DEFAULT_INTERVAL_SECONDS 10U
+#endif
+
+#ifndef HEISHAMON_HISTORY_MAX_SAMPLES
+#define HEISHAMON_HISTORY_MAX_SAMPLES 1440U
+#endif
+
+#ifndef HEISHAMON_HISTORY_MAX_EVENTS
+#define HEISHAMON_HISTORY_MAX_EVENTS 100U
+#endif
+
+#ifndef HEISHAMON_HISTORY_SD_RETENTION_DAYS
+#define HEISHAMON_HISTORY_SD_RETENTION_DAYS 30U
+#endif
+
+#ifndef HEISHAMON_HISTORY_EXTERNAL_SENSOR_MAX
+#define HEISHAMON_HISTORY_EXTERNAL_SENSOR_MAX 8U
+#endif

@@ -1522,6 +1522,7 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
         return 0;
       } break;
     case WEBSERVER_CLIENT_CLOSE: {
+        if (customFeaturesHandleClose(client)) return 0;
         switch (client->route) {
           case 13:
           case 14:

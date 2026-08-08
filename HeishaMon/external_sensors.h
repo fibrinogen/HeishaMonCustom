@@ -40,6 +40,8 @@ class ExternalSensorRegistry {
   void setMqttConnected(bool connected) { mqttConnected_ = connected; }
   void toJson(JsonDocument &document) const;
   void appendConditionSources(JsonArray array) const;
+  void appendDiagnostics(JsonArray array) const;
+  void readHistory(float *values, bool *valid, size_t maxValues) const;
   bool mqttConnected() const { return mqttConnected_; }
   uint8_t count() const { return count_; }
 

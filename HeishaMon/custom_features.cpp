@@ -9,6 +9,7 @@
 #include "scheduler.h"
 #include "smart_dhw.h"
 #include "external_sensors.h"
+#include "diagnostics_history.h"
 #include "webfunctions.h"
 
 #define DATASIZE 203
@@ -68,6 +69,15 @@ static SchedulerManager schedulerManager;
 static SmartDhwController smartDhwController;
 static ExternalSensorRegistry externalSensors;
 static time_t lastNtpSyncEpoch = 0;
+
+void customFeaturesAppendExternalSensorDiagnostics(JsonArray array) {
+  externalSensors.appendDiagnostics(array);
+}
+
+void customFeaturesReadExternalSensorHistory(float *values, bool *valid,
+    size_t maxValues) {
+  externalSensors.readHistory(values, valid, maxValues);
+}
 
 static bool schedulerReadTopic(uint8_t topic, float *value);
 static bool schedulerReadValue(SchedulerConditionSource source, uint8_t sourceId,
@@ -540,6 +550,8 @@ static void handleSchedulerArgument(struct webserver_t *client, struct arguments
   char result[192];
   snprintf(result, sizeof(result), "%s: %s", accepted ? "OK" : "ERROR", response);
   appendCustomResponse(client, result);
+  if (accepted) diagnosticsHistoryRecordEvent(HISTORY_EVENT_SCHEDULER,
+    "Scheduler command accepted");
   log_message(result);
 }
 
@@ -577,6 +589,8 @@ static void handleSmartDhwArgument(struct webserver_t *client, struct arguments_
   char result[224];
   snprintf(result, sizeof(result), "%s: %s", accepted ? "OK" : "ERROR", response);
   appendCustomResponse(client, result);
+  if (accepted) diagnosticsHistoryRecordEvent(HISTORY_EVENT_SMART_DHW,
+    "Smart DHW command accepted");
   log_message(result);
 }
 
@@ -658,6 +672,7 @@ static bool updateWpSettingsConfig(const char *name, const char *value,
 }
 
 bool customFeaturesHandleUri(struct webserver_t *client, const char *uri) {
+  if (diagnosticsHistoryHandleUri(client, uri)) return true;
   if (strcmp(uri, "/dashboardworkflow") == 0) client->route = 15;
   else if (strcmp(uri, "/wpsettingsconfig") == 0) client->route = 16;
   else if (strcmp(uri, "/scheduler") == 0) client->route = 12;
@@ -684,6 +699,7 @@ bool customFeaturesHandleUri(struct webserver_t *client, const char *uri) {
 }
 
 bool customFeaturesHandleArgs(struct webserver_t *client, struct arguments_t *args) {
+  if (diagnosticsHistoryHandleArgs(client, args)) return true;
   if (client->route == 14) {
     handleSchedulerArgument(client, args);
     return true;
@@ -724,6 +740,7 @@ bool customFeaturesHandleCommandArgument(struct webserver_t *client, struct argu
 }
 
 bool customFeaturesHandleWrite(struct webserver_t *client) {
+  if (diagnosticsHistoryHandleWrite(client)) return true;
   switch (client->route) {
     case 12: handleScheduler(client); return true;
     case 13: handleSchedulerStatus(client); return true;
@@ -758,8 +775,13 @@ bool customFeaturesHandleWrite(struct webserver_t *client) {
   }
 }
 
+bool customFeaturesHandleClose(struct webserver_t *client) {
+  return diagnosticsHistoryHandleClose(client);
+}
+
 void customFeaturesBegin() {
   externalSensors.begin(log_message);
+  diagnosticsHistoryBegin();
   log_message((char *)"Loading local scheduler...");
   schedulerManager.begin(schedulerReadValue, schedulerDispatchAction, log_message);
   log_message((char *)"Loading Smart DHW...");
@@ -800,4 +822,5 @@ void customFeaturesLoop(PubSubClient &mqttClient, const char *mqttBase) {
   processDashboardWorkflow();
   schedulerManager.loop();
   smartDhwController.loop();
+  diagnosticsHistoryLoop();
 }

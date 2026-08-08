@@ -276,3 +276,41 @@ void ExternalSensorRegistry::toJson(JsonDocument &document) const {
     object["state"] = fresh ? "OK" : sensor.lastUpdate == 0 ? "NO DATA" : "STALE";
   }
 }
+
+void ExternalSensorRegistry::appendDiagnostics(JsonArray array) const {
+  for (uint8_t i = 0; i < count_; i++) {
+    const ExternalSensor &sensor = sensors_[i];
+    unsigned long age = sensor.lastUpdate == 0 ? ULONG_MAX : millis() - sensor.lastUpdate;
+    uint32_t ageSeconds = age == ULONG_MAX ? UINT32_MAX : (uint32_t)(age / 1000UL);
+    bool fresh = sensor.enabled && sensor.valid && sensor.lastUpdate != 0 &&
+      ageSeconds <= sensor.staleTimeoutSeconds && isfinite(sensor.value);
+    JsonObject object = array.add<JsonObject>();
+    object["name"] = sensor.name;
+    object["source"] = "MQTT";
+    object["id"] = sensor.id;
+    object["unit"] = sensor.unit;
+    object["valid"] = fresh;
+    object["state"] = fresh ? "OK" : sensor.lastUpdate == 0 ? "NO DATA" : "STALE";
+    if (ageSeconds == UINT32_MAX) object["ageSeconds"] = nullptr;
+    else object["ageSeconds"] = ageSeconds;
+    if (fresh) object["value"] = sensor.value;
+    else object["value"] = nullptr;
+  }
+}
+
+void ExternalSensorRegistry::readHistory(float *values, bool *valid, size_t maxValues) const {
+  if (values == nullptr || valid == nullptr) return;
+  for (size_t i = 0; i < maxValues; i++) {
+    values[i] = 0.0f;
+    valid[i] = false;
+  }
+  size_t limit = count_ < maxValues ? count_ : maxValues;
+  for (size_t i = 0; i < limit; i++) {
+    const ExternalSensor &sensor = sensors_[i];
+    unsigned long age = sensor.lastUpdate == 0 ? ULONG_MAX : millis() - sensor.lastUpdate;
+    uint32_t ageSeconds = age == ULONG_MAX ? UINT32_MAX : (uint32_t)(age / 1000UL);
+    valid[i] = sensor.enabled && sensor.valid && sensor.lastUpdate != 0 &&
+      ageSeconds <= sensor.staleTimeoutSeconds && isfinite(sensor.value);
+    if (valid[i]) values[i] = sensor.value;
+  }
+}

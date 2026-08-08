@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <PubSubClient.h>
+#include <ArduinoJson.h>
 #include "src/common/webserver.h"
 
 // Integration boundary for functionality that is specific to this fork.
@@ -14,6 +15,10 @@ bool customFeaturesHandleArgs(struct webserver_t *client, struct arguments_t *ar
 bool customFeaturesHandleCommandArgument(struct webserver_t *client,
   struct arguments_t *args);
 bool customFeaturesHandleWrite(struct webserver_t *client);
+bool customFeaturesHandleClose(struct webserver_t *client);
+void customFeaturesAppendExternalSensorDiagnostics(JsonArray array);
+void customFeaturesReadExternalSensorHistory(float *values, bool *valid,
+  size_t maxValues);
 bool customFeaturesHandleMqttMessage(const char *topic, const char *mqttBase,
   const uint8_t *payload, size_t length);
 void customFeaturesMqttConnected(PubSubClient &client, const char *mqttBase);
