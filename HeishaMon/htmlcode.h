@@ -2026,7 +2026,7 @@ document.addEventListener('DOMContentLoaded',function(){
     <button class='btn btn-primary' onclick='schedulerOpenEditor(0)'>+ Add schedule</button>
   </div>
   <div class='scheduler-status'>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Local time</span><span id='schedulerLocalTime' class='scheduler-status-value'>Loading ...</span></div>
+    <div class='scheduler-status-card'><span class='scheduler-status-label'>Current local time</span><span id='schedulerLocalTime' class='scheduler-status-value'>Loading ...</span></div>
     <div class='scheduler-status-card'><span class='scheduler-status-label'>Time synchronization</span><span id='schedulerTimeStatus' class='scheduler-status-value'>--</span></div>
     <div class='scheduler-status-card'><span class='scheduler-status-label'>Active schedules</span><span id='schedulerActiveCount' class='scheduler-status-value'>--</span></div>
     <div class='scheduler-status-card'><span class='scheduler-status-label'>Pending actions</span><span id='schedulerPendingCount' class='scheduler-status-value'>--</span></div>
@@ -2104,7 +2104,7 @@ function schedulerReadConditions(){return Array.prototype.slice.call(document.qu
 function schedulerRender(data){
   schedulerData=data;
   document.getElementById('schedulerLocalTime').textContent=data.localTime||'Time unavailable';
-  var timeStatus=document.getElementById('schedulerTimeStatus');timeStatus.textContent=data.ntpSynchronized?'Synchronized · '+(data.lastNtpSync||''):(data.timeValid?'Clock valid · NTP pending':'Unavailable - paused');timeStatus.className='scheduler-status-value '+(data.timeValid?'scheduler-sync-good':'scheduler-sync-bad');
+  var timeStatus=document.getElementById('schedulerTimeStatus');timeStatus.textContent=data.ntpSynchronized?'Last NTP sync: '+(data.lastNtpSync||''):(data.timeValid?'Clock valid · NTP pending':'Unavailable - paused');timeStatus.className='scheduler-status-value '+(data.timeValid?'scheduler-sync-good':'scheduler-sync-bad');
   document.getElementById('schedulerActiveCount').textContent=String(data.enabledCount)+' / '+String(data.count)+' ('+String(data.maxEntries)+' max)';
   document.getElementById('schedulerPendingCount').textContent=String(data.pendingActions);
   var ps=document.getElementById('schedulerPanasonicState');ps.textContent=data.panasonicSchedulerKnown?(data.panasonicSchedulerEnabled?'Enabled - possible conflict':'Disabled'):'Unavailable';ps.className='scheduler-status-value '+(data.panasonicSchedulerEnabled?'scheduler-sync-bad':'scheduler-sync-good');
