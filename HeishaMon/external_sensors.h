@@ -15,6 +15,8 @@
 struct ExternalSensor {
   uint8_t id;
   bool enabled;
+  bool historyEnabled;
+  uint8_t role;
   char name[EXTERNAL_SENSOR_NAME_LENGTH];
   char mqttTopic[EXTERNAL_SENSOR_TOPIC_LENGTH];
   char unit[EXTERNAL_SENSOR_UNIT_LENGTH];
@@ -33,6 +35,7 @@ class ExternalSensorRegistry {
   bool remove(uint8_t id, char *message, size_t messageSize);
   bool read(uint8_t id, float *value, uint32_t *ageSeconds,
     char *detail, size_t detailSize) const;
+  bool readElectricalPower(uint8_t id, float *value, uint32_t *ageSeconds) const;
   bool handleMqttMessage(const char *relativeTopic, const uint8_t *payload,
     size_t length);
   void subscribe(PubSubClient &client, const char *mqttBase);

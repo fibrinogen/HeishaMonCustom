@@ -16,14 +16,23 @@ struct HistorySample {
   int16_t outletTemp10;
   int16_t targetTemp10;
   int16_t dhwTemp10;
+  int16_t dhwTargetTemp10;
+  int16_t roomTemp10;
+  int16_t roomTarget10;
   uint16_t flow100;
   uint16_t compressorHz10;
   uint16_t pumpRpm;
   int16_t thermalPower100;
   uint16_t electricalPowerW;
+  uint16_t heatProductionW;
+  uint16_t heatConsumptionW;
+  uint16_t dhwProductionW;
+  uint16_t dhwConsumptionW;
   uint8_t operatingMode;
   uint8_t valveState;
   uint8_t flags;
+  uint8_t operatingState;
+  uint8_t electricalSource;
   uint32_t validFields;
   float externalValues[HEISHAMON_HISTORY_EXTERNAL_SENSOR_MAX];
 };
@@ -39,14 +48,31 @@ enum HistorySampleField : uint32_t {
   HISTORY_FIELD_PUMP_RPM = 1u << 7,
   HISTORY_FIELD_THERMAL_POWER = 1u << 8,
   HISTORY_FIELD_ELECTRICAL_POWER = 1u << 9,
-  HISTORY_FIELD_EXTERNAL_0 = 1u << 10,
-  HISTORY_FIELD_EXTERNAL_1 = 1u << 11,
-  HISTORY_FIELD_EXTERNAL_2 = 1u << 12,
-  HISTORY_FIELD_EXTERNAL_3 = 1u << 13,
-  HISTORY_FIELD_EXTERNAL_4 = 1u << 14,
-  HISTORY_FIELD_EXTERNAL_5 = 1u << 15,
-  HISTORY_FIELD_EXTERNAL_6 = 1u << 16,
-  HISTORY_FIELD_EXTERNAL_7 = 1u << 17
+  HISTORY_FIELD_DHW_TARGET = 1u << 10,
+  HISTORY_FIELD_ROOM = 1u << 11,
+  HISTORY_FIELD_ROOM_TARGET = 1u << 12,
+  HISTORY_FIELD_HEAT_PRODUCTION = 1u << 13,
+  HISTORY_FIELD_HEAT_CONSUMPTION = 1u << 14,
+  HISTORY_FIELD_DHW_PRODUCTION = 1u << 15,
+  HISTORY_FIELD_DHW_CONSUMPTION = 1u << 16,
+  HISTORY_FIELD_EXTERNAL_0 = 1u << 17,
+  HISTORY_FIELD_EXTERNAL_1 = 1u << 18,
+  HISTORY_FIELD_EXTERNAL_2 = 1u << 19,
+  HISTORY_FIELD_EXTERNAL_3 = 1u << 20,
+  HISTORY_FIELD_EXTERNAL_4 = 1u << 21,
+  HISTORY_FIELD_EXTERNAL_5 = 1u << 22,
+  HISTORY_FIELD_EXTERNAL_6 = 1u << 23,
+  HISTORY_FIELD_EXTERNAL_7 = 1u << 24
+};
+
+enum HistoryOperatingState : uint8_t {
+  HISTORY_STATE_UNKNOWN = 0,
+  HISTORY_STATE_STANDBY,
+  HISTORY_STATE_HEATING,
+  HISTORY_STATE_DHW,
+  HISTORY_STATE_DEFROST,
+  HISTORY_STATE_CIRCULATION,
+  HISTORY_STATE_TRANSITION
 };
 
 enum HistoryEventType : uint8_t {

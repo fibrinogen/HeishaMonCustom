@@ -74,6 +74,14 @@ bool ExternalSensorRegistry::validate(JsonObjectConst object, ExternalSensor &se
   memset(&sensor, 0, sizeof(sensor));
   sensor.id = (uint8_t)id;
   sensor.enabled = object["enabled"] | true;
+  // Existing configurations predate history roles. Keep their sensors
+  // available for history, but do not assign an electrical-power role.
+  sensor.historyEnabled = object["historyEnabled"] | true;
+  sensor.role = (uint8_t)(object["role"] | 0);
+  if (sensor.role > 1) {
+    snprintf(message, messageSize, "Invalid external sensor role");
+    return false;
+  }
   strlcpy(sensor.name, name, sizeof(sensor.name));
   strlcpy(sensor.mqttTopic, topic, sizeof(sensor.mqttTopic));
   strlcpy(sensor.unit, unit, sizeof(sensor.unit));
@@ -159,6 +167,15 @@ bool ExternalSensorRegistry::read(uint8_t id, float *value, uint32_t *ageSeconds
   return true;
 }
 
+bool ExternalSensorRegistry::readElectricalPower(uint8_t id, float *value,
+    uint32_t *ageSeconds) const {
+  if (id == 0) return false;
+  int8_t index = findIndex(id);
+  if (index < 0 || sensors_[index].role != 1) return false;
+  char detail[64];
+  return read(id, value, ageSeconds, detail, sizeof(detail));
+}
+
 bool ExternalSensorRegistry::handleMqttMessage(const char *relativeTopic,
     const uint8_t *payload, size_t length) {
   if (relativeTopic == nullptr || payload == nullptr || length == 0 || length >= 128) return false;
@@ -228,6 +245,8 @@ bool ExternalSensorRegistry::save() const {
     JsonObject object = sensors.add<JsonObject>();
     object["id"] = sensor.id;
     object["enabled"] = sensor.enabled;
+    object["historyEnabled"] = sensor.historyEnabled;
+    object["role"] = sensor.role;
     object["name"] = sensor.name;
     object["mqttTopic"] = sensor.mqttTopic;
     object["unit"] = sensor.unit;
@@ -247,6 +266,8 @@ void ExternalSensorRegistry::appendConditionSources(JsonArray array) const {
     object["name"] = sensors_[i].name;
     object["unit"] = sensors_[i].unit;
     object["enabled"] = sensors_[i].enabled;
+    object["historyEnabled"] = sensors_[i].historyEnabled;
+    object["role"] = sensors_[i].role;
   }
 }
 
@@ -261,6 +282,8 @@ void ExternalSensorRegistry::toJson(JsonDocument &document) const {
     JsonObject object = sensors.add<JsonObject>();
     object["id"] = sensor.id;
     object["enabled"] = sensor.enabled;
+    object["historyEnabled"] = sensor.historyEnabled;
+    object["role"] = sensor.role;
     object["name"] = sensor.name;
     object["mqttTopic"] = sensor.mqttTopic;
     object["unit"] = sensor.unit;
@@ -309,7 +332,7 @@ void ExternalSensorRegistry::readHistory(float *values, bool *valid, size_t maxV
     const ExternalSensor &sensor = sensors_[i];
     unsigned long age = sensor.lastUpdate == 0 ? ULONG_MAX : millis() - sensor.lastUpdate;
     uint32_t ageSeconds = age == ULONG_MAX ? UINT32_MAX : (uint32_t)(age / 1000UL);
-    valid[i] = sensor.enabled && sensor.valid && sensor.lastUpdate != 0 &&
+    valid[i] = sensor.historyEnabled && sensor.enabled && sensor.valid && sensor.lastUpdate != 0 &&
       ageSeconds <= sensor.staleTimeoutSeconds && isfinite(sensor.value);
     if (valid[i]) values[i] = sensor.value;
   }

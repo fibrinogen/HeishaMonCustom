@@ -36,6 +36,30 @@ inline bool diagnosticsCalculateEnergyCop(double thermalKWh,
   return std::isfinite(cop) && cop > 0.0f;
 }
 
+// Integrate two adjacent power samples using their real elapsed time. Keeping
+// this helper independent of the web/SD code makes the energy accounting easy
+// to test and prevents downsampling from averaging COP values.
+inline bool diagnosticsIntegratePower(double previousKw, double currentKw,
+    uint32_t elapsedSeconds, double &energyKWh) {
+  if (!std::isfinite(previousKw) || !std::isfinite(currentKw) ||
+      previousKw < 0.0 || currentKw < 0.0 || elapsedSeconds == 0 ||
+      elapsedSeconds > 86400) return false;
+  energyKWh += ((previousKw + currentKw) * 0.5) *
+    ((double)elapsedSeconds / 3600.0);
+  return std::isfinite(energyKWh);
+}
+
+inline double diagnosticsHeatingDegreeDays(double baseTemperature,
+    double previousOutside, double currentOutside, uint32_t elapsedSeconds) {
+  if (!std::isfinite(baseTemperature) || !std::isfinite(previousOutside) ||
+      !std::isfinite(currentOutside) || elapsedSeconds == 0 ||
+      elapsedSeconds > 86400) return 0.0;
+  double averageOutside = (previousOutside + currentOutside) * 0.5;
+  double degreeHours = std::fmax(0.0, baseTemperature - averageOutside) *
+    ((double)elapsedSeconds / 3600.0);
+  return degreeHours / 24.0;
+}
+
 struct DiagnosticsCycleTracker {
   bool initialized = false;
   bool running = false;

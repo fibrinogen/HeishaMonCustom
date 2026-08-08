@@ -79,6 +79,11 @@ void customFeaturesReadExternalSensorHistory(float *values, bool *valid,
   externalSensors.readHistory(values, valid, maxValues);
 }
 
+bool customFeaturesReadExternalElectricalPower(uint8_t sourceId, float *value,
+    uint32_t *ageSeconds) {
+  return externalSensors.readElectricalPower(sourceId, value, ageSeconds);
+}
+
 static bool schedulerReadTopic(uint8_t topic, float *value);
 static bool schedulerReadValue(SchedulerConditionSource source, uint8_t sourceId,
   float *value, uint32_t *ageSeconds, char *detail, size_t detailSize);

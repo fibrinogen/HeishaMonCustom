@@ -22,6 +22,12 @@ int main() {
   assert(diagnosticsCalculateEnergyCop(24.0, 5.0, cop));
   assert(fabsf(cop - 4.8f) < 0.001f);
   assert(!diagnosticsCalculateEnergyCop(24.0, 0.0, cop));
+  double energy = 0.0;
+  assert(diagnosticsIntegratePower(2.0, 4.0, 900, energy));
+  assert(fabs(energy - 0.75) < 0.0001);
+  assert(!diagnosticsIntegratePower(2.0, 4.0, 86401, energy));
+  assert(fabs(diagnosticsHeatingDegreeDays(18.0, 10.0, 10.0, 86400) - 8.0) < 0.0001);
+  assert(fabs(diagnosticsHeatingDegreeDays(18.0, 20.0, 20.0, 86400)) < 0.0001);
   assert(diagnosticsValidTemperature(20.0f));
   assert(!diagnosticsValidTemperature(-128.0f));
   assert(!diagnosticsValidTemperature(NAN));

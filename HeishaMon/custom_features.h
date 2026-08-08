@@ -19,6 +19,8 @@ bool customFeaturesHandleClose(struct webserver_t *client);
 void customFeaturesAppendExternalSensorDiagnostics(JsonArray array);
 void customFeaturesReadExternalSensorHistory(float *values, bool *valid,
   size_t maxValues);
+bool customFeaturesReadExternalElectricalPower(uint8_t sourceId, float *value,
+  uint32_t *ageSeconds);
 bool customFeaturesHandleMqttMessage(const char *topic, const char *mqttBase,
   const uint8_t *payload, size_t length);
 void customFeaturesMqttConnected(PubSubClient &client, const char *mqttBase);

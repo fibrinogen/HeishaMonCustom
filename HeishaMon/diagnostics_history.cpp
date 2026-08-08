@@ -34,6 +34,8 @@ extern String getDataValue(char *data, unsigned int topicNumber);
 extern void customFeaturesAppendExternalSensorDiagnostics(JsonArray array);
 extern void customFeaturesReadExternalSensorHistory(float *values, bool *valid,
   size_t maxValues);
+extern bool customFeaturesReadExternalElectricalPower(uint8_t sourceId,
+  float *value, uint32_t *ageSeconds);
 
 namespace {
 
@@ -44,6 +46,7 @@ constexpr uint8_t ROUTE_HISTORY_STATUS = 30;
 constexpr uint8_t ROUTE_HISTORY_API = 31;
 constexpr uint8_t ROUTE_EVENTS_API = 32;
 constexpr uint8_t ROUTE_HISTORY_COMMAND = 33;
+constexpr uint8_t ROUTE_CYCLES_API = 34;
 
 constexpr uint8_t TOP_HEATPUMP_STATE = 0;
 constexpr uint8_t TOP_FLOW = 1;
@@ -83,6 +86,7 @@ constexpr uint8_t TOP_STERILIZATION_MAX = 71;
 constexpr uint8_t TOP_HEATING_MODE = 76;
 constexpr uint8_t TOP_HEATING_OFF_OUTSIDE = 77;
 constexpr uint8_t TOP_ROOM_TEMP = 56;
+constexpr uint8_t TOP_ROOM_TARGET = 27;
 constexpr uint8_t TOP_LIQUID_TYPE = 107;
 // TOP16 is decoded by HeishaMon as instantaneous electrical power in watts.
 // It is quantized, so values below this threshold are not useful for COP.
@@ -93,6 +97,7 @@ constexpr uint8_t SAMPLE_FLAG_HEATPUMP = 0x02;
 constexpr uint8_t SAMPLE_FLAG_DHW = 0x04;
 constexpr uint8_t SAMPLE_FLAG_DEFROST = 0x08;
 constexpr uint8_t SAMPLE_FLAG_TIME_VALID = 0x10;
+constexpr uint8_t SAMPLE_FLAG_EXTERNAL_ELECTRICAL = 0x20;
 
 struct HistoryRequest {
   uint32_t rangeSeconds;
@@ -110,6 +115,8 @@ struct CycleState {
   int operationMode = -1;
   bool errorActive = false;
   unsigned long compressorStartedAt = 0;
+  uint32_t compressorStartTimestamp = 0;
+  uint32_t compressorStartSequence = 0;
   unsigned long previousRunSeconds = 0;
   uint32_t startsSinceBoot = 0;
   uint64_t totalRunSeconds = 0;
@@ -134,6 +141,10 @@ static uint16_t eventStart = 0;
 static uint16_t eventCount = 0;
 static uint16_t sampleIntervalSeconds = HEISHAMON_HISTORY_DEFAULT_INTERVAL_SECONDS;
 static uint16_t sdRetentionDays = HEISHAMON_HISTORY_SD_RETENTION_DAYS;
+static float heatingDegreeDayBase = 18.0f;
+// 0 selects Panasonic TOP power values; non-zero selects an external MQTT
+// sensor configured with the electrical-power role.
+static uint8_t electricalSourceId = 0;
 static unsigned long lastSampleAt = 0;
 static unsigned long lastSdFlushAt = 0;
 static uint32_t sampleSequence = 0;
@@ -147,6 +158,7 @@ static bool communicationStateKnown = false;
 static bool previousCommunicationState = false;
 static bool mqttStateKnown = false;
 static bool previousMqttState = false;
+static void finalizeCycle(uint32_t stopTimestamp);
 
 static bool frameHeaderValid() {
   return actData[0] == 0x71 && actData[1] == 0xC8 &&
@@ -184,6 +196,15 @@ static bool readTemperature(uint8_t topic, float &value) {
 static bool readNonNegative(uint8_t topic, float &value) {
   if (!readTopic(topic, value)) return false;
   return value >= 0.0f && value < 100000.0f;
+}
+
+static uint16_t scaledUnsigned(float value, float scale);
+
+static bool readPowerWatts(uint8_t topic, uint16_t &watts) {
+  float value = 0;
+  if (!readNonNegative(topic, value) || value >= 65535.0f) return false;
+  watts = scaledUnsigned(value, 1.0f);
+  return true;
 }
 
 static bool readError(String &value) {
@@ -320,16 +341,23 @@ static void updateCycleState() {
     cycle.valve = valve;
     cycle.operationMode = operationMode;
     cycle.errorActive = errorActive;
-    if (compressorRunning) cycle.compressorStartedAt = millis();
+    if (compressorRunning) {
+      cycle.compressorStartedAt = millis();
+      cycle.compressorStartTimestamp = currentTimestamp();
+      cycle.compressorStartSequence = sampleSequence + 1;
+    }
     return;
   }
 
   if (compressorRunning != cycle.compressorRunning) {
     if (compressorRunning) {
       cycle.compressorStartedAt = millis();
+      cycle.compressorStartTimestamp = currentTimestamp();
+      cycle.compressorStartSequence = sampleSequence + 1;
       cycle.startsSinceBoot++;
       addEvent(HISTORY_EVENT_COMPRESSOR_START, "Compressor started");
     } else {
+      finalizeCycle(currentTimestamp());
       unsigned long runSeconds = cycle.compressorStartedAt == 0 ? 0 :
         (unsigned long)(millis() - cycle.compressorStartedAt) / 1000UL;
       cycle.previousRunSeconds = runSeconds;
@@ -373,7 +401,7 @@ static bool makeSample(HistorySample &sample) {
   memset(&sample, 0, sizeof(sample));
   bool timestampValid = false;
   sample.timestamp = currentTimestamp(&timestampValid);
-  sample.uptimeSeconds = (uint16_t)(millis() / 1000UL);
+  sample.uptimeSeconds = (uint32_t)(millis() / 1000UL);
   float value = 0;
   if (readTemperature(TOP_OUTSIDE, value)) {
     sample.outsideTemp10 = scaledSigned(value, 10.0f);
@@ -395,6 +423,18 @@ static bool makeSample(HistorySample &sample) {
     sample.dhwTemp10 = scaledSigned(value, 10.0f);
     sample.validFields |= HISTORY_FIELD_DHW;
   }
+  if (readTemperature(TOP_DHW_TARGET, value)) {
+    sample.dhwTargetTemp10 = scaledSigned(value, 10.0f);
+    sample.validFields |= HISTORY_FIELD_DHW_TARGET;
+  }
+  if (readTemperature(TOP_ROOM_TEMP, value)) {
+    sample.roomTemp10 = scaledSigned(value, 10.0f);
+    sample.validFields |= HISTORY_FIELD_ROOM;
+  }
+  if (readTemperature(TOP_ROOM_TARGET, value)) {
+    sample.roomTarget10 = scaledSigned(value, 10.0f);
+    sample.validFields |= HISTORY_FIELD_ROOM_TARGET;
+  }
   if (readNonNegative(TOP_FLOW, value)) {
     sample.flow100 = scaledUnsigned(value, 100.0f);
     sample.validFields |= HISTORY_FIELD_FLOW;
@@ -407,17 +447,54 @@ static bool makeSample(HistorySample &sample) {
     sample.pumpRpm = scaledUnsigned(value, 1.0f);
     sample.validFields |= HISTORY_FIELD_PUMP_RPM;
   }
-  if (readNonNegative(TOP_HEAT_POWER_CONSUMPTION, value) && value < 65535.0f) {
-    sample.electricalPowerW = scaledUnsigned(value, 1.0f);
+  uint16_t powerWatts = 0;
+  if (readPowerWatts(TOP_HEAT_POWER_PRODUCTION, powerWatts)) {
+    sample.heatProductionW = powerWatts;
+    sample.validFields |= HISTORY_FIELD_HEAT_PRODUCTION;
+  }
+  if (readPowerWatts(TOP_HEAT_POWER_CONSUMPTION, powerWatts)) {
+    sample.heatConsumptionW = powerWatts;
+    sample.validFields |= HISTORY_FIELD_HEAT_CONSUMPTION;
+  }
+  if (readPowerWatts(TOP_DHW_PRODUCTION, powerWatts)) {
+    sample.dhwProductionW = powerWatts;
+    sample.validFields |= HISTORY_FIELD_DHW_PRODUCTION;
+  }
+  if (readPowerWatts(TOP_DHW_CONSUMPTION, powerWatts)) {
+    sample.dhwConsumptionW = powerWatts;
+    sample.validFields |= HISTORY_FIELD_DHW_CONSUMPTION;
+  }
+  bool dhwActive = currentDhwActive();
+  if (electricalSourceId != 0) {
+    float externalPower = 0;
+    uint32_t externalAge = UINT32_MAX;
+    if (customFeaturesReadExternalElectricalPower(electricalSourceId,
+        &externalPower, &externalAge) && externalPower >= 0.0f &&
+        externalPower < 65535.0f) {
+      sample.electricalPowerW = scaledUnsigned(externalPower, 1.0f);
+      sample.validFields |= HISTORY_FIELD_ELECTRICAL_POWER;
+      sample.flags |= SAMPLE_FLAG_EXTERNAL_ELECTRICAL;
+    }
+    (void)externalAge;
+  } else if (readPowerWatts(dhwActive ? TOP_DHW_CONSUMPTION : TOP_HEAT_POWER_CONSUMPTION,
+      powerWatts)) {
+    sample.electricalPowerW = powerWatts;
     sample.validFields |= HISTORY_FIELD_ELECTRICAL_POWER;
   }
+  sample.electricalSource = electricalSourceId;
   if (readTopic(TOP_OPERATION_MODE, value)) sample.operatingMode = (uint8_t)max(0L, min(255L, lroundf(value)));
   if (readTopic(TOP_VALVE, value)) sample.valveState = (uint8_t)max(0L, min(255L, lroundf(value)));
   if (readTopic(TOP_HEATPUMP_STATE, value) && lroundf(value) != 0) sample.flags |= SAMPLE_FLAG_HEATPUMP;
   if (readNonNegative(TOP_COMPRESSOR_HZ, value) && value > 0.5f) sample.flags |= SAMPLE_FLAG_COMPRESSOR;
-  if (currentDhwActive()) sample.flags |= SAMPLE_FLAG_DHW;
+  if (dhwActive) sample.flags |= SAMPLE_FLAG_DHW;
   if (readTopic(TOP_DEFROST, value) && lroundf(value) != 0) sample.flags |= SAMPLE_FLAG_DEFROST;
   if (timestampValid) sample.flags |= SAMPLE_FLAG_TIME_VALID;
+  sample.operatingState = (sample.flags & SAMPLE_FLAG_DEFROST) ? HISTORY_STATE_DEFROST :
+    (sample.flags & SAMPLE_FLAG_COMPRESSOR) ?
+      (sample.flags & SAMPLE_FLAG_DHW ? HISTORY_STATE_DHW : HISTORY_STATE_HEATING) :
+    (sample.flags & SAMPLE_FLAG_HEATPUMP) ?
+      (sample.validFields & HISTORY_FIELD_FLOW) && sample.flow100 > 20 ?
+        HISTORY_STATE_CIRCULATION : HISTORY_STATE_STANDBY : HISTORY_STATE_UNKNOWN;
 
   float inlet = 0, outlet = 0, flow = 0;
   if (readTemperature(TOP_INLET, inlet) && readTemperature(TOP_OUTLET, outlet) &&
@@ -536,6 +613,43 @@ struct EnergyTotals {
   uint32_t intervals = 0;
 };
 
+struct CycleRecord {
+  uint32_t startTimestamp;
+  uint32_t stopTimestamp;
+  uint32_t durationSeconds;
+  uint32_t startsSequence;
+  uint8_t operatingState;
+  float outsideAverage;
+  float flowAverage;
+  float frequencyAverage;
+  float frequencyMaximum;
+  double thermalKWh;
+  double electricalKWh;
+  float cop;
+  bool copValid;
+};
+
+struct DailySummary {
+  bool valid = false;
+  uint32_t dayStart = 0;
+  double heatingDegreeDays = 0.0;
+  EnergyTotals heating;
+  EnergyTotals dhw;
+  uint32_t compressorSeconds = 0;
+  uint32_t compressorStarts = 0;
+  float outsideMinimum = NAN;
+  float outsideMaximum = NAN;
+  double outsideSum = 0.0;
+  uint32_t outsideSamples = 0;
+};
+
+static CycleRecord cycleRecords[32];
+static uint8_t cycleRecordStart = 0;
+static uint8_t cycleRecordCount = 0;
+static DailySummary dailySummary;
+static HistorySample previousDailySample;
+static bool previousDailySampleValid = false;
+
 static bool addEnergyPair(const HistorySample &previous, const HistorySample &current,
     int groupFilter, uint32_t lowerTime, uint32_t upperTime, EnergyTotals &totals) {
   if (!sampleHasValidTime(previous) || !sampleHasValidTime(current)) return false;
@@ -546,28 +660,154 @@ static bool addEnergyPair(const HistorySample &previous, const HistorySample &cu
   int previousGroup = efficiencyGroup(previous);
   int currentGroup = efficiencyGroup(current);
   if (previousGroup == 0 || currentGroup == 0 || previousGroup != currentGroup ||
-      (groupFilter != 0 && currentGroup != groupFilter) ||
-      (previous.validFields & (HISTORY_FIELD_THERMAL_POWER | HISTORY_FIELD_ELECTRICAL_POWER)) !=
-        (HISTORY_FIELD_THERMAL_POWER | HISTORY_FIELD_ELECTRICAL_POWER) ||
-      (current.validFields & (HISTORY_FIELD_THERMAL_POWER | HISTORY_FIELD_ELECTRICAL_POWER)) !=
-        (HISTORY_FIELD_THERMAL_POWER | HISTORY_FIELD_ELECTRICAL_POWER)) return false;
+      (groupFilter != 0 && currentGroup != groupFilter)) return false;
   float previousThermal = previous.thermalPower100 / 100.0f;
   float currentThermal = current.thermalPower100 / 100.0f;
   float previousElectrical = previous.electricalPowerW / 1000.0f;
   float currentElectrical = current.electricalPowerW / 1000.0f;
-  if (previousThermal <= 0.1f || currentThermal <= 0.1f ||
-      previous.electricalPowerW < COP_MIN_ELECTRICAL_POWER_W ||
-      current.electricalPowerW < COP_MIN_ELECTRICAL_POWER_W) return false;
-  double hours = (double)(currentTime - previousTime) / 3600.0;
-  totals.thermalKWh += ((double)previousThermal + currentThermal) * 0.5 * hours;
-  totals.electricalKWh += ((double)previousElectrical + currentElectrical) * 0.5 * hours;
-  totals.intervals++;
-  return true;
+  bool thermalAdded =
+    (previous.validFields & HISTORY_FIELD_THERMAL_POWER) != 0 &&
+    (current.validFields & HISTORY_FIELD_THERMAL_POWER) != 0 &&
+    previousThermal > 0.1f && currentThermal > 0.1f &&
+    diagnosticsIntegratePower(previousThermal, currentThermal,
+      currentTime - previousTime, totals.thermalKWh);
+  bool electricalAdded =
+    (previous.validFields & HISTORY_FIELD_ELECTRICAL_POWER) != 0 &&
+    (current.validFields & HISTORY_FIELD_ELECTRICAL_POWER) != 0 &&
+    previous.electricalPowerW >= COP_MIN_ELECTRICAL_POWER_W &&
+    current.electricalPowerW >= COP_MIN_ELECTRICAL_POWER_W &&
+    diagnosticsIntegratePower(previousElectrical, currentElectrical,
+      currentTime - previousTime, totals.electricalKWh);
+  if (thermalAdded && electricalAdded) totals.intervals++;
+  return thermalAdded || electricalAdded;
 }
 
 static bool totalsCop(const EnergyTotals &totals, float &cop) {
   if (totals.intervals == 0) return false;
   return diagnosticsCalculateEnergyCop(totals.thermalKWh, totals.electricalKWh, cop);
+}
+
+static void persistDailySummary(const DailySummary &summary);
+static void persistCycleRecord(const CycleRecord &record);
+
+static void addCycleRecord(const CycleRecord &record) {
+  uint8_t index;
+  if (cycleRecordCount < 32) {
+    index = (uint8_t)((cycleRecordStart + cycleRecordCount) % 32);
+    cycleRecordCount++;
+  } else {
+    index = cycleRecordStart;
+    cycleRecordStart = (uint8_t)((cycleRecordStart + 1) % 32);
+  }
+  cycleRecords[index] = record;
+  persistCycleRecord(record);
+}
+
+static void finalizeCycle(uint32_t stopTimestamp) {
+  if (cycle.compressorStartSequence == 0 || sampleCount == 0) return;
+  CycleRecord record = {};
+  record.startTimestamp = cycle.compressorStartTimestamp;
+  record.stopTimestamp = stopTimestamp;
+  record.startsSequence = cycle.compressorStartSequence;
+  record.durationSeconds = record.startTimestamp > 0 && stopTimestamp >= record.startTimestamp ?
+    stopTimestamp - record.startTimestamp : 0;
+  const HistorySample *previous = nullptr;
+  double outsideSum = 0.0, flowSum = 0.0, frequencySum = 0.0;
+  uint32_t outsideCount = 0, flowCount = 0, frequencyCount = 0;
+  bool sawDhw = false;
+  for (uint16_t offset = 0; offset < sampleCount; offset++) {
+    const HistorySample &sample = samples[orderedSampleIndex(offset)];
+    if (sample.sequence < cycle.compressorStartSequence) continue;
+    if ((sample.flags & SAMPLE_FLAG_DHW) != 0) sawDhw = true;
+    if ((sample.validFields & HISTORY_FIELD_OUTSIDE) != 0) {
+      outsideSum += sample.outsideTemp10 / 10.0f;
+      outsideCount++;
+    }
+    if ((sample.validFields & HISTORY_FIELD_FLOW) != 0) {
+      flowSum += sample.flow100 / 100.0f;
+      flowCount++;
+    }
+    if ((sample.validFields & HISTORY_FIELD_COMPRESSOR_HZ) != 0) {
+      float hz = sample.compressorHz10 / 10.0f;
+      frequencySum += hz;
+      frequencyCount++;
+      if (frequencyCount == 1 || hz > record.frequencyMaximum) record.frequencyMaximum = hz;
+    }
+    previous = &sample;
+  }
+  // Recompute the cycle energy with the final DHW classification. The helper
+  // only returns source-based energy and deliberately excludes invalid/defrost
+  // intervals; no averaged COP is persisted.
+  EnergyTotals totals;
+  previous = nullptr;
+  for (uint16_t offset = 0; offset < sampleCount; offset++) {
+    const HistorySample &sample = samples[orderedSampleIndex(offset)];
+    if (sample.sequence < cycle.compressorStartSequence) continue;
+    if (previous != nullptr) addEnergyPair(*previous, sample, 0, 0, UINT32_MAX, totals);
+    previous = &sample;
+  }
+  record.thermalKWh = totals.thermalKWh;
+  record.electricalKWh = totals.electricalKWh;
+  record.copValid = totalsCop(totals, record.cop);
+  record.operatingState = sawDhw ? HISTORY_STATE_DHW : HISTORY_STATE_HEATING;
+  record.outsideAverage = outsideCount == 0 ? NAN : (float)(outsideSum / outsideCount);
+  record.flowAverage = flowCount == 0 ? NAN : (float)(flowSum / flowCount);
+  record.frequencyAverage = frequencyCount == 0 ? NAN : (float)(frequencySum / frequencyCount);
+  addCycleRecord(record);
+}
+
+static uint32_t localDayStart(uint32_t timestamp) {
+  time_t value = (time_t)timestamp;
+  struct tm local = {};
+  if (localtime_r(&value, &local) == nullptr) return 0;
+  local.tm_hour = 0;
+  local.tm_min = 0;
+  local.tm_sec = 0;
+  return (uint32_t)mktime(&local);
+}
+
+static void resetDailySummary(uint32_t dayStart) {
+  dailySummary = DailySummary();
+  dailySummary.valid = dayStart != 0;
+  dailySummary.dayStart = dayStart;
+}
+
+static void updateDailySummary(const HistorySample &sample) {
+  if (!sampleHasValidTime(sample)) return;
+  uint32_t dayStart = localDayStart(sample.timestamp);
+  if (dayStart == 0) return;
+  if (!dailySummary.valid) resetDailySummary(dayStart);
+  else if (dailySummary.dayStart != dayStart) {
+    persistDailySummary(dailySummary);
+    resetDailySummary(dayStart);
+  }
+  if ((sample.validFields & HISTORY_FIELD_OUTSIDE) != 0) {
+    float outside = sample.outsideTemp10 / 10.0f;
+    dailySummary.outsideSum += outside;
+    dailySummary.outsideSamples++;
+    if (!isfinite(dailySummary.outsideMinimum) || outside < dailySummary.outsideMinimum) dailySummary.outsideMinimum = outside;
+    if (!isfinite(dailySummary.outsideMaximum) || outside > dailySummary.outsideMaximum) dailySummary.outsideMaximum = outside;
+  }
+  if (previousDailySampleValid && sampleHasValidTime(previousDailySample)) {
+    uint32_t previousTime = sampleTimeSeconds(previousDailySample);
+    uint32_t currentTime = sampleTimeSeconds(sample);
+    if (currentTime > previousTime && currentTime - previousTime <= 600UL &&
+        localDayStart(previousTime) == dayStart) {
+      if ((previousDailySample.validFields & HISTORY_FIELD_OUTSIDE) != 0 &&
+          (sample.validFields & HISTORY_FIELD_OUTSIDE) != 0) {
+        dailySummary.heatingDegreeDays += diagnosticsHeatingDegreeDays(heatingDegreeDayBase,
+          previousDailySample.outsideTemp10 / 10.0,
+          sample.outsideTemp10 / 10.0, currentTime - previousTime);
+      }
+      addEnergyPair(previousDailySample, sample, 1, dayStart, UINT32_MAX, dailySummary.heating);
+      addEnergyPair(previousDailySample, sample, 2, dayStart, UINT32_MAX, dailySummary.dhw);
+      if ((sample.flags & SAMPLE_FLAG_COMPRESSOR) != 0) dailySummary.compressorSeconds += currentTime - previousTime;
+      if ((sample.flags & SAMPLE_FLAG_COMPRESSOR) != 0 &&
+          (previousDailySample.flags & SAMPLE_FLAG_COMPRESSOR) == 0) dailySummary.compressorStarts++;
+    }
+  }
+  previousDailySample = sample;
+  previousDailySampleValid = true;
 }
 
 static EnergyTotals calculateEnergy(uint16_t firstOffset, uint16_t lastOffset,
@@ -651,14 +891,59 @@ static void appendEfficiencySummary(struct webserver_t *client) {
   appendText(client, "}");
 }
 
+static void appendDailySummaryJson(struct webserver_t *client) {
+  float heatingCop = 0, dhwCop = 0;
+  bool heatingValid = totalsCop(dailySummary.heating, heatingCop);
+  bool dhwValid = totalsCop(dailySummary.dhw, dhwCop);
+  float outsideAverage = dailySummary.outsideSamples == 0 ? NAN :
+    (float)(dailySummary.outsideSum / dailySummary.outsideSamples);
+  appendFmt(client, "{\"valid\":%s,\"dayStart\":%lu,\"heatingDegreeDays\":%.3f,\"compressorSeconds\":%lu,\"compressorStarts\":%lu,\"heatingThermalKWh\":%.4f,\"heatingElectricalKWh\":%.4f,\"heatingCop\":",
+    dailySummary.valid ? "true" : "false", (unsigned long)dailySummary.dayStart,
+    dailySummary.heatingDegreeDays, (unsigned long)dailySummary.compressorSeconds,
+    (unsigned long)dailySummary.compressorStarts, dailySummary.heating.thermalKWh,
+    dailySummary.heating.electricalKWh);
+  appendJsonFloat(client, heatingValid, heatingCop);
+  appendFmt(client, ",\"dhwThermalKWh\":%.4f,\"dhwElectricalKWh\":%.4f,\"dhwCop\":",
+    dailySummary.dhw.thermalKWh, dailySummary.dhw.electricalKWh);
+  appendJsonFloat(client, dhwValid, dhwCop);
+  appendText(client, ",\"outsideMinimum\":");
+  appendJsonFloat(client, isfinite(dailySummary.outsideMinimum), dailySummary.outsideMinimum);
+  appendText(client, ",\"outsideMaximum\":");
+  appendJsonFloat(client, isfinite(dailySummary.outsideMaximum), dailySummary.outsideMaximum);
+  appendText(client, ",\"outsideAverage\":");
+  appendJsonFloat(client, isfinite(outsideAverage), outsideAverage);
+  appendText(client, "}");
+}
+
+static void appendCyclesJson(struct webserver_t *client) {
+  appendText(client, "[");
+  for (uint8_t offset = 0; offset < cycleRecordCount; offset++) {
+    if (offset > 0) appendText(client, ",");
+    const CycleRecord &record = cycleRecords[(cycleRecordStart + offset) % 32];
+    appendFmt(client, "{\"start\":%lu,\"stop\":%lu,\"durationSeconds\":%lu,\"state\":%u,\"outsideAverage\":",
+      (unsigned long)record.startTimestamp, (unsigned long)record.stopTimestamp,
+      (unsigned long)record.durationSeconds, record.operatingState);
+    appendJsonFloat(client, isfinite(record.outsideAverage), record.outsideAverage);
+    appendText(client, ",\"flowAverage\":");
+    appendJsonFloat(client, isfinite(record.flowAverage), record.flowAverage);
+    appendText(client, ",\"frequencyAverage\":");
+    appendJsonFloat(client, isfinite(record.frequencyAverage), record.frequencyAverage);
+    appendFmt(client, ",\"frequencyMaximum\":%.1f,\"thermalKWh\":%.4f,\"electricalKWh\":%.4f,\"cop\":",
+      record.frequencyMaximum, record.thermalKWh, record.electricalKWh);
+    appendJsonFloat(client, record.copValid, record.cop);
+    appendText(client, "}");
+  }
+  appendText(client, "]");
+}
+
 static uint16_t orderedSampleIndex(uint16_t offset) {
   return (uint16_t)((sampleStart + offset) % HEISHAMON_HISTORY_MAX_SAMPLES);
 }
 
 struct SampleAggregate {
   HistorySample sample;
-  float sums[10];
-  uint16_t counts[10];
+  float sums[17];
+  uint16_t counts[17];
   EnergyTotals energy;
   uint16_t count;
 };
@@ -673,6 +958,8 @@ static void addAggregate(SampleAggregate &aggregate, const HistorySample &sample
   aggregate.sample.operatingMode = sample.operatingMode;
   aggregate.sample.valveState = sample.valveState;
   aggregate.sample.flags = sample.flags;
+  aggregate.sample.operatingState = sample.operatingState;
+  aggregate.sample.electricalSource = sample.electricalSource;
   aggregate.sample.validFields |= sample.validFields;
   memcpy(aggregate.sample.externalValues, sample.externalValues,
     sizeof(aggregate.sample.externalValues));
@@ -680,16 +967,23 @@ static void addAggregate(SampleAggregate &aggregate, const HistorySample &sample
     HISTORY_FIELD_OUTSIDE, HISTORY_FIELD_INLET, HISTORY_FIELD_OUTLET,
     HISTORY_FIELD_TARGET, HISTORY_FIELD_DHW, HISTORY_FIELD_FLOW,
     HISTORY_FIELD_COMPRESSOR_HZ, HISTORY_FIELD_PUMP_RPM,
-    HISTORY_FIELD_THERMAL_POWER, HISTORY_FIELD_ELECTRICAL_POWER
+    HISTORY_FIELD_THERMAL_POWER, HISTORY_FIELD_ELECTRICAL_POWER,
+    HISTORY_FIELD_DHW_TARGET, HISTORY_FIELD_ROOM, HISTORY_FIELD_ROOM_TARGET,
+    HISTORY_FIELD_HEAT_PRODUCTION, HISTORY_FIELD_HEAT_CONSUMPTION,
+    HISTORY_FIELD_DHW_PRODUCTION, HISTORY_FIELD_DHW_CONSUMPTION
   };
   const float values[] = {
     sample.outsideTemp10 / 10.0f, sample.inletTemp10 / 10.0f,
     sample.outletTemp10 / 10.0f, sample.targetTemp10 / 10.0f,
     sample.dhwTemp10 / 10.0f, sample.flow100 / 100.0f,
     sample.compressorHz10 / 10.0f, (float)sample.pumpRpm,
-    sample.thermalPower100 / 100.0f, (float)sample.electricalPowerW
+    sample.thermalPower100 / 100.0f, (float)sample.electricalPowerW,
+    sample.dhwTargetTemp10 / 10.0f, sample.roomTemp10 / 10.0f,
+    sample.roomTarget10 / 10.0f, (float)sample.heatProductionW,
+    (float)sample.heatConsumptionW, (float)sample.dhwProductionW,
+    (float)sample.dhwConsumptionW
   };
-  for (uint8_t i = 0; i < 10; i++) {
+  for (uint8_t i = 0; i < 17; i++) {
     if ((sample.validFields & fields[i]) != 0) {
       aggregate.sums[i] += values[i];
       aggregate.counts[i]++;
@@ -703,9 +997,12 @@ static void finishAggregate(SampleAggregate &aggregate) {
     HISTORY_FIELD_OUTSIDE, HISTORY_FIELD_INLET, HISTORY_FIELD_OUTLET,
     HISTORY_FIELD_TARGET, HISTORY_FIELD_DHW, HISTORY_FIELD_FLOW,
     HISTORY_FIELD_COMPRESSOR_HZ, HISTORY_FIELD_PUMP_RPM,
-    HISTORY_FIELD_THERMAL_POWER, HISTORY_FIELD_ELECTRICAL_POWER
+    HISTORY_FIELD_THERMAL_POWER, HISTORY_FIELD_ELECTRICAL_POWER,
+    HISTORY_FIELD_DHW_TARGET, HISTORY_FIELD_ROOM, HISTORY_FIELD_ROOM_TARGET,
+    HISTORY_FIELD_HEAT_PRODUCTION, HISTORY_FIELD_HEAT_CONSUMPTION,
+    HISTORY_FIELD_DHW_PRODUCTION, HISTORY_FIELD_DHW_CONSUMPTION
   };
-  for (uint8_t i = 0; i < 10; i++) {
+  for (uint8_t i = 0; i < 17; i++) {
     if (aggregate.counts[i] == 0) {
       aggregate.sample.validFields &= ~fields[i];
       continue;
@@ -722,6 +1019,13 @@ static void finishAggregate(SampleAggregate &aggregate) {
       case 7: aggregate.sample.pumpRpm = scaledUnsigned(value, 1.0f); break;
       case 8: aggregate.sample.thermalPower100 = scaledSigned(value, 100.0f); break;
       case 9: aggregate.sample.electricalPowerW = scaledUnsigned(value, 1.0f); break;
+      case 10: aggregate.sample.dhwTargetTemp10 = scaledSigned(value, 10.0f); break;
+      case 11: aggregate.sample.roomTemp10 = scaledSigned(value, 10.0f); break;
+      case 12: aggregate.sample.roomTarget10 = scaledSigned(value, 10.0f); break;
+      case 13: aggregate.sample.heatProductionW = scaledUnsigned(value, 1.0f); break;
+      case 14: aggregate.sample.heatConsumptionW = scaledUnsigned(value, 1.0f); break;
+      case 15: aggregate.sample.dhwProductionW = scaledUnsigned(value, 1.0f); break;
+      case 16: aggregate.sample.dhwConsumptionW = scaledUnsigned(value, 1.0f); break;
     }
   }
 }
@@ -729,25 +1033,36 @@ static void finishAggregate(SampleAggregate &aggregate) {
 static void appendSampleJson(struct webserver_t *client, const HistorySample &sample,
     bool useAggregatedCop = false, float aggregatedCop = 0.0f) {
   char outside[20], inlet[20], outlet[20], target[20], dhw[20];
+  char dhwTarget[20], room[20], roomTarget[20], heatProduction[20];
+  char heatConsumption[20], dhwProduction[20], dhwConsumption[20];
   char flow[20], hz[20], pump[20], power[20], electrical[20], cop[20];
   snprintf(outside, sizeof(outside), (sample.validFields & HISTORY_FIELD_OUTSIDE) ? "%.1f" : "null", sample.outsideTemp10 / 10.0f);
   snprintf(inlet, sizeof(inlet), (sample.validFields & HISTORY_FIELD_INLET) ? "%.1f" : "null", sample.inletTemp10 / 10.0f);
   snprintf(outlet, sizeof(outlet), (sample.validFields & HISTORY_FIELD_OUTLET) ? "%.1f" : "null", sample.outletTemp10 / 10.0f);
   snprintf(target, sizeof(target), (sample.validFields & HISTORY_FIELD_TARGET) ? "%.1f" : "null", sample.targetTemp10 / 10.0f);
   snprintf(dhw, sizeof(dhw), (sample.validFields & HISTORY_FIELD_DHW) ? "%.1f" : "null", sample.dhwTemp10 / 10.0f);
+  snprintf(dhwTarget, sizeof(dhwTarget), (sample.validFields & HISTORY_FIELD_DHW_TARGET) ? "%.1f" : "null", sample.dhwTargetTemp10 / 10.0f);
+  snprintf(room, sizeof(room), (sample.validFields & HISTORY_FIELD_ROOM) ? "%.1f" : "null", sample.roomTemp10 / 10.0f);
+  snprintf(roomTarget, sizeof(roomTarget), (sample.validFields & HISTORY_FIELD_ROOM_TARGET) ? "%.1f" : "null", sample.roomTarget10 / 10.0f);
   snprintf(flow, sizeof(flow), (sample.validFields & HISTORY_FIELD_FLOW) ? "%.2f" : "null", sample.flow100 / 100.0f);
   snprintf(hz, sizeof(hz), (sample.validFields & HISTORY_FIELD_COMPRESSOR_HZ) ? "%.1f" : "null", sample.compressorHz10 / 10.0f);
   snprintf(pump, sizeof(pump), (sample.validFields & HISTORY_FIELD_PUMP_RPM) ? "%u" : "null", sample.pumpRpm);
   snprintf(power, sizeof(power), (sample.validFields & HISTORY_FIELD_THERMAL_POWER) ? "%.2f" : "null", sample.thermalPower100 / 100.0f);
   snprintf(electrical, sizeof(electrical), (sample.validFields & HISTORY_FIELD_ELECTRICAL_POWER) ? "%.3f" : "null", sample.electricalPowerW / 1000.0f);
+  snprintf(heatProduction, sizeof(heatProduction), (sample.validFields & HISTORY_FIELD_HEAT_PRODUCTION) ? "%.3f" : "null", sample.heatProductionW / 1000.0f);
+  snprintf(heatConsumption, sizeof(heatConsumption), (sample.validFields & HISTORY_FIELD_HEAT_CONSUMPTION) ? "%.3f" : "null", sample.heatConsumptionW / 1000.0f);
+  snprintf(dhwProduction, sizeof(dhwProduction), (sample.validFields & HISTORY_FIELD_DHW_PRODUCTION) ? "%.3f" : "null", sample.dhwProductionW / 1000.0f);
+  snprintf(dhwConsumption, sizeof(dhwConsumption), (sample.validFields & HISTORY_FIELD_DHW_CONSUMPTION) ? "%.3f" : "null", sample.dhwConsumptionW / 1000.0f);
   bool copValid = useAggregatedCop ? isfinite(aggregatedCop) : instantaneousCop(sample, aggregatedCop);
   snprintf(cop, sizeof(cop), copValid ? "%.2f" : "null", aggregatedCop);
   appendFmt(client,
-    "{\"t\":%lu,\"u\":%lu,\"outside\":%s,\"inlet\":%s,\"outlet\":%s,\"target\":%s,\"dhw\":%s,\"flow\":%s,\"hz\":%s,\"pump\":%s,\"power\":%s,\"electrical\":%s,\"cop\":%s,\"mode\":%u,\"valve\":%u,\"compressor\":%s,\"dhwActive\":%s,\"timeValid\":%s}",
+    "{\"t\":%lu,\"u\":%lu,\"outside\":%s,\"inlet\":%s,\"outlet\":%s,\"target\":%s,\"dhw\":%s,\"dhwTarget\":%s,\"room\":%s,\"roomTarget\":%s,\"flow\":%s,\"hz\":%s,\"pump\":%s,\"power\":%s,\"electrical\":%s,\"electricalSource\":%u,\"heatProduction\":%s,\"heatConsumption\":%s,\"dhwProduction\":%s,\"dhwConsumption\":%s,\"cop\":%s,\"mode\":%u,\"valve\":%u,\"state\":%u,\"compressor\":%s,\"dhwActive\":%s,\"timeValid\":%s}",
     (unsigned long)sample.timestamp, (unsigned long)sample.uptimeSeconds,
-    outside, inlet, outlet, target, dhw, flow, hz, pump, power, electrical, cop,
+    outside, inlet, outlet, target, dhw, dhwTarget, room, roomTarget, flow, hz, pump,
+    power, electrical, sample.electricalSource, heatProduction, heatConsumption, dhwProduction, dhwConsumption, cop,
     sample.operatingMode,
-    sample.valveState, (sample.flags & SAMPLE_FLAG_COMPRESSOR) ? "true" : "false",
+    sample.valveState, sample.operatingState,
+    (sample.flags & SAMPLE_FLAG_COMPRESSOR) ? "true" : "false",
     (sample.flags & SAMPLE_FLAG_DHW) ? "true" : "false",
     (sample.flags & SAMPLE_FLAG_TIME_VALID) ? "true" : "false");
 }
@@ -765,6 +1080,10 @@ static void loadHistoryConfig() {
     uint16_t retention = (uint16_t)(document["retentionDays"] | sdRetentionDays);
     if (retention == 0 || retention == 7 || retention == 14 || retention == 30 ||
         retention == 90) sdRetentionDays = retention;
+    uint16_t source = (uint16_t)(document["electricalSource"] | 0);
+    if (source <= 255) electricalSourceId = (uint8_t)source;
+    float base = document["degreeDayBase"] | heatingDegreeDayBase;
+    if (isfinite(base) && base >= 5.0f && base <= 30.0f) heatingDegreeDayBase = base;
   }
   file.close();
 }
@@ -777,6 +1096,8 @@ static bool saveHistoryConfig() {
   document["version"] = 1;
   document["intervalSeconds"] = sampleIntervalSeconds;
   document["retentionDays"] = sdRetentionDays;
+  document["electricalSource"] = electricalSourceId;
+  document["degreeDayBase"] = heatingDegreeDayBase;
   bool ok = serializeJson(document, file) > 0;
   file.close();
   return ok;
@@ -807,6 +1128,8 @@ static bool sdDatePath(char *path, size_t pathSize, const char *directory,
 static void ensureSdDirectories() {
   if (!SD.exists("/history")) SD.mkdir("/history");
   if (!SD.exists("/events")) SD.mkdir("/events");
+  if (!SD.exists("/daily")) SD.mkdir("/daily");
+  if (!SD.exists("/cycles")) SD.mkdir("/cycles");
 }
 
 static bool parseSdDate(const char *name, int &year, int &month, int &day) {
@@ -892,15 +1215,15 @@ static void initializeSd() {
   log_message((char *)"[SD] Persistent history enabled");
 }
 
-static void writeSdEvents() {
-  if (!sdState.active || eventCount == 0) return;
+static bool writeSdEvents() {
+  if (!sdState.active || eventCount == 0) return true;
   char path[48];
-  if (!sdDatePath(path, sizeof(path), "/events", "csv")) return;
+  if (!sdDatePath(path, sizeof(path), "/events", "csv")) return false;
   bool exists = SD.exists(path);
   File file = SD.open(path, FILE_APPEND);
   if (!file) {
     setSdError("Could not open event file");
-    return;
+    return false;
   }
   if (!exists) file.println("timestamp,type,message,value");
   for (uint16_t offset = 0; offset < eventCount; offset++) {
@@ -910,19 +1233,20 @@ static void writeSdEvents() {
       eventTypeName(event.type), event.message, (long)event.value);
   }
   file.close();
+  return true;
 }
 
-static void writeSdSamples() {
-  if (!sdState.active || sampleCount == 0) return;
+static bool writeSdSamples() {
+  if (!sdState.active || sampleCount == 0) return true;
   char path[48];
-  if (!sdDatePath(path, sizeof(path), "/history", "csv")) return;
+  if (!sdDatePath(path, sizeof(path), "/history", "csv")) return false;
   bool exists = SD.exists(path);
   File file = SD.open(path, FILE_APPEND);
   if (!file) {
     setSdError("Could not open history file");
-    return;
+    return false;
   }
-  if (!exists) file.println("timestamp,outside,inlet,outlet,target,dhw,flow,compressor_hz,thermal_kw,electrical_kw,mode,valve,estimated_cop");
+  if (!exists) file.println("timestamp,outside,inlet,outlet,target,dhw,dhw_target,room,room_target,flow,compressor_hz,pump_rpm,thermal_kw,electrical_kw,heat_production_kw,heat_consumption_kw,dhw_production_kw,dhw_consumption_kw,mode,valve,state,defrost,estimated_cop");
   uint32_t oldestSequence = sampleSequence >= sampleCount ?
     sampleSequence - sampleCount + 1 : 1;
   if (sdFlushedSequence < oldestSequence - 1) sdFlushedSequence = oldestSequence - 1;
@@ -931,26 +1255,43 @@ static void writeSdSamples() {
     if (sample.sequence <= sdFlushedSequence) continue;
     float cop = 0;
     bool copValid = instantaneousCop(sample, cop);
-    char copText[16];
+    char outside[16], inlet[16], outlet[16], target[16], dhw[16], dhwTarget[16];
+    char room[16], roomTarget[16], flow[16], hz[16], pump[16], thermal[16], electrical[16];
+    char heatProduction[16], heatConsumption[16], dhwProduction[16], dhwConsumption[16], copText[16];
+    snprintf(outside, sizeof(outside), (sample.validFields & HISTORY_FIELD_OUTSIDE) ? "%.1f" : "", sample.outsideTemp10 / 10.0f);
+    snprintf(inlet, sizeof(inlet), (sample.validFields & HISTORY_FIELD_INLET) ? "%.1f" : "", sample.inletTemp10 / 10.0f);
+    snprintf(outlet, sizeof(outlet), (sample.validFields & HISTORY_FIELD_OUTLET) ? "%.1f" : "", sample.outletTemp10 / 10.0f);
+    snprintf(target, sizeof(target), (sample.validFields & HISTORY_FIELD_TARGET) ? "%.1f" : "", sample.targetTemp10 / 10.0f);
+    snprintf(dhw, sizeof(dhw), (sample.validFields & HISTORY_FIELD_DHW) ? "%.1f" : "", sample.dhwTemp10 / 10.0f);
+    snprintf(dhwTarget, sizeof(dhwTarget), (sample.validFields & HISTORY_FIELD_DHW_TARGET) ? "%.1f" : "", sample.dhwTargetTemp10 / 10.0f);
+    snprintf(room, sizeof(room), (sample.validFields & HISTORY_FIELD_ROOM) ? "%.1f" : "", sample.roomTemp10 / 10.0f);
+    snprintf(roomTarget, sizeof(roomTarget), (sample.validFields & HISTORY_FIELD_ROOM_TARGET) ? "%.1f" : "", sample.roomTarget10 / 10.0f);
+    snprintf(flow, sizeof(flow), (sample.validFields & HISTORY_FIELD_FLOW) ? "%.2f" : "", sample.flow100 / 100.0f);
+    snprintf(hz, sizeof(hz), (sample.validFields & HISTORY_FIELD_COMPRESSOR_HZ) ? "%.1f" : "", sample.compressorHz10 / 10.0f);
+    snprintf(pump, sizeof(pump), (sample.validFields & HISTORY_FIELD_PUMP_RPM) ? "%u" : "", sample.pumpRpm);
+    snprintf(thermal, sizeof(thermal), (sample.validFields & HISTORY_FIELD_THERMAL_POWER) ? "%.2f" : "", sample.thermalPower100 / 100.0f);
+    snprintf(electrical, sizeof(electrical), (sample.validFields & HISTORY_FIELD_ELECTRICAL_POWER) ? "%.3f" : "", sample.electricalPowerW / 1000.0f);
+    snprintf(heatProduction, sizeof(heatProduction), (sample.validFields & HISTORY_FIELD_HEAT_PRODUCTION) ? "%.3f" : "", sample.heatProductionW / 1000.0f);
+    snprintf(heatConsumption, sizeof(heatConsumption), (sample.validFields & HISTORY_FIELD_HEAT_CONSUMPTION) ? "%.3f" : "", sample.heatConsumptionW / 1000.0f);
+    snprintf(dhwProduction, sizeof(dhwProduction), (sample.validFields & HISTORY_FIELD_DHW_PRODUCTION) ? "%.3f" : "", sample.dhwProductionW / 1000.0f);
+    snprintf(dhwConsumption, sizeof(dhwConsumption), (sample.validFields & HISTORY_FIELD_DHW_CONSUMPTION) ? "%.3f" : "", sample.dhwConsumptionW / 1000.0f);
     snprintf(copText, sizeof(copText), copValid ? "%.2f" : "", cop);
-    file.printf("%lu,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.1f,%.2f,%.3f,%u,%u,%s\n",
-      (unsigned long)sample.timestamp, sample.outsideTemp10 / 10.0f,
-      sample.inletTemp10 / 10.0f, sample.outletTemp10 / 10.0f,
-      sample.targetTemp10 / 10.0f, sample.dhwTemp10 / 10.0f,
-      sample.flow100 / 100.0f, sample.compressorHz10 / 10.0f,
-      sample.thermalPower100 / 100.0f, sample.electricalPowerW / 1000.0f,
-      sample.operatingMode, sample.valveState, copText);
+    file.printf("%lu,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%u,%u,%u,%u,%s\n",
+      (unsigned long)sample.timestamp, outside, inlet, outlet, target, dhw,
+      dhwTarget, room, roomTarget, flow, hz, pump, thermal, electrical,
+      heatProduction, heatConsumption, dhwProduction, dhwConsumption,
+      sample.operatingMode, sample.valveState, sample.operatingState,
+      (sample.flags & SAMPLE_FLAG_DEFROST) ? 1 : 0, copText);
   }
   file.close();
   sdState.lastWriteAt = millis();
+  return true;
 }
 
 static void flushSd() {
   if (!sdState.active || (sampleCount == 0 && eventCount == 0)) return;
-  writeSdSamples();
-  sdFlushedSequence = sampleSequence;
-  writeSdEvents();
-  sdFlushedEventSequence = eventSequence;
+  if (writeSdSamples()) sdFlushedSequence = sampleSequence;
+  if (writeSdEvents()) sdFlushedEventSequence = eventSequence;
 }
 #else
 static void initializeSd() {
@@ -964,6 +1305,66 @@ static void initializeSd() {
 static void flushSd() {}
 static void cleanupSdRetention() {}
 #endif
+
+static void persistDailySummary(const DailySummary &summary) {
+#if HEISHAMON_SD_HISTORY_ENABLED
+  if (!summary.valid || !sdState.active) return;
+  time_t value = (time_t)summary.dayStart;
+  struct tm local = {};
+  if (localtime_r(&value, &local) == nullptr) return;
+  char path[48];
+  snprintf(path, sizeof(path), "/daily/%04d-%02d-%02d.csv", local.tm_year + 1900,
+    local.tm_mon + 1, local.tm_mday);
+  bool exists = SD.exists(path);
+  File file = SD.open(path, FILE_APPEND);
+  if (!file) return;
+  if (!exists) file.println("day,heating_thermal_kwh,heating_electrical_kwh,heating_cop,dhw_thermal_kwh,dhw_electrical_kwh,dhw_cop,heating_degree_days,compressor_seconds,compressor_starts,outside_min,outside_max,outside_average");
+  float heatingCop = 0, dhwCop = 0;
+  bool heatingValid = totalsCop(summary.heating, heatingCop);
+  bool dhwValid = totalsCop(summary.dhw, dhwCop);
+  double outsideAverage = summary.outsideSamples == 0 ? NAN : summary.outsideSum / summary.outsideSamples;
+  file.printf("%lu,%.4f,%.4f,%s,%.4f,%.4f,%s,%.4f,%lu,%lu,%s,%s,%s\n",
+    (unsigned long)summary.dayStart, summary.heating.thermalKWh,
+    summary.heating.electricalKWh, heatingValid ? String(heatingCop, 3).c_str() : "",
+    summary.dhw.thermalKWh, summary.dhw.electricalKWh, dhwValid ? String(dhwCop, 3).c_str() : "",
+    summary.heatingDegreeDays, (unsigned long)summary.compressorSeconds,
+    (unsigned long)summary.compressorStarts,
+    isfinite(summary.outsideMinimum) ? String(summary.outsideMinimum, 1).c_str() : "",
+    isfinite(summary.outsideMaximum) ? String(summary.outsideMaximum, 1).c_str() : "",
+    isfinite(outsideAverage) ? String(outsideAverage, 1).c_str() : "");
+  file.close();
+#else
+  (void)summary;
+#endif
+}
+
+static void persistCycleRecord(const CycleRecord &record) {
+#if HEISHAMON_SD_HISTORY_ENABLED
+  if (!sdState.active || record.stopTimestamp == 0) return;
+  time_t value = (time_t)record.stopTimestamp;
+  struct tm local = {};
+  if (localtime_r(&value, &local) == nullptr) return;
+  char path[48];
+  snprintf(path, sizeof(path), "/cycles/%04d-%02d.csv", local.tm_year + 1900,
+    local.tm_mon + 1);
+  bool exists = SD.exists(path);
+  File file = SD.open(path, FILE_APPEND);
+  if (!file) return;
+  if (!exists) file.println("start,stop,duration_seconds,state,outside_average,flow_average,frequency_average,frequency_max,thermal_kwh,electrical_kwh,cop");
+  char copText[16];
+  snprintf(copText, sizeof(copText), record.copValid ? "%.3f" : "", record.cop);
+  file.printf("%lu,%lu,%lu,%u,%s,%s,%s,%.2f,%.4f,%.4f,%s\n",
+    (unsigned long)record.startTimestamp, (unsigned long)record.stopTimestamp,
+    (unsigned long)record.durationSeconds, record.operatingState,
+    isfinite(record.outsideAverage) ? String(record.outsideAverage, 2).c_str() : "",
+    isfinite(record.flowAverage) ? String(record.flowAverage, 2).c_str() : "",
+    isfinite(record.frequencyAverage) ? String(record.frequencyAverage, 2).c_str() : "",
+    record.frequencyMaximum, record.thermalKWh, record.electricalKWh, copText);
+  file.close();
+#else
+  (void)record;
+#endif
+}
 
 static void setNullable(JsonObject object, const char *name, bool valid, float value) {
   if (valid && isfinite(value)) object[name] = value;
@@ -1159,15 +1560,18 @@ static const char historyPage[] PROGMEM = R"HTML(
 :root{font-family:Arial,sans-serif;color:#17202a;background:#f4f6f8}body{margin:0;padding:18px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.top a{color:#168dcc;text-decoration:none;margin-left:12px}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.toolbar button,.toolbar select{padding:7px 10px;border:1px solid #ccd5dc;border-radius:6px;background:#fff}.card{background:#fff;border:1px solid #dfe4e8;border-radius:10px;padding:14px;margin-bottom:12px}.chart{width:100%;height:230px}.legend{font-size:12px;color:#697680}.events{max-height:250px;overflow:auto}.event{padding:6px 0;border-bottom:1px solid #edf0f2;font-size:13px}@media(prefers-color-scheme:dark){:root{color:#eef;background:#101319}.card,.toolbar button,.toolbar select{background:#181d26;color:#eef;border-color:#303846}.event{border-color:#29313d}}
 </style></head><body><div class='top'><h1>History</h1><nav><a href='/'>Home</a><a href='/dashboard'>Dashboard</a><a href='/diagnostics'>Diagnostics</a><a href='/wpsettings'>Settings</a></nav></div>
 <div class='toolbar'><label>Range <select id='range' onchange='refresh()'><option value='30m'>Last 30 min</option><option value='1h' selected>Last 1 h</option><option value='3h'>Last 3 h</option><option value='all'>All RAM history</option></select></label><label>Sample interval <select id='interval' onchange='setIntervalValue()'><option>5</option><option selected>10</option><option>30</option><option>60</option></select> s</label><label>SD retention <select id='retention' onchange='setRetentionValue()'><option value='0'>Unlimited</option><option value='7'>7 days</option><option value='14'>14 days</option><option value='30' selected>30 days</option><option value='90'>90 days</option></select></label><span id='status' class='legend'>Loading…</span></div>
-<section class='card'><h2>Temperatures</h2><canvas id='temps' class='chart'></canvas><div class='legend'>Outlet · Inlet · Target · Outside</div></section><section class='card'><h2>Compressor / hydraulics</h2><canvas id='hydraulics' class='chart'></canvas><div class='legend'>Compressor frequency · Flow · Calculated thermal power</div></section><section class='card'><h2>Efficiency / COP</h2><div id='efficiencySummary' class='legend'></div><canvas id='efficiency' class='chart'></canvas><div class='legend'>Estimated COP · Thermal power · Electrical power. COP is energy-source based for aggregated ranges.</div></section><section class='card'><h2>DHW</h2><canvas id='dhw' class='chart'></canvas><div class='legend'>DHW actual · DHW target</div></section><section class='card'><h2>Events</h2><div id='events' class='events'></div></section>
+<section class='card'><h2>Temperatures</h2><canvas id='temps' class='chart'></canvas><div class='legend'>Outlet · Inlet · Target · Outside</div></section><section class='card'><h2>Compressor / hydraulics</h2><canvas id='hydraulics' class='chart'></canvas><div class='legend'>Compressor frequency · Flow · Calculated thermal power</div></section><section class='card'><h2>Efficiency / COP</h2><div id='efficiencySummary' class='legend'></div><canvas id='efficiency' class='chart'></canvas><div class='legend'>Estimated COP · Thermal power · Electrical power. COP is energy-source based for aggregated ranges.</div></section><section class='card'><h2>Weather / heating degree days</h2><div id='dailySummary' class='legend'>N/A</div></section><section class='card'><h2>Compressor cycles</h2><div id='cycles' class='events'>No completed cycles</div></section><section class='card'><h2>DHW</h2><canvas id='dhw' class='chart'></canvas><div class='legend'>DHW actual · DHW target</div></section><section class='card'><h2>Events</h2><div id='events' class='events'></div></section>
 <script>
 var colors=['#159bd2','#df334d','#e39b22','#159b68','#8756d6'];
 function draw(id,points,lines){var c=document.getElementById(id),ctx=c.getContext('2d'),w=c.clientWidth||800,h=230,d=devicePixelRatio||1;c.width=w*d;c.height=h*d;ctx.scale(d,d);ctx.clearRect(0,0,w,h);if(!points.length)return;var values=[];lines.forEach(function(l){points.forEach(function(p){if(p[l.key]!==null)values.push(Number(p[l.key]))})});if(!values.length)return;var min=Math.min.apply(null,values),max=Math.max.apply(null,values);if(min===max){min-=1;max+=1}function x(i){return 10+(w-25)*(i/(points.length-1||1))}function y(v){return h-18-(h-35)*(v-min)/(max-min)};ctx.font='11px Arial';ctx.fillStyle='#75818a';ctx.fillText(max.toFixed(1),4,14);ctx.fillText(min.toFixed(1),4,h-5);lines.forEach(function(l,li){ctx.strokeStyle=colors[li%colors.length];ctx.lineWidth=2;ctx.beginPath();var started=false;points.forEach(function(p,i){if(p[l.key]===null)return;var px=x(i),py=y(Number(p[l.key]));if(!started){ctx.moveTo(px,py);started=true}else ctx.lineTo(px,py)});ctx.stroke()})}
-function render(d){var p=d.samples||[],e2=d.efficiency||{};draw('temps',p,[{key:'outlet'},{key:'inlet'},{key:'target'},{key:'outside'}]);draw('hydraulics',p,[{key:'hz'},{key:'flow'},{key:'power'}]);draw('efficiency',p,[{key:'cop'},{key:'power'},{key:'electrical'}]);draw('dhw',p,[{key:'dhw'},{key:'target'}]);document.getElementById('efficiencySummary').innerHTML='Current estimated COP: <b>'+val(e2.currentEstimatedCop)+'</b> · Current cycle COP: <b>'+val(e2.currentCycleCop)+'</b> · Today heating COP: <b>'+val(e2.todayHeatingCop)+'</b> · Today DHW COP: <b>'+val(e2.todayDhwCop)+'</b> · Last 24 h COP: <b>'+val(e2.last24hCop)+'</b>';var e=d.events||[];document.getElementById('events').innerHTML=e.length?e.slice().reverse().map(function(x){var stamp=x.timeValid?new Date((x.t||0)*1000).toLocaleString():'uptime '+(x.u||0)+' s';return '<div class="event"><b>'+stamp+'</b> '+x.type+': '+x.message+'</div>'}).join(''):'No events';document.getElementById('status').textContent=p.length+' samples · '+(d.intervalSeconds||0)+' s interval'}
+function val(v,unit){return v===null||v===undefined?'N/A':Number(v).toFixed(2)+(unit||'')}
+function render(d){var p=d.samples||[],e2=d.efficiency||{},day=d.daily||{};draw('temps',p,[{key:'outlet'},{key:'inlet'},{key:'target'},{key:'outside'}]);draw('hydraulics',p,[{key:'hz'},{key:'flow'},{key:'power'}]);draw('efficiency',p,[{key:'cop'},{key:'power'},{key:'electrical'}]);draw('dhw',p,[{key:'dhw'},{key:'target'}]);document.getElementById('efficiencySummary').innerHTML='Current estimated COP: <b>'+val(e2.currentEstimatedCop)+'</b> · Current cycle COP: <b>'+val(e2.currentCycleCop)+'</b> · Today heating COP: <b>'+val(e2.todayHeatingCop)+'</b> · Today DHW COP: <b>'+val(e2.todayDhwCop)+'</b> · Last 24 h COP: <b>'+val(e2.last24hCop)+'</b>';document.getElementById('dailySummary').innerHTML='Heating degree days: <b>'+val(day.heatingDegreeDays)+'</b> · Heating COP: <b>'+val(day.heatingCop)+'</b> · DHW COP: <b>'+val(day.dhwCop)+'</b> · Heating energy: <b>'+val(day.heatingThermalKWh)+' kWh</b> · DHW energy: <b>'+val(day.dhwThermalKWh)+' kWh</b> · Outside average: <b>'+val(day.outsideAverage)+' °C</b>';var cycles=d.cycles||[];document.getElementById('cycles').innerHTML=cycles.length?cycles.slice().reverse().map(function(x){return '<div class="event"><b>'+val(x.durationSeconds)+' s</b> · '+(x.state===3?'DHW':'Heating')+' · COP '+val(x.cop)+' · '+val(x.thermalKWh)+' kWh thermal</div>'}).join(''):'No completed cycles';var e=d.events||[];document.getElementById('events').innerHTML=e.length?e.slice().reverse().map(function(x){var stamp=x.timeValid?new Date((x.t||0)*1000).toLocaleString():'uptime '+(x.u||0)+' s';return '<div class="event"><b>'+stamp+'</b> '+x.type+': '+x.message+'</div>'}).join(''):'No events';document.getElementById('status').textContent=p.length+' samples · '+(d.intervalSeconds||0)+' s interval'}
 function refresh(){fetch('/historyapi?range='+encodeURIComponent(document.getElementById('range').value),{cache:'no-store'}).then(function(r){if(!r.ok)throw Error(r.status);return r.json()}).then(render).catch(function(e){document.getElementById('status').textContent='History unavailable: '+e.message})}
 function setIntervalValue(){fetch('/historycommand?interval='+document.getElementById('interval').value).then(refresh)}
 function setRetentionValue(){fetch('/historycommand?retention='+document.getElementById('retention').value).then(refresh)}
-fetch('/history/status').then(function(r){return r.json()}).then(function(s){document.getElementById('interval').value=String(s.intervalSeconds||10);document.getElementById('retention').value=String(s.sdRetentionDays===undefined?30:s.sdRetentionDays)}).catch(function(){}).then(refresh);setInterval(refresh,10000);window.addEventListener('resize',refresh);
+function setElectricalSource(){fetch('/historycommand?electricalSource='+encodeURIComponent(document.getElementById('electricalSource').value)).then(refresh)}
+function loadElectricalSources(){fetch('/externalsensorsapi',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){var label=document.createElement('label');label.textContent='Electrical source ';var select=document.createElement('select');select.id='electricalSource';select.onchange=setElectricalSource;var p=document.createElement('option');p.value='panasonic';p.textContent='Panasonic';select.appendChild(p);(d.sensors||[]).filter(function(s){return Number(s.role)===1}).forEach(function(s){var o=document.createElement('option');o.value='external:'+s.id;o.textContent=s.name+' (MQTT)';select.appendChild(o)});label.appendChild(select);document.querySelector('.toolbar').insertBefore(label,document.getElementById('status'));fetch('/history/status').then(function(r){return r.json()}).then(function(s){select.value=s.electricalSourceId?'external:'+s.electricalSourceId:'panasonic';});}).catch(function(){})}
+loadElectricalSources();fetch('/history/status').then(function(r){return r.json()}).then(function(s){document.getElementById('interval').value=String(s.intervalSeconds||10);document.getElementById('retention').value=String(s.sdRetentionDays===undefined?30:s.sdRetentionDays)}).catch(function(){}).then(refresh);setInterval(refresh,10000);window.addEventListener('resize',refresh);
 </script></body></html>)HTML";
 
 static void sendJsonDocument(struct webserver_t *client, JsonDocument &document) {
@@ -1217,6 +1621,9 @@ static void handleHistoryStatus(struct webserver_t *client) {
   document["sdPresent"] = sdState.present;
   document["sdActive"] = sdState.active;
   document["sdRetentionDays"] = sdRetentionDays;
+  document["electricalSource"] = electricalSourceId == 0 ? "panasonic" : "external";
+  document["electricalSourceId"] = electricalSourceId;
+  document["degreeDayBase"] = heatingDegreeDayBase;
   sendJsonDocument(client, document);
 }
 
@@ -1226,6 +1633,10 @@ static void handleHistoryApi(struct webserver_t *client, uint32_t rangeSeconds,
   appendFmt(client, "{\"intervalSeconds\":%u,\"sampleCount\":%u,\"efficiency\":",
     sampleIntervalSeconds, sampleCount);
   appendEfficiencySummary(client);
+  appendText(client, ",\"daily\":");
+  appendDailySummaryJson(client);
+  appendText(client, ",\"cycles\":");
+  appendCyclesJson(client);
   appendText(client, ",\"samples\":[");
   uint16_t matching = 0;
   for (uint16_t offset = 0; offset < sampleCount; offset++) {
@@ -1303,6 +1714,12 @@ void diagnosticsHistoryBegin() {
   lastSampleAt = 0;
   lastSdFlushAt = 0;
   cycle = CycleState();
+  memset(cycleRecords, 0, sizeof(cycleRecords));
+  cycleRecordStart = 0;
+  cycleRecordCount = 0;
+  dailySummary = DailySummary();
+  memset(&previousDailySample, 0, sizeof(previousDailySample));
+  previousDailySampleValid = false;
   communicationStateKnown = false;
   previousCommunicationState = false;
   mqttStateKnown = false;
@@ -1342,6 +1759,7 @@ void diagnosticsHistoryLoop() {
     if (makeSample(sample)) {
       sample.sequence = ++sampleSequence;
       storeSample(sample);
+      updateDailySummary(samples[orderedSampleIndex(sampleCount - 1)]);
       lastSampleAt = millis();
     }
   }
@@ -1365,6 +1783,7 @@ bool diagnosticsHistoryHandleUri(struct webserver_t *client, const char *uri) {
   else if (strcmp(uri, "/events") == 0 ||
       strcmp(uri, "/api/events") == 0) client->route = ROUTE_EVENTS_API;
   else if (strcmp(uri, "/historycommand") == 0) client->route = ROUTE_HISTORY_COMMAND;
+  else if (strcmp(uri, "/cycles") == 0 || strcmp(uri, "/api/cycles") == 0) client->route = ROUTE_CYCLES_API;
   else return false;
 
   if (client->route == ROUTE_HISTORY_API || client->route == ROUTE_HISTORY_COMMAND) {
@@ -1426,6 +1845,35 @@ bool diagnosticsHistoryHandleArgs(struct webserver_t *client,
         sdLastRetentionDay = 0;
         snprintf(request->response, sizeof(request->response), "%s", saveHistoryConfig() ? "OK: history retention saved" : "ERROR: could not save history retention");
       }
+    } else if (strcmp((char *)args->name, "electricalSource") == 0) {
+      char value[args->len + 1];
+      snprintf(value, sizeof(value), "%.*s", args->len, args->value);
+      if (strcmp(value, "panasonic") == 0) {
+        electricalSourceId = 0;
+      } else if (strncmp(value, "external:", 9) == 0) {
+        char *end = nullptr;
+        long parsed = strtol(value + 9, &end, 10);
+        if (end == value + 9 || *end != '\0' || parsed < 1 || parsed > 255) {
+          snprintf(request->response, sizeof(request->response), "ERROR: invalid electrical source");
+          return true;
+        }
+        electricalSourceId = (uint8_t)parsed;
+      } else {
+        snprintf(request->response, sizeof(request->response), "ERROR: electrical source must be panasonic or external:<id>");
+        return true;
+      }
+      snprintf(request->response, sizeof(request->response), "%s", saveHistoryConfig() ? "OK: electrical source saved" : "ERROR: could not save electrical source");
+    } else if (strcmp((char *)args->name, "degreeDayBase") == 0) {
+      char value[args->len + 1];
+      snprintf(value, sizeof(value), "%.*s", args->len, args->value);
+      char *end = nullptr;
+      float parsed = strtof(value, &end);
+      if (end == value || *end != '\0' || !isfinite(parsed) || parsed < 5.0f || parsed > 30.0f) {
+        snprintf(request->response, sizeof(request->response), "ERROR: degree-day base must be between 5 and 30 C");
+        return true;
+      }
+      heatingDegreeDayBase = parsed;
+      snprintf(request->response, sizeof(request->response), "%s", saveHistoryConfig() ? "OK: degree-day base saved" : "ERROR: could not save degree-day base");
     }
     return true;
   }
@@ -1458,6 +1906,12 @@ bool diagnosticsHistoryHandleWrite(struct webserver_t *client) {
     }
     case ROUTE_EVENTS_API:
       if (client->content == 0) handleEventsApi(client);
+      return true;
+    case ROUTE_CYCLES_API:
+      if (client->content == 0) {
+        webserver_send(client, 200, (char *)"application/json", 0);
+        appendCyclesJson(client);
+      }
       return true;
     case ROUTE_HISTORY_COMMAND:
       if (client->content == 0) {
