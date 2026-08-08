@@ -10,7 +10,7 @@
 struct HistorySample {
   uint32_t sequence;
   uint32_t timestamp;
-  uint16_t uptimeSeconds;
+  uint32_t uptimeSeconds;
   int16_t outsideTemp10;
   int16_t inletTemp10;
   int16_t outletTemp10;
@@ -20,6 +20,7 @@ struct HistorySample {
   uint16_t compressorHz10;
   uint16_t pumpRpm;
   int16_t thermalPower100;
+  uint16_t electricalPowerW;
   uint8_t operatingMode;
   uint8_t valveState;
   uint8_t flags;
@@ -37,14 +38,15 @@ enum HistorySampleField : uint32_t {
   HISTORY_FIELD_COMPRESSOR_HZ = 1u << 6,
   HISTORY_FIELD_PUMP_RPM = 1u << 7,
   HISTORY_FIELD_THERMAL_POWER = 1u << 8,
-  HISTORY_FIELD_EXTERNAL_0 = 1u << 9,
-  HISTORY_FIELD_EXTERNAL_1 = 1u << 10,
-  HISTORY_FIELD_EXTERNAL_2 = 1u << 11,
-  HISTORY_FIELD_EXTERNAL_3 = 1u << 12,
-  HISTORY_FIELD_EXTERNAL_4 = 1u << 13,
-  HISTORY_FIELD_EXTERNAL_5 = 1u << 14,
-  HISTORY_FIELD_EXTERNAL_6 = 1u << 15,
-  HISTORY_FIELD_EXTERNAL_7 = 1u << 16
+  HISTORY_FIELD_ELECTRICAL_POWER = 1u << 9,
+  HISTORY_FIELD_EXTERNAL_0 = 1u << 10,
+  HISTORY_FIELD_EXTERNAL_1 = 1u << 11,
+  HISTORY_FIELD_EXTERNAL_2 = 1u << 12,
+  HISTORY_FIELD_EXTERNAL_3 = 1u << 13,
+  HISTORY_FIELD_EXTERNAL_4 = 1u << 14,
+  HISTORY_FIELD_EXTERNAL_5 = 1u << 15,
+  HISTORY_FIELD_EXTERNAL_6 = 1u << 16,
+  HISTORY_FIELD_EXTERNAL_7 = 1u << 17
 };
 
 enum HistoryEventType : uint8_t {

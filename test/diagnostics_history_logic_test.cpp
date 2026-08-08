@@ -11,6 +11,17 @@ int main() {
   assert(!diagnosticsCalculateThermalPower(0.0f, 5.0f, true, true, true, power));
   assert(!diagnosticsCalculateThermalPower(14.0f, 5.0f, true, false, true, power));
   assert(!diagnosticsCalculateThermalPower(14.0f, 5.0f, true, true, false, power));
+  float cop = 0;
+  assert(diagnosticsCalculateEstimatedCop(4.879f, 1.0f, true, true, true,
+    true, 0.1f, cop));
+  assert(fabsf(cop - 4.879f) < 0.001f);
+  assert(!diagnosticsCalculateEstimatedCop(4.879f, 0.05f, true, true, true,
+    true, 0.1f, cop));
+  assert(!diagnosticsCalculateEstimatedCop(4.879f, 1.0f, false, true, true,
+    true, 0.1f, cop));
+  assert(diagnosticsCalculateEnergyCop(24.0, 5.0, cop));
+  assert(fabsf(cop - 4.8f) < 0.001f);
+  assert(!diagnosticsCalculateEnergyCop(24.0, 0.0, cop));
   assert(diagnosticsValidTemperature(20.0f));
   assert(!diagnosticsValidTemperature(-128.0f));
   assert(!diagnosticsValidTemperature(NAN));

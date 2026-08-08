@@ -17,6 +17,25 @@ inline bool diagnosticsCalculateThermalPower(float flowLitersPerMinute,
   return std::isfinite(powerKw);
 }
 
+inline bool diagnosticsCalculateEstimatedCop(float thermalPowerKw,
+    float electricalPowerKw, bool compressorRunning, bool thermalValid,
+    bool electricalValid, bool meaningfulMode, float minimumElectricalKw,
+    float &cop) {
+  if (!compressorRunning || !thermalValid || !electricalValid || !meaningfulMode ||
+      !std::isfinite(thermalPowerKw) || !std::isfinite(electricalPowerKw) ||
+      thermalPowerKw <= 0.1f || electricalPowerKw < minimumElectricalKw) return false;
+  cop = thermalPowerKw / electricalPowerKw;
+  return std::isfinite(cop) && cop > 0.0f;
+}
+
+inline bool diagnosticsCalculateEnergyCop(double thermalKWh,
+    double electricalKWh, float &cop) {
+  if (!std::isfinite(thermalKWh) || !std::isfinite(electricalKWh) ||
+      thermalKWh <= 0.0 || electricalKWh <= 0.0) return false;
+  cop = (float)(thermalKWh / electricalKWh);
+  return std::isfinite(cop) && cop > 0.0f;
+}
+
 struct DiagnosticsCycleTracker {
   bool initialized = false;
   bool running = false;
