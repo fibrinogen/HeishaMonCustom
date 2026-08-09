@@ -1891,7 +1891,12 @@ function stepDashboardValue(command,topic,delta,min,max){
   queueDashboardStep(command,topic,next);
 }
 function stepZone1Heat(delta){
-  var directMode=Number(dashboardValues.TOP76)===1;
+  var current=Number(dashboardValues.TOP27);
+  // TOP27 is either a shift (-5..5) or a direct water temperature
+  // (normally 20..65). Prefer the actual value when the mode topic and
+  // value are temporarily inconsistent, otherwise a click could clamp 25
+  // °C to the shift maximum of 5 °C.
+  var directMode=Number(dashboardValues.TOP76)===1 || current>=dashboardWpConfig.heatMin || current<-5;
   stepDashboardValue('SetZ1HeatRequestTemperature','TOP27',delta,directMode?dashboardWpConfig.heatMin:-5,directMode?dashboardWpConfig.heatMax:5);
 }
 document.addEventListener('DOMContentLoaded',function(){
