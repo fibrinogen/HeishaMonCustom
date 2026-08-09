@@ -5,6 +5,7 @@
 #include "history_config.h"
 #include "version.h"
 #include "webfunctions.h"
+#include "htmlcode.h"
 
 #include <ArduinoJson.h>
 #include <LittleFS.h>
@@ -1544,43 +1545,86 @@ static void appendDiagnosticsJson(JsonDocument &document) {
 }
 
 static const char diagnosticsPage[] PROGMEM = R"HTML(
-<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-<title>Diagnostics - HeishaMon</title><style>
-:root{font-family:Arial,sans-serif;color:#17202a;background:#f4f6f8}body{margin:0;padding:18px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.top a{color:#168dcc;text-decoration:none;margin-left:12px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}.card{background:#fff;border:1px solid #dfe4e8;border-radius:10px;padding:14px;box-shadow:0 1px 3px #0001}.card h2{font-size:16px;color:#159bd2;margin:0 0 10px}.row{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #edf0f2;font-size:13px}.row:last-child{border-bottom:0}.value{font-weight:600;text-align:right}.ok{color:#159b68}.bad{color:#df334d}.muted{color:#7a8791}.raw{margin-top:12px}.raw summary{cursor:pointer;font-weight:600}.raw pre{max-height:360px;overflow:auto;background:#17202a;color:#eef;padding:10px;border-radius:6px;font-size:11px}@media(prefers-color-scheme:dark){:root{color:#eef;background:#101319}.card{background:#181d26;border-color:#303846}.row{border-color:#29313d}.raw pre{background:#0b0e13}}
-</style></head><body><div class='top'><h1>Diagnostics</h1><nav><a href='/'>Home</a><a href='/dashboard'>Dashboard</a><a href='/history'>History</a><a href='/wpsettings'>Settings</a></nav></div>
-<div id='status' class='muted'>Loading…</div><div id='cards' class='grid'></div><details class='card raw'><summary>Raw Panasonic values</summary><pre id='raw'>Loading…</pre></details>
+<style>
+.diagnostics-page{max-width:1500px;margin:0 auto}
+.diagnostics-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+.diagnostics-heading h1{font-size:20px;font-weight:500;color:var(--text-primary)}
+.diagnostics-status{font-size:12px;color:var(--text-muted)}
+.diagnostics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.diagnostics-card{min-width:0}
+.diagnostics-rows{padding:8px 20px 12px}
+.diagnostics-row{display:flex;justify-content:space-between;gap:14px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-secondary)}
+.diagnostics-row:last-child{border-bottom:0}
+.diagnostics-value{font-weight:600;color:var(--text-primary);text-align:right;overflow-wrap:anywhere}
+.diagnostics-ok{color:var(--green)}
+.diagnostics-bad{color:var(--red)}
+.diagnostics-muted{color:var(--text-muted)}
+.diagnostics-raw{margin-top:14px}
+.diagnostics-raw summary{padding:14px 20px;cursor:pointer;font-size:13px;font-weight:500;color:var(--text-primary)}
+.diagnostics-raw pre{margin:0 20px 20px;max-height:360px;overflow:auto;background:#0a0c0f;color:#6ee7b7;padding:12px;border-radius:var(--radius);font:11px 'JetBrains Mono',monospace}
+@media(max-width:680px){.diagnostics-heading{align-items:flex-start;flex-direction:column}.diagnostics-grid{grid-template-columns:1fr}.diagnostics-rows{padding-left:14px;padding-right:14px}}
+</style>
+<main class='main-content diagnostics-page'>
+<div class='diagnostics-heading'><h1>Diagnostics</h1><div id='status' class='diagnostics-status'>Loading…</div></div>
+<div id='cards' class='diagnostics-grid'></div><details class='panel diagnostics-raw'><summary>Raw Panasonic values</summary><pre id='raw'>Loading…</pre></details>
+</main>
 <script>
 function esc(v){return String(v==null?'N/A':v).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]})}
 function val(v,unit){return v===null||v===undefined?'N/A':esc(v)+(unit||'')}
-function row(k,v){return '<div class="row"><span>'+esc(k)+'</span><span class="value">'+v+'</span></div>'}
-function card(title,rows){return '<section class="card"><h2>'+title+'</h2>'+rows.join('')+'</section>'}
+function row(k,v){return '<div class="diagnostics-row"><span>'+esc(k)+'</span><span class="diagnostics-value">'+v+'</span></div>'}
+function card(title,rows){return '<section class="panel diagnostics-card"><div class="panel-header"><h3>'+title+'</h3></div><div class="diagnostics-rows">'+rows.join('')+'</div></section>'}
 function render(d){var s=d.system||{},o=d.operation||{},h=d.hydraulics||{},c=d.control||{},w=d.dhw||{},n=d.counters||{},sd=d.sd||{};
- document.getElementById('status').innerHTML='Panasonic: <b class="'+(s.panasonic&&s.panasonic.fresh?'ok':'bad')+'">'+esc(s.panasonic?s.panasonic.status:'NO DATA')+'</b> · Last frame: '+val(s.panasonic&&s.panasonic.ageSeconds,' s');
+ document.getElementById('status').innerHTML='Panasonic: <b class="'+(s.panasonic&&s.panasonic.fresh?'diagnostics-ok':'diagnostics-bad')+'">'+esc(s.panasonic?s.panasonic.status:'NO DATA')+'</b> · Last frame: '+val(s.panasonic&&s.panasonic.ageSeconds,' s');
  document.getElementById('cards').innerHTML=card('SYSTEM STATUS',[row('WiFi',s.wifi?'Connected':'Offline'),row('Ethernet',s.ethernet?'Connected':'Offline'),row('MQTT',s.mqtt?'Connected':'Offline'),row('NTP',s.ntp?'Synchronized':'Unavailable'),row('Uptime',val(s.uptimeSeconds,' s')),row('Free heap',val(s.freeHeap,' B')),row('PSRAM',s.psramFound?val(s.freePsram,' B free'):'Not available'),row('Firmware',val(s.firmware))])+card('CURRENT OPERATION',[row('Interpreted state',val(o.state)),row('Operating mode',val(o.mode)),row('Compressor',o.compressorRunning?'Running':'Stopped'),row('Compressor frequency',val(o.compressorFrequency,' Hz')),row('Current runtime',val(o.currentRuntimeSeconds,' s')),row('Flow',val(o.flow,' l/min')),row('Pump speed',val(o.pumpSpeed,' rpm')),row('Fan 1',val(o.fan1,' rpm')),row('3-way valve',val(o.valve))])+card('HYDRAULICS',[row('Inlet',val(h.inlet,' °C')),row('Outlet',val(h.outlet,' °C')),row('Target',val(h.target,' °C')),row('Delta T',val(h.deltaT,' K')),row('Target error',val(h.targetError,' K')),row('Delta-T error',val(h.deltaTError,' K')),row('Calculated thermal power',val(h.calculatedThermalPowerKw,' kW'))])+card('CONTROL / DHW',[row('Room temperature',val(c.roomTemperature,' °C')),row('Heating mode',val(c.heatingMode)),row('Heating-off outdoor temp',val(c.heatingOffOutside,' °C')),row('DHW actual',val(w.actual,' °C')),row('DHW target',val(w.target,' °C')),row('DHW active',w.active?'Yes':'No'),row('Force DHW',val(w.forceState)),row('Smart DHW','See Smart DHW page')])+card('COUNTERS',[row('Panasonic operation hours',val(n.panasonicOperationHours)),row('Panasonic operation counter',val(n.panasonicOperationCounter)),row('Compressor starts since boot',val(n.compressorStartsSinceBoot)),row('Current cycle',val(n.currentCycleSeconds,' s')),row('Previous cycle',val(n.previousCycleSeconds,' s')),row('Average cycle',val(n.averageCycleSeconds,' s'))])+card('PERSISTENT HISTORY',[row('RAM samples',val((d.history||{}).sampleCount)+' / '+val((d.history||{}).capacity)),row('Sample interval',val((d.history||{}).intervalSeconds,' s')),row('RAM memory',val((d.history||{}).sampleMemoryBytes,' B')),row('SD support',sd.support?'Enabled':'Disabled'),row('SD card',sd.present?'Present':'Not present'),row('History logging',sd.active?'Active':'RAM only'),row('Retention',sd.retentionDays===0?'Unlimited':val(sd.retentionDays,' days')),row('SD error',val(sd.lastError))]);
  document.getElementById('raw').textContent=JSON.stringify(d,null,2);
 }
-function refresh(){fetch('/diagnosticsapi',{cache:'no-store'}).then(function(r){if(!r.ok)throw Error(r.status);return r.json()}).then(render).catch(function(e){document.getElementById('status').textContent='Diagnostics unavailable: '+e.message})}refresh();setInterval(refresh,5000);
-</script></body></html>)HTML";
+function refresh(){fetch('/diagnosticsapi',{cache:'no-store'}).then(function(r){if(!r.ok)throw Error(r.status);return r.json()}).then(render).catch(function(e){document.getElementById('status').textContent='Diagnostics unavailable: '+e.message})}document.title='Diagnostics - HeishaMon';refresh();setInterval(refresh,5000);
+</script>)HTML";
 
 static const char historyPage[] PROGMEM = R"HTML(
-<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-<title>History - HeishaMon</title><style>
-:root{font-family:Arial,sans-serif;color:#17202a;background:#f4f6f8}body{margin:0;padding:18px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.top a{color:#168dcc;text-decoration:none;margin-left:12px}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.toolbar button,.toolbar select{padding:7px 10px;border:1px solid #ccd5dc;border-radius:6px;background:#fff}.card{background:#fff;border:1px solid #dfe4e8;border-radius:10px;padding:14px;margin-bottom:12px}.chart{width:100%;height:230px}.legend{font-size:12px;color:#697680}.events{max-height:250px;overflow:auto}.event{padding:6px 0;border-bottom:1px solid #edf0f2;font-size:13px}@media(prefers-color-scheme:dark){:root{color:#eef;background:#101319}.card,.toolbar button,.toolbar select{background:#181d26;color:#eef;border-color:#303846}.event{border-color:#29313d}}
-</style></head><body><div class='top'><h1>History</h1><nav><a href='/'>Home</a><a href='/dashboard'>Dashboard</a><a href='/diagnostics'>Diagnostics</a><a href='/wpsettings'>Settings</a></nav></div>
-<div class='toolbar'><label>Range <select id='range' onchange='refresh()'><option value='30m'>Last 30 min</option><option value='1h' selected>Last 1 h</option><option value='3h'>Last 3 h</option><option value='all'>All RAM history</option></select></label><label>Sample interval <select id='interval' onchange='setIntervalValue()'><option>5</option><option selected>10</option><option>30</option><option>60</option></select> s</label><label>SD retention <select id='retention' onchange='setRetentionValue()'><option value='0'>Unlimited</option><option value='7'>7 days</option><option value='14'>14 days</option><option value='30' selected>30 days</option><option value='90'>90 days</option></select></label><span id='status' class='legend'>Loading…</span></div>
-<section class='card'><h2>Temperatures</h2><canvas id='temps' class='chart'></canvas><div class='legend'>Outlet · Inlet · Target · Outside</div></section><section class='card'><h2>Compressor / hydraulics</h2><canvas id='hydraulics' class='chart'></canvas><div class='legend'>Compressor frequency · Flow · Calculated thermal power</div></section><section class='card'><h2>Efficiency / COP</h2><div id='efficiencySummary' class='legend'></div><canvas id='efficiency' class='chart'></canvas><div class='legend'>Estimated COP · Thermal power · Electrical power. COP is energy-source based for aggregated ranges.</div></section><section class='card'><h2>Weather / heating degree days</h2><div id='dailySummary' class='legend'>N/A</div></section><section class='card'><h2>Compressor cycles</h2><div id='cycles' class='events'>No completed cycles</div></section><section class='card'><h2>DHW</h2><canvas id='dhw' class='chart'></canvas><div class='legend'>DHW actual · DHW target</div></section><section class='card'><h2>Events</h2><div id='events' class='events'></div></section>
+<style>
+.history-page{max-width:1500px;margin:0 auto}
+.history-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+.history-heading h1{font-size:20px;font-weight:500;color:var(--text-primary)}
+.history-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.history-toolbar label{display:flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:12px}
+.history-toolbar select{padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-elevated);color:var(--text-primary);font:12px 'JetBrains Mono',monospace}
+.history-status{color:var(--text-muted);font-size:12px;margin-left:auto}
+.history-card{margin-bottom:14px}
+.history-card-body{padding:14px 20px 16px}
+.history-chart{display:block;width:100%;height:230px}
+.history-legend{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px;color:var(--text-secondary);font-size:11px}
+.history-legend-item{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.history-legend-line{display:inline-block;width:22px;height:3px;border-radius:2px}
+.history-note{color:var(--text-muted);font-size:11px;line-height:1.5;margin-top:8px}
+.history-events{max-height:250px;overflow:auto}
+.history-event{padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-secondary)}
+.history-event:last-child{border-bottom:0}
+@media(max-width:680px){.history-heading{align-items:flex-start;flex-direction:column}.history-status{margin-left:0}.history-card-body{padding-left:14px;padding-right:14px}}
+</style>
+<main class='main-content history-page'>
+<div class='history-heading'><h1>History</h1><span id='status' class='history-status'>Loading…</span></div>
+<div class='history-toolbar'><label>Range <select id='range' onchange='refresh()'><option value='30m'>Last 30 min</option><option value='1h' selected>Last 1 h</option><option value='3h'>Last 3 h</option><option value='all'>All RAM history</option></select></label><label>Sample interval <select id='interval' onchange='setIntervalValue()'><option>5</option><option selected>10</option><option>30</option><option>60</option></select> s</label><label>SD retention <select id='retention' onchange='setRetentionValue()'><option value='0'>Unlimited</option><option value='7'>7 days</option><option value='14'>14 days</option><option value='30' selected>30 days</option><option value='90'>90 days</option></select></label></div>
+<section class='panel history-card'><div class='panel-header'><h3>Temperatures</h3></div><div class='history-card-body'><canvas id='temps' class='history-chart'></canvas><div id='tempsLegend' class='history-legend'></div><div class='history-note'>All values are in °C. The colored legend identifies every line.</div></div></section>
+<section class='panel history-card'><div class='panel-header'><h3>Compressor / hydraulics</h3></div><div class='history-card-body'><canvas id='hydraulics' class='history-chart'></canvas><div id='hydraulicsLegend' class='history-legend'></div><div class='history-note'>The series use their native units: Hz, l/min and kW.</div></div></section>
+<section class='panel history-card'><div class='panel-header'><h3>Efficiency / COP</h3></div><div class='history-card-body'><div id='efficiencySummary' class='history-note' style='margin-top:0'></div><canvas id='efficiency' class='history-chart'></canvas><div id='efficiencyLegend' class='history-legend'></div><div class='history-note'>Estimated COP is calculated from thermal and electrical source values. Aggregated ranges use energy totals, not averaged COP samples.</div></div></section>
+<section class='panel history-card'><div class='panel-header'><h3>Weather / heating degree days</h3></div><div class='history-card-body'><div id='dailySummary' class='history-note' style='margin-top:0'>N/A</div></div></section>
+<section class='panel history-card'><div class='panel-header'><h3>Compressor cycles</h3></div><div class='history-card-body'><div id='cycles' class='history-events'>No completed cycles</div></div></section>
+<section class='panel history-card'><div class='panel-header'><h3>DHW</h3></div><div class='history-card-body'><canvas id='dhw' class='history-chart'></canvas><div id='dhwLegend' class='history-legend'></div></div></section>
+<section class='panel history-card'><div class='panel-header'><h3>Events</h3></div><div class='history-card-body'><div id='events' class='history-events'></div></div></section>
 <script>
-var colors=['#159bd2','#df334d','#e39b22','#159b68','#8756d6'];
-function draw(id,points,lines){var c=document.getElementById(id),ctx=c.getContext('2d'),w=c.clientWidth||800,h=230,d=devicePixelRatio||1;c.width=w*d;c.height=h*d;ctx.scale(d,d);ctx.clearRect(0,0,w,h);if(!points.length)return;var values=[];lines.forEach(function(l){points.forEach(function(p){if(p[l.key]!==null)values.push(Number(p[l.key]))})});if(!values.length)return;var min=Math.min.apply(null,values),max=Math.max.apply(null,values);if(min===max){min-=1;max+=1}function x(i){return 10+(w-25)*(i/(points.length-1||1))}function y(v){return h-18-(h-35)*(v-min)/(max-min)};ctx.font='11px Arial';ctx.fillStyle='#75818a';ctx.fillText(max.toFixed(1),4,14);ctx.fillText(min.toFixed(1),4,h-5);lines.forEach(function(l,li){ctx.strokeStyle=colors[li%colors.length];ctx.lineWidth=2;ctx.beginPath();var started=false;points.forEach(function(p,i){if(p[l.key]===null)return;var px=x(i),py=y(Number(p[l.key]));if(!started){ctx.moveTo(px,py);started=true}else ctx.lineTo(px,py)});ctx.stroke()})}
+var chartLines={outlet:{key:'outlet',label:'Outlet',color:'#e53935'},inlet:{key:'inlet',label:'Inlet',color:'#1e88e5'},target:{key:'target',label:'Target',color:'#f9a825'},outside:{key:'outside',label:'Outside',color:'#43a047'},hz:{key:'hz',label:'Compressor frequency',color:'#8e44ad'},flow:{key:'flow',label:'Water flow',color:'#00897b'},power:{key:'power',label:'Thermal power',color:'#ef6c00'},cop:{key:'cop',label:'Estimated COP',color:'#1565c0'},electrical:{key:'electrical',label:'Electrical power',color:'#c62828'},dhw:{key:'dhw',label:'DHW actual',color:'#d32f2f'},dhwTarget:{key:'target',label:'DHW target',color:'#f9a825'}};
+function lineLegend(id,lines){document.getElementById(id).innerHTML=lines.map(function(l){return '<span class="history-legend-item"><i class="history-legend-line" style="background:'+l.color+'"></i>'+l.label+'</span>'}).join('')}
+function draw(id,points,lines){var c=document.getElementById(id),ctx=c.getContext('2d'),w=c.clientWidth||800,h=230,d=devicePixelRatio||1;c.width=w*d;c.height=h*d;ctx.scale(d,d);ctx.clearRect(0,0,w,h);if(!points.length)return;var values=[];lines.forEach(function(l){points.forEach(function(p){var n=Number(p[l.key]);if(p[l.key]!==null&&p[l.key]!==undefined&&Number.isFinite(n))values.push(n)})});if(!values.length)return;var min=Math.min.apply(null,values),max=Math.max.apply(null,values);if(min===max){min-=1;max+=1}function x(i){return 10+(w-25)*(i/(points.length-1||1))}function y(v){return h-18-(h-35)*(v-min)/(max-min)};ctx.font='11px Arial';ctx.fillStyle='#75818a';ctx.fillText(max.toFixed(1),4,14);ctx.fillText(min.toFixed(1),4,h-5);lines.forEach(function(l){ctx.strokeStyle=l.color;ctx.lineWidth=2;ctx.beginPath();var started=false;points.forEach(function(p,i){var n=Number(p[l.key]);if(p[l.key]===null||p[l.key]===undefined||!Number.isFinite(n))return;var px=x(i),py=y(n);if(!started){ctx.moveTo(px,py);started=true}else ctx.lineTo(px,py)});if(started)ctx.stroke()})}
 function val(v,unit){return v===null||v===undefined?'N/A':Number(v).toFixed(2)+(unit||'')}
-function render(d){var p=d.samples||[],e2=d.efficiency||{},day=d.daily||{};draw('temps',p,[{key:'outlet'},{key:'inlet'},{key:'target'},{key:'outside'}]);draw('hydraulics',p,[{key:'hz'},{key:'flow'},{key:'power'}]);draw('efficiency',p,[{key:'cop'},{key:'power'},{key:'electrical'}]);draw('dhw',p,[{key:'dhw'},{key:'target'}]);document.getElementById('efficiencySummary').innerHTML='Current estimated COP: <b>'+val(e2.currentEstimatedCop)+'</b> · Current cycle COP: <b>'+val(e2.currentCycleCop)+'</b> · Today heating COP: <b>'+val(e2.todayHeatingCop)+'</b> · Today DHW COP: <b>'+val(e2.todayDhwCop)+'</b> · Last 24 h COP: <b>'+val(e2.last24hCop)+'</b>';document.getElementById('dailySummary').innerHTML='Heating degree days: <b>'+val(day.heatingDegreeDays)+'</b> · Heating COP: <b>'+val(day.heatingCop)+'</b> · DHW COP: <b>'+val(day.dhwCop)+'</b> · Heating energy: <b>'+val(day.heatingThermalKWh)+' kWh</b> · DHW energy: <b>'+val(day.dhwThermalKWh)+' kWh</b> · Outside average: <b>'+val(day.outsideAverage)+' °C</b>';var cycles=d.cycles||[];document.getElementById('cycles').innerHTML=cycles.length?cycles.slice().reverse().map(function(x){return '<div class="event"><b>'+val(x.durationSeconds)+' s</b> · '+(x.state===3?'DHW':'Heating')+' · COP '+val(x.cop)+' · '+val(x.thermalKWh)+' kWh thermal</div>'}).join(''):'No completed cycles';var e=d.events||[];document.getElementById('events').innerHTML=e.length?e.slice().reverse().map(function(x){var stamp=x.timeValid?new Date((x.t||0)*1000).toLocaleString():'uptime '+(x.u||0)+' s';return '<div class="event"><b>'+stamp+'</b> '+x.type+': '+x.message+'</div>'}).join(''):'No events';document.getElementById('status').textContent=p.length+' samples · '+(d.intervalSeconds||0)+' s interval'}
+function render(d){var p=d.samples||[],e2=d.efficiency||{},day=d.daily||{};var temps=[chartLines.outlet,chartLines.inlet,chartLines.target,chartLines.outside],hydraulics=[chartLines.hz,chartLines.flow,chartLines.power],efficiency=[chartLines.cop,chartLines.power,chartLines.electrical],dhw=[chartLines.dhw,chartLines.dhwTarget];draw('temps',p,temps);lineLegend('tempsLegend',temps);draw('hydraulics',p,hydraulics);lineLegend('hydraulicsLegend',hydraulics);draw('efficiency',p,efficiency);lineLegend('efficiencyLegend',efficiency);draw('dhw',p,dhw);lineLegend('dhwLegend',dhw);document.getElementById('efficiencySummary').innerHTML='Current estimated COP: <b>'+val(e2.currentEstimatedCop)+'</b> · Current cycle COP: <b>'+val(e2.currentCycleCop)+'</b> · Today heating COP: <b>'+val(e2.todayHeatingCop)+'</b> · Today DHW COP: <b>'+val(e2.todayDhwCop)+'</b> · Last 24 h COP: <b>'+val(e2.last24hCop)+'</b>';document.getElementById('dailySummary').innerHTML='Heating degree days: <b>'+val(day.heatingDegreeDays)+'</b> · Heating COP: <b>'+val(day.heatingCop)+'</b> · DHW COP: <b>'+val(day.dhwCop)+'</b> · Heating energy: <b>'+val(day.heatingThermalKWh)+' kWh</b> · DHW energy: <b>'+val(day.dhwThermalKWh)+' kWh</b> · Outside average: <b>'+val(day.outsideAverage)+' °C</b>';var cycles=d.cycles||[];document.getElementById('cycles').innerHTML=cycles.length?cycles.slice().reverse().map(function(x){return '<div class="history-event"><b>'+val(x.durationSeconds)+' s</b> · '+(x.state===3?'DHW':'Heating')+' · COP '+val(x.cop)+' · '+val(x.thermalKWh)+' kWh thermal</div>'}).join(''):'No completed cycles';var e=d.events||[];document.getElementById('events').innerHTML=e.length?e.slice().reverse().map(function(x){var stamp=x.timeValid?new Date((x.t||0)*1000).toLocaleString():'uptime '+(x.u||0)+' s';return '<div class="history-event"><b>'+stamp+'</b> '+x.type+': '+x.message+'</div>'}).join(''):'No events';document.getElementById('status').textContent=p.length+' samples · '+(d.intervalSeconds||0)+' s interval'}
 function refresh(){fetch('/historyapi?range='+encodeURIComponent(document.getElementById('range').value),{cache:'no-store'}).then(function(r){if(!r.ok)throw Error(r.status);return r.json()}).then(render).catch(function(e){document.getElementById('status').textContent='History unavailable: '+e.message})}
 function setIntervalValue(){fetch('/historycommand?interval='+document.getElementById('interval').value).then(refresh)}
 function setRetentionValue(){fetch('/historycommand?retention='+document.getElementById('retention').value).then(refresh)}
 function setElectricalSource(){fetch('/historycommand?electricalSource='+encodeURIComponent(document.getElementById('electricalSource').value)).then(refresh)}
 function loadElectricalSources(){fetch('/externalsensorsapi',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){var label=document.createElement('label');label.textContent='Electrical source ';var select=document.createElement('select');select.id='electricalSource';select.onchange=setElectricalSource;var p=document.createElement('option');p.value='panasonic';p.textContent='Panasonic';select.appendChild(p);(d.sensors||[]).filter(function(s){return Number(s.role)===1}).forEach(function(s){var o=document.createElement('option');o.value='external:'+s.id;o.textContent=s.name+' (MQTT)';select.appendChild(o)});label.appendChild(select);document.querySelector('.toolbar').insertBefore(label,document.getElementById('status'));fetch('/history/status').then(function(r){return r.json()}).then(function(s){select.value=s.electricalSourceId?'external:'+s.electricalSourceId:'panasonic';});}).catch(function(){})}
-loadElectricalSources();fetch('/history/status').then(function(r){return r.json()}).then(function(s){document.getElementById('interval').value=String(s.intervalSeconds||10);document.getElementById('retention').value=String(s.sdRetentionDays===undefined?30:s.sdRetentionDays)}).catch(function(){}).then(refresh);setInterval(refresh,10000);window.addEventListener('resize',refresh);
-</script></body></html>)HTML";
+loadElectricalSources();document.title='History - HeishaMon';fetch('/history/status').then(function(r){return r.json()}).then(function(s){document.getElementById('interval').value=String(s.intervalSeconds||10);document.getElementById('retention').value=String(s.sdRetentionDays===undefined?30:s.sdRetentionDays)}).catch(function(){}).then(refresh);setInterval(refresh,10000);window.addEventListener('resize',refresh);
+</script>)HTML";
 
 static void sendJsonDocument(struct webserver_t *client, JsonDocument &document) {
   size_t length = measureJson(document);
@@ -1598,12 +1642,22 @@ static void sendJsonDocument(struct webserver_t *client, JsonDocument &document)
 
 static void handleDiagnosticsPage(struct webserver_t *client) {
   webserver_send(client, 200, (char *)"text/html", 0);
+  webserver_send_content_P(client, webHeader, strlen_P(webHeader));
+  webserver_send_content_P(client, webCSS, strlen_P(webCSS));
+  webserver_send_content_P(client, webBodyStart, strlen_P(webBodyStart));
   webserver_send_content_P(client, diagnosticsPage, strlen_P(diagnosticsPage));
+  webserver_send_content_P(client, menuJS, strlen_P(menuJS));
+  webserver_send_content_P(client, webFooter, strlen_P(webFooter));
 }
 
 static void handleHistoryPage(struct webserver_t *client) {
   webserver_send(client, 200, (char *)"text/html", 0);
+  webserver_send_content_P(client, webHeader, strlen_P(webHeader));
+  webserver_send_content_P(client, webCSS, strlen_P(webCSS));
+  webserver_send_content_P(client, webBodyStart, strlen_P(webBodyStart));
   webserver_send_content_P(client, historyPage, strlen_P(historyPage));
+  webserver_send_content_P(client, menuJS, strlen_P(menuJS));
+  webserver_send_content_P(client, webFooter, strlen_P(webFooter));
 }
 
 static HistoryRequest *requestContext(struct webserver_t *client) {
