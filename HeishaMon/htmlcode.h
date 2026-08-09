@@ -991,7 +991,7 @@ function createNavLink(href, label, icon, className) {
 
 function groupCustomNav() {
   var nav = document.getElementById('sideNav');
-  if (!nav || nav.querySelector('[data-custom-nav]') || !nav.querySelector('a[href]')) return;
+  if (!nav || nav.querySelector('[data-custom-nav]')) return;
   var group = document.createElement('div');
   group.className = 'sidemenu-group';
   group.setAttribute('data-custom-nav', 'true');
