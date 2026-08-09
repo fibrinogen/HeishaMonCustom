@@ -1202,6 +1202,9 @@ function updStat(id,val){
 }
 
 function updCell(id,val){
+  if(typeof dashboardDisplayValue==='function' && id.indexOf('TOP')===0 && id.slice(-6)==='-Value'){
+    val=dashboardDisplayValue(id.slice(0,-6),val);
+  }
   var el=document.getElementById(id);
   if(el&&el.textContent!==val){
     el.classList.remove('update-effect');
@@ -1687,7 +1690,6 @@ document.addEventListener('DOMContentLoaded',function(){
         </div>
         <div class='dashboard-section-title'>Temperatures</div>
         <div class='dashboard-row'><span>Water target</span><span class='dashboard-value'><span id='TOP42-Value'>--</span> &deg;C</span><span id='TOP42-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Water actual</span><span class='dashboard-value'><span id='TOP36-Value'>--</span> &deg;C</span><span id='TOP36-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Room actual</span><span class='dashboard-value'><span id='TOP56-Value'>--</span> &deg;C</span><span id='TOP56-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Heating mode</span><span id='TOP76-Description' class='dashboard-value'>--</span><span id='TOP76-Value' class='dashboard-hidden'></span></div>
         <div class='dashboard-section-title'>Heating power</div>
@@ -1738,13 +1740,21 @@ var dashboardWpConfig={heatMin:20,heatMax:65,dhwBlockAbove:75};
 var dashboardRefreshTimer=null;
 var dashboardRefreshPromise=null;
 var dashboardCommandBusy=false;
+var dashboardTemperatureTopics={TOP5:1,TOP6:1,TOP7:1,TOP9:1,TOP10:1,TOP14:1,TOP27:1,TOP29:1,TOP30:1,TOP31:1,TOP32:1,TOP42:1,TOP56:1,TOP70:1};
+function dashboardDisplayValue(topic,value){
+  if(dashboardTemperatureTopics[topic]){
+    var numeric=Number(value);
+    if(!Number.isFinite(numeric)||numeric < -60||numeric > 150)return 'N/A';
+  }
+  return String(value);
+}
 function dashboardItems(data){
   return [].concat(data.heatpump||[],data['heatpump extra']||[],data['heatpump optional']||[]);
 }
 function renderDashboard(data){
   dashboardItems(data).forEach(function(item){
     dashboardValues[item.Topic]=item.Value;
-    updCell(item.Topic+'-Value',String(item.Value));
+    updCell(item.Topic+'-Value',dashboardDisplayValue(item.Topic,item.Value));
     updCell(item.Topic+'-Description',String(item.Description));
   });
   syncDashboardControls();
