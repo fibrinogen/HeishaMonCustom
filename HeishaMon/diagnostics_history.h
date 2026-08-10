@@ -33,6 +33,9 @@ struct HistorySample {
   uint8_t flags;
   uint8_t operatingState;
   uint8_t electricalSource;
+  int16_t zone1RequestValue10;
+  uint8_t zone1RequestSemantic;
+  int8_t heatingCurveShift;
   uint32_t validFields;
   float externalValues[HEISHAMON_HISTORY_EXTERNAL_SENSOR_MAX];
 };
@@ -62,7 +65,9 @@ enum HistorySampleField : uint32_t {
   HISTORY_FIELD_EXTERNAL_4 = 1u << 21,
   HISTORY_FIELD_EXTERNAL_5 = 1u << 22,
   HISTORY_FIELD_EXTERNAL_6 = 1u << 23,
-  HISTORY_FIELD_EXTERNAL_7 = 1u << 24
+  HISTORY_FIELD_EXTERNAL_7 = 1u << 24,
+  HISTORY_FIELD_ZONE1_REQUEST = 1u << 25,
+  HISTORY_FIELD_HEATING_CURVE_SHIFT = 1u << 26
 };
 
 enum HistoryOperatingState : uint8_t {
@@ -92,6 +97,7 @@ enum HistoryEventType : uint8_t {
   HISTORY_EVENT_COMMUNICATION,
   HISTORY_EVENT_MQTT,
   HISTORY_EVENT_OPERATION_MODE_CHANGED,
+  HISTORY_EVENT_ZONE1_SEMANTIC_CHANGED,
   HISTORY_EVENT_COUNT
 };
 

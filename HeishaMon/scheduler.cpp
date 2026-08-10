@@ -295,8 +295,17 @@ bool SchedulerManager::validateEntry(const SchedulerEntry &entry,
     case SCHEDULER_ACTION_SET_DHW_TARGET:
       if (entry.actionValue < 40 || entry.actionValue > 75) { snprintf(message, messageSize, "DHW target must be 40..75 C"); return false; }
       break;
+    case SCHEDULER_ACTION_SET_HEAT_CURVE_SHIFT:
+      if (entry.actionValue < -5 || entry.actionValue > 5) { snprintf(message, messageSize, "Heating curve shift must be -5..5 K"); return false; }
+      break;
+    case SCHEDULER_ACTION_SET_Z1_HEATING_WATER_TARGET:
+      if (entry.actionValue < 20 || entry.actionValue > 100) { snprintf(message, messageSize, "Heating water target must be 20..100 C"); return false; }
+      break;
+    case SCHEDULER_ACTION_SET_Z1_ROOM_TARGET:
+      if (entry.actionValue < 10 || entry.actionValue > 35) { snprintf(message, messageSize, "Room target must be 10..35 C"); return false; }
+      break;
     case SCHEDULER_ACTION_SET_Z1_REQUEST:
-      if (entry.actionValue < -5 || entry.actionValue > 65) { snprintf(message, messageSize, "Zone 1 request must be -5..65 C"); return false; }
+      if (entry.actionValue < INT16_MIN || entry.actionValue > INT16_MAX) { snprintf(message, messageSize, "Legacy Zone 1 request is invalid"); return false; }
       break;
     case SCHEDULER_ACTION_SET_QUIET_MODE:
       if (entry.actionValue < 0 || entry.actionValue > 3) { snprintf(message, messageSize, "Quiet mode must be 0..3"); return false; }
@@ -525,7 +534,7 @@ bool SchedulerManager::load() {
   DeserializationError error = deserializeJson(document, file);
   file.close();
   int version = document["version"] | 0;
-  if (error || (version != 1 && version != SCHEDULER_CONFIG_VERSION)) {
+  if (error || (version != 1 && version != 2 && version != SCHEDULER_CONFIG_VERSION)) {
     enabled_ = false;
     return false;
   }
@@ -540,6 +549,10 @@ bool SchedulerManager::load() {
       snprintf(logMessage, sizeof(logMessage), "[SCHED] ignored invalid stored entry: %s", message);
       log(logMessage);
       continue;
+    }
+    if (entry.action == SCHEDULER_ACTION_SET_Z1_REQUEST) {
+      entry.enabled = false;
+      log("[SCHED] legacy set_z1_request disabled; edit it to choose a semantic Zone 1 action");
     }
     entries_[count_++] = entry;
   }
@@ -667,7 +680,9 @@ void SchedulerManager::toJson(JsonDocument &document) const {
 
 const char *SchedulerManager::actionName(SchedulerActionType action) {
   static const char *names[] = {"force_dhw", "heatpump_on", "heatpump_off",
-    "set_operation_mode", "set_dhw_target", "set_z1_request", "set_quiet_mode"};
+    "set_operation_mode", "set_dhw_target", "set_heat_curve_shift",
+    "set_z1_heating_water_target", "set_z1_room_target", "set_z1_request",
+    "set_quiet_mode"};
   return action < SCHEDULER_ACTION_COUNT ? names[action] : "unknown";
 }
 

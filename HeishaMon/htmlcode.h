@@ -1684,9 +1684,13 @@ document.addEventListener('DOMContentLoaded',function(){
       <h2 class='dashboard-title'>HEAT (zone 1)</h2>
       <div class='dashboard-section'>
         <div class='dashboard-row'><span>Zone 1</span><span id='TOP94-Description' class='dashboard-value'>--</span><span id='TOP94-Value' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'>
-          <span>Heat request / shift</span>
-          <div class='dashboard-control'><button class='dashboard-step' onclick='stepZone1Heat(-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='TOP27-Value'>--</span> &deg;C</span><span id='TOP27-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick='stepZone1Heat(1)' aria-label='Increase'>&#8963;</button></div>
+        <div id='TOP27-Semantic-Row' class='dashboard-row' style='display:none'>
+          <span id='TOP27-Semantic-Label'>Zone 1 request</span>
+          <div id='TOP27-Semantic-Control' class='dashboard-control'><button id='TOP27-Semantic-Recover' class='btn btn-ghost' onclick='recoverZone1Heat()' style='display:none'>Set valid</button><button class='dashboard-step' onclick='stepZone1Heat(-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='TOP27-Semantic-Value'>--</span> <span id='TOP27-Semantic-Unit'></span></span><button class='dashboard-step' onclick='stepZone1Heat(1)' aria-label='Increase'>&#8963;</button></div>
+        </div>
+        <div id='HeatingCurveShift-Row' class='dashboard-row' style='display:none'>
+          <span>Heating curve shift</span>
+          <div id='HeatingCurveShift-Control' class='dashboard-control'><button class='dashboard-step' onclick='stepHeatingCurveShift(-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='HeatingCurveShift-Value'>--</span> K</span><button class='dashboard-step' onclick='stepHeatingCurveShift(1)' aria-label='Increase'>&#8963;</button></div>
         </div>
         <div class='dashboard-section-title'>Temperatures</div>
         <div class='dashboard-row'><span>Water target</span><span class='dashboard-value'><span id='TOP42-Value'>--</span> &deg;C</span><span id='TOP42-Description' class='dashboard-hidden'></span></div>
@@ -1696,8 +1700,10 @@ document.addEventListener('DOMContentLoaded',function(){
         <div class='dashboard-row'><span>Production</span><span class='dashboard-value'><span id='TOP15-Value'>--</span> W</span><span id='TOP15-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Consumption</span><span class='dashboard-value'><span id='TOP16-Value'>--</span> W</span><span id='TOP16-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-section-title'>Heating curve</div>
-        <div class='dashboard-row'><span>Target high</span><span class='dashboard-value'><span id='TOP29-Value'>--</span> &deg;C</span><span id='TOP29-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Target low</span><span class='dashboard-value'><span id='TOP30-Value'>--</span> &deg;C</span><span id='TOP30-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Curve base high</span><div class='dashboard-control'><button class='dashboard-step' onclick='stepHeatingCurveBase("high",-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='HeatingCurveBaseHigh-Value'>--</span> &deg;C</span><button class='dashboard-step' onclick='stepHeatingCurveBase("high",1)' aria-label='Increase'>&#8963;</button></div></div>
+        <div class='dashboard-row'><span>Curve base low</span><div class='dashboard-control'><button class='dashboard-step' onclick='stepHeatingCurveBase("low",-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='HeatingCurveBaseLow-Value'>--</span> &deg;C</span><button class='dashboard-step' onclick='stepHeatingCurveBase("low",1)' aria-label='Increase'>&#8963;</button></div></div>
+        <div class='dashboard-row'><span>Panasonic effective high</span><span class='dashboard-value'><span id='HeatingCurveEffectiveHigh-Value'>--</span> &deg;C</span></div>
+        <div class='dashboard-row'><span>Panasonic effective low</span><span class='dashboard-value'><span id='HeatingCurveEffectiveLow-Value'>--</span> &deg;C</span></div>
         <div class='dashboard-row'><span>Outside high</span><span class='dashboard-value'><span id='TOP31-Value'>--</span> &deg;C</span><span id='TOP31-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Outside low</span><span class='dashboard-value'><span id='TOP32-Value'>--</span> &deg;C</span><span id='TOP32-Description' class='dashboard-hidden'></span></div>
       </div>
@@ -1742,7 +1748,9 @@ var dashboardRefreshPromise=null;
 var dashboardCommandBusy=false;
 var dashboardStepTimers={};
 var dashboardStepDebounceMs=1000;
-var dashboardTemperatureTopics={TOP5:1,TOP6:1,TOP7:1,TOP9:1,TOP10:1,TOP14:1,TOP27:1,TOP29:1,TOP30:1,TOP31:1,TOP32:1,TOP42:1,TOP56:1,TOP70:1};
+var dashboardSemantic=null;
+var dashboardCurveShift=null;
+var dashboardTemperatureTopics={TOP5:1,TOP6:1,TOP7:1,TOP9:1,TOP10:1,TOP14:1,TOP29:1,TOP30:1,TOP31:1,TOP32:1,TOP42:1,TOP56:1,TOP70:1};
 function dashboardDisplayValue(topic,value){
   if(dashboardTemperatureTopics[topic]){
     var numeric=Number(value);
@@ -1750,15 +1758,57 @@ function dashboardDisplayValue(topic,value){
   }
   return String(value);
 }
+function renderDashboardHeatRequest(){
+  var row=document.getElementById('TOP27-Semantic-Row');
+  var label=document.getElementById('TOP27-Semantic-Label');
+  var value=document.getElementById('TOP27-Semantic-Value');
+  var unit=document.getElementById('TOP27-Semantic-Unit');
+  var control=document.getElementById('TOP27-Semantic-Control');
+  var recover=document.getElementById('TOP27-Semantic-Recover');
+  if(!row||!label||!value||!unit||!control)return;
+  if(!dashboardSemantic||dashboardSemantic.semantic==='heatCurveShift'){row.style.display='none';return;}
+  row.style.display='flex';
+  label.textContent=dashboardSemantic.label||'Zone 1 request';
+  unit.textContent=dashboardSemantic.unit||'';
+  var raw=Number(dashboardSemantic.rawValue);
+  var rawValid=dashboardSemantic.rawValidForSemantic===true&&Number.isFinite(raw);
+  var semanticKnown=dashboardSemantic.semanticKnown===true||(!!dashboardSemantic.semantic&&dashboardSemantic.semantic!=='unknown');
+  var editable=semanticKnown&&dashboardSemantic.writable===true;
+  value.textContent=rawValid?String(raw):(Number.isFinite(raw)?(semanticKnown?'Invalid (raw: '+String(raw)+')':'Unknown (raw: '+String(raw)+')'):'N/A');
+  control.querySelectorAll('button').forEach(function(button){button.style.display=editable?'inline-flex':'none';});
+  if(recover){recover.textContent=dashboardSemantic.semantic==='heatCurveShift'?'Set 0':'Set valid';recover.style.display=editable&&!rawValid?'inline-flex':'none';}
+}
+function renderDashboardCurveShift(){
+  var row=document.getElementById('HeatingCurveShift-Row');
+  var control=document.getElementById('HeatingCurveShift-Control');
+  var value=document.getElementById('HeatingCurveShift-Value');
+  var endpoint=dashboardCurveShift&&dashboardCurveShift.implementation==='curveEndpoints';
+  var available=!!(dashboardCurveShift&&dashboardCurveShift.available);
+  if(row)row.style.display=available?'flex':'none';
+  if(value)value.textContent=available&&dashboardCurveShift.valueValid!==false?String(dashboardCurveShift.shift):(available&&dashboardCurveShift.rawValue!==null?'Invalid (raw: '+String(dashboardCurveShift.rawValue)+')':'N/A');
+  if(control)control.querySelectorAll('button').forEach(function(button){button.disabled=!available||dashboardCurveShift.writable!==true;});
+  var high=document.getElementById('HeatingCurveBaseHigh-Value'),low=document.getElementById('HeatingCurveBaseLow-Value');
+  var effectiveHigh=document.getElementById('HeatingCurveEffectiveHigh-Value'),effectiveLow=document.getElementById('HeatingCurveEffectiveLow-Value');
+  if(high)high.textContent=endpoint?String(dashboardCurveShift.baseTargetHigh):'N/A';
+  if(low)low.textContent=endpoint?String(dashboardCurveShift.baseTargetLow):'N/A';
+  if(effectiveHigh)effectiveHigh.textContent=endpoint?String(dashboardCurveShift.effectiveTargetHigh):'N/A';
+  if(effectiveLow)effectiveLow.textContent=endpoint?String(dashboardCurveShift.effectiveTargetLow):'N/A';
+  [high,low].forEach(function(span){if(span){var r=span.closest('.dashboard-row');if(r)r.style.display=endpoint?'flex':'none';}});
+  [effectiveHigh,effectiveLow].forEach(function(span){if(span){var r=span.closest('.dashboard-row');if(r)r.style.display=endpoint?'flex':'none';}});
+}
 function dashboardItems(data){
   return [].concat(data.heatpump||[],data['heatpump extra']||[],data['heatpump optional']||[]);
 }
 function renderDashboard(data){
-  dashboardItems(data).forEach(function(item){
+  var items=dashboardItems(data);
+  items.forEach(function(item){
     dashboardValues[item.Topic]=item.Value;
+  });
+  items.forEach(function(item){
     updCell(item.Topic+'-Value',dashboardDisplayValue(item.Topic,item.Value));
     updCell(item.Topic+'-Description',String(item.Description));
   });
+  renderDashboardHeatRequest();
   syncDashboardControls();
 }
 function refreshDashboard(){
@@ -1766,7 +1816,13 @@ function refreshDashboard(){
   dashboardRefreshPromise=fetch('/json',{cache:'no-store'}).then(function(response){
     if(!response.ok)throw new Error('HTTP '+response.status);
     return response.json();
-  }).then(renderDashboard).then(function(){return refreshDashboardWorkflow();}).then(function(){return fetch('/wpsettingsconfig',{cache:'no-store'});}).then(function(response){
+  }).then(renderDashboard).then(function(){return fetch('/zone1heatsemantic',{cache:'no-store'});}).then(function(response){
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    return response.json();
+  }).then(function(data){dashboardSemantic=data;renderDashboardHeatRequest();return fetch('/heatingcurveshift',{cache:'no-store'});}).then(function(response){
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    return response.json();
+  }).then(function(data){dashboardCurveShift=data;renderDashboardCurveShift();return refreshDashboardWorkflow();}).then(function(){return fetch('/wpsettingsconfig',{cache:'no-store'});}).then(function(response){
     if(!response.ok)throw new Error('HTTP '+response.status);
     return response.json();
   }).then(function(data){dashboardWpConfig=data;dashboardRefreshPromise=null;syncDashboardControls();}).catch(function(error){
@@ -1887,17 +1943,66 @@ function stepDashboardValue(command,topic,delta,min,max){
   if(isNaN(current))return;
   var next=Math.max(min,Math.min(max,Math.round(current+delta)));
   dashboardValues[topic]=next;
-  updCell(topic+'-Value',String(next));
+  if(topic==='TOP27')renderDashboardHeatRequest();
+  else updCell(topic+'-Value',String(next));
   queueDashboardStep(command,topic,next);
 }
 function stepZone1Heat(delta){
-  var current=Number(dashboardValues.TOP27);
-  // TOP27 is either a shift (-5..5) or a direct water temperature
-  // (normally 20..65). Prefer the actual value when the mode topic and
-  // value are temporarily inconsistent, otherwise a click could clamp 25
-  // °C to the shift maximum of 5 °C.
-  var directMode=Number(dashboardValues.TOP76)===1 || current>=dashboardWpConfig.heatMin || current<-5;
-  stepDashboardValue('SetZ1HeatRequestTemperature','TOP27',delta,directMode?dashboardWpConfig.heatMin:-5,directMode?dashboardWpConfig.heatMax:5);
+  if(dashboardSemantic&&dashboardSemantic.semantic==='heatCurveShift'){stepHeatingCurveShift(delta);return;}
+  if(!dashboardSemantic||dashboardSemantic.writable!==true||dashboardSemantic.semanticKnown!==true){
+    setDashboardStatus('Zone 1 request is not writable for the current configuration',true);
+    return;
+  }
+  var current=Number(dashboardSemantic.rawValue);
+  var min=Number(dashboardSemantic.min);
+  var max=Number(dashboardSemantic.max);
+  var rawValid=dashboardSemantic.rawValidForSemantic===true&&Number.isFinite(current);
+  if(!rawValid)current=dashboardSemantic.semantic==='heatCurveShift'?0:min;
+  if(!Number.isFinite(min)||!Number.isFinite(max)){
+    setDashboardStatus('Zone 1 request value is unavailable',true);
+    return;
+  }
+  var next=Math.max(min,Math.min(max,Math.round(current+delta)));
+  var command=dashboardSemantic.semantic==='heatCurveShift'?'SetHeatingCurveShift':
+    dashboardSemantic.semantic==='heatingWaterTarget'?'SetZ1HeatingWaterTarget':
+    dashboardSemantic.semantic==='roomTarget'?'SetZ1RoomTarget':null;
+  if(command===null){setDashboardStatus('Unknown Zone 1 request semantics',true);return;}
+  dashboardSemantic.rawValue=next;
+  dashboardSemantic.rawValidForSemantic=true;
+  renderDashboardHeatRequest();
+  queueDashboardStep(command,'TOP27',next);
+}
+function stepHeatingCurveShift(delta){
+  if(!dashboardCurveShift||dashboardCurveShift.available!==true||dashboardCurveShift.writable!==true){setDashboardStatus('Heating curve shift is not writable for the current configuration',true);return;}
+  var current=Number(dashboardCurveShift.shift),min=Number(dashboardCurveShift.min),max=Number(dashboardCurveShift.max);
+  if(!Number.isFinite(current))current=0;
+  var next=Math.max(min,Math.min(max,Math.round(current+delta)));
+  dashboardCurveShift.shift=next;dashboardCurveShift.valueValid=true;renderDashboardCurveShift();
+  queueDashboardStep('SetHeatingCurveShift','HeatingCurveShift',next);
+}
+function stepHeatingCurveBase(which,delta){
+  if(!dashboardCurveShift||dashboardCurveShift.implementation!=='curveEndpoints'||dashboardCurveShift.writable!==true){setDashboardStatus('Heating curve base is not writable for the current configuration',true);return;}
+  var key=which==='high'?'baseTargetHigh':'baseTargetLow',current=Number(dashboardCurveShift[key]);
+  if(!Number.isFinite(current))return;
+  dashboardCurveShift[key]=Math.round(current+delta);
+  dashboardCurveShift.effectiveTargetHigh=Number(dashboardCurveShift.baseTargetHigh)+Number(dashboardCurveShift.shift);
+  dashboardCurveShift.effectiveTargetLow=Number(dashboardCurveShift.baseTargetLow)+Number(dashboardCurveShift.shift);
+  renderDashboardCurveShift();
+  queueDashboardStep(which==='high'?'SetZ1HeatCurveBaseHigh':'SetZ1HeatCurveBaseLow','HeatingCurveBase'+which, dashboardCurveShift[key]);
+}
+function recoverZone1Heat(){
+  if(!dashboardSemantic||dashboardSemantic.writable!==true||dashboardSemantic.semanticKnown!==true)return;
+  var min=Number(dashboardSemantic.min),max=Number(dashboardSemantic.max);
+  var next=dashboardSemantic.semantic==='heatCurveShift'?0:min;
+  if(!Number.isFinite(next)||next<min||next>max)return;
+  var command=dashboardSemantic.semantic==='heatCurveShift'?'SetHeatingCurveShift':
+    dashboardSemantic.semantic==='heatingWaterTarget'?'SetZ1HeatingWaterTarget':
+    dashboardSemantic.semantic==='roomTarget'?'SetZ1RoomTarget':null;
+  if(command===null)return;
+  dashboardSemantic.rawValue=next;
+  dashboardSemantic.rawValidForSemantic=true;
+  renderDashboardHeatRequest();
+  queueDashboardStep(command,'TOP27',next);
 }
 document.addEventListener('DOMContentLoaded',function(){
   refreshDashboard();
@@ -2097,7 +2202,7 @@ document.addEventListener('DOMContentLoaded',function(){
         <div class='scheduler-field full'><label>Weekdays</label><div class='scheduler-days'>
           <label class='scheduler-day'><input type='checkbox' data-day='0'><span>Mon</span></label><label class='scheduler-day'><input type='checkbox' data-day='1'><span>Tue</span></label><label class='scheduler-day'><input type='checkbox' data-day='2'><span>Wed</span></label><label class='scheduler-day'><input type='checkbox' data-day='3'><span>Thu</span></label><label class='scheduler-day'><input type='checkbox' data-day='4'><span>Fri</span></label><label class='scheduler-day'><input type='checkbox' data-day='5'><span>Sat</span></label><label class='scheduler-day'><input type='checkbox' data-day='6'><span>Sun</span></label>
         </div><div class='scheduler-actions' style='justify-content:flex-start'><button class='btn btn-ghost' onclick='schedulerSelectDays(127)'>Every day</button><button class='btn btn-ghost' onclick='schedulerSelectDays(31)'>Weekdays</button><button class='btn btn-ghost' onclick='schedulerSelectDays(96)'>Weekend</button></div></div>
-        <div class='scheduler-field'><label for='schedulerAction'>Action</label><select id='schedulerAction' class='scheduler-input' onchange='schedulerActionChanged()'><option value='force_dhw'>Force DHW workflow</option><option value='heatpump_on'>Heat pump on</option><option value='heatpump_off'>Heat pump off</option><option value='set_operation_mode'>Set operating mode</option><option value='set_dhw_target'>Set DHW target</option><option value='set_z1_request'>Set Zone 1 request</option><option value='set_quiet_mode'>Set quiet mode</option></select></div>
+        <div class='scheduler-field'><label for='schedulerAction'>Action</label><select id='schedulerAction' class='scheduler-input' onchange='schedulerActionChanged()'><option value='force_dhw'>Force DHW workflow</option><option value='heatpump_on'>Heat pump on</option><option value='heatpump_off'>Heat pump off</option><option value='set_operation_mode'>Set operating mode</option><option value='set_dhw_target'>Set DHW target</option><option id='schedulerActionHeatShift' value='set_heat_curve_shift'>Set heating curve shift</option><option id='schedulerActionWaterTarget' value='set_z1_heating_water_target'>Set heating water target</option><option id='schedulerActionRoomTarget' value='set_z1_room_target'>Set room target</option><option id='schedulerActionLegacy' value='set_z1_request' disabled>Legacy Zone 1 request (review required)</option><option value='set_quiet_mode'>Set quiet mode</option></select></div>
         <div id='schedulerActionValueField' class='scheduler-field'><label for='schedulerActionValue'>Action value</label><div id='schedulerActionValueContainer'></div></div>
         <div class='scheduler-field full'><label>Conditions (all must be true)</label><div id='schedulerConditions'></div><button type='button' class='btn btn-ghost' onclick='schedulerAddCondition()'>+ Add condition</button></div>
         <div class='scheduler-field full'><div class='scheduler-form-note'>Force DHW uses the same protected workflow as Dashboard. Conditions are evaluated from the latest Panasonic values at the scheduled minute. If time or a required value is unavailable, nothing is sent.</div></div>
@@ -2115,12 +2220,15 @@ var schedulerEditingId=0;
 var schedulerBusy=false;
 var schedulerRefreshPromise=null;
 var schedulerDays=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-var schedulerActionLabels={force_dhw:'Force DHW workflow',heatpump_on:'Heat pump on',heatpump_off:'Heat pump off',set_operation_mode:'Set operating mode',set_dhw_target:'Set DHW target',set_z1_request:'Set Zone 1 request',set_quiet_mode:'Set quiet mode'};
+var schedulerActionLabels={force_dhw:'Force DHW workflow',heatpump_on:'Heat pump on',heatpump_off:'Heat pump off',set_operation_mode:'Set operating mode',set_dhw_target:'Set DHW target',set_heat_curve_shift:'Set heating curve shift',set_z1_heating_water_target:'Set heating water target',set_z1_room_target:'Set room target',set_z1_request:'Legacy Zone 1 request',set_quiet_mode:'Set quiet mode'};
+var schedulerSemantic=null;
+var schedulerCurveShift=null;
 var schedulerConditionLabels={none:'No condition',dhw_temperature:'DHW temperature',outside_temperature:'Outside temperature',room_temperature:'Zone 1 room temperature',main_inlet_temperature:'Main inlet temperature',main_outlet_temperature:'Main outlet temperature'};
 function schedulerEscape(value){return String(value===undefined?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function schedulerDayText(mask){var result=[];for(var i=0;i<7;i++)if(mask&(1<<i))result.push(schedulerDays[i]);return result.join(', ');}
 function schedulerPad(value){return String(value).padStart(2,'0');}
-function schedulerActionText(entry){var label=schedulerActionLabels[entry.action]||entry.action;if(entry.action==='set_operation_mode'){var modes=['Heat only','Cool only','Auto','DHW only','Heat + DHW','Cool + DHW','Auto + DHW'];return label+': '+(modes[entry.actionValue]||entry.actionValue);}if(entry.action==='set_quiet_mode')return label+': '+(Number(entry.actionValue)===0?'Off':'Level '+entry.actionValue);if(entry.action==='set_dhw_target'||entry.action==='set_z1_request')return label+': '+entry.actionValue+' °C';return label;}
+function schedulerSemanticMatches(action){return (action==='set_heat_curve_shift'&&schedulerCurveShift&&schedulerCurveShift.available===true&&schedulerCurveShift.writable===true)||(action==='set_z1_heating_water_target'&&schedulerSemantic&&schedulerSemantic.semantic==='heatingWaterTarget')||(action==='set_z1_room_target'&&schedulerSemantic&&schedulerSemantic.semantic==='roomTarget');}
+function schedulerActionText(entry){var label=schedulerActionLabels[entry.action]||entry.action;if(entry.action==='set_operation_mode'){var modes=['Heat only','Cool only','Auto','DHW only','Heat + DHW','Cool + DHW','Auto + DHW'];return label+': '+(modes[entry.actionValue]||entry.actionValue);}if(entry.action==='set_quiet_mode')return label+': '+(Number(entry.actionValue)===0?'Off':'Level '+entry.actionValue);if(entry.action==='set_dhw_target')return label+': '+entry.actionValue+' °C';if(entry.action==='set_heat_curve_shift')return label+': '+entry.actionValue+' K'+(schedulerSemanticMatches(entry.action)?'':' [INCOMPATIBLE]');if(entry.action==='set_z1_heating_water_target'||entry.action==='set_z1_room_target')return label+': '+entry.actionValue+' °C'+(schedulerSemanticMatches(entry.action)?'':' [INCOMPATIBLE]');if(entry.action==='set_z1_request')return label+': '+entry.actionValue+' [REVIEW REQUIRED]';return label;}
 function schedulerConditionText(entry){var c=entry.conditions||[];if(!c.length&&entry.conditionField&&entry.conditionField!=='none')c=[{source:'local',field:entry.conditionField,operator:entry.conditionOperator,value:entry.conditionValue}];if(!c.length)return 'Always';return c.map(function(x){var label=x.source==='mqtt'?'MQTT sensor '+x.sensorId:(schedulerConditionLabels[x.field]||x.field);return label+' '+x.operator+' '+x.value;}).join(' AND ');}
 function schedulerSetStatus(message,isError){var el=document.getElementById('schedulerCommandStatus');if(el){el.textContent=message||'';el.style.color=isError?'var(--red)':'var(--text-muted)';}}
 function schedulerSelectDays(mask){document.querySelectorAll('.scheduler-day input').forEach(function(input){input.checked=!!(mask&(1<<Number(input.dataset.day)));});}
@@ -2131,6 +2239,10 @@ function schedulerAddCondition(){var box=document.getElementById('schedulerCondi
 function schedulerReadConditions(){return Array.prototype.slice.call(document.querySelectorAll('.scheduler-condition-row')).map(function(row){var source=row.querySelector('.scheduler-condition-source').value,field=row.querySelector('.scheduler-condition-field'),condition={source:source,operator:row.querySelector('.scheduler-condition-operator').value,value:Number(row.querySelector('.scheduler-condition-value').value)};if(source==='local')condition.field=field.value;else condition.sensorId=Number(field.value);return condition;});}
 function schedulerRender(data){
   schedulerData=data;
+  schedulerSemantic=data.zone1HeatRequest||null;
+  schedulerCurveShift=data.heatingCurveShift||null;
+  var semanticOptions={set_heat_curve_shift:'schedulerActionHeatShift',set_z1_heating_water_target:'schedulerActionWaterTarget',set_z1_room_target:'schedulerActionRoomTarget'};
+  Object.keys(semanticOptions).forEach(function(action){var option=document.getElementById(semanticOptions[action]);if(option)option.disabled=!schedulerSemanticMatches(action);});
   document.getElementById('schedulerLocalTime').textContent=data.localTime||'Time unavailable';
   var timeStatus=document.getElementById('schedulerTimeStatus');timeStatus.textContent=data.ntpSynchronized?'Last NTP sync: '+(data.lastNtpSync||''):(data.timeValid?'Clock valid · NTP pending':'Unavailable - paused');timeStatus.className='scheduler-status-value '+(data.timeValid?'scheduler-sync-good':'scheduler-sync-bad');
   document.getElementById('schedulerActiveCount').textContent=String(data.enabledCount)+' / '+String(data.count)+' ('+String(data.maxEntries)+' max)';
@@ -2161,12 +2273,12 @@ function schedulerOpenEditor(id){
   document.getElementById('schedulerModal').classList.add('open');document.getElementById('schedulerName').focus();
 }
 function schedulerCloseEditor(){document.getElementById('schedulerModal').classList.remove('open');}
-function schedulerActionChanged(selectedValue){var action=document.getElementById('schedulerAction').value;var container=document.getElementById('schedulerActionValueContainer');var field=document.getElementById('schedulerActionValueField');field.style.visibility='visible';if(action==='set_operation_mode'){container.innerHTML='<select id="schedulerActionValue" class="scheduler-input"><option value="0">Heat only</option><option value="1">Cool only</option><option value="2">Auto</option><option value="3">DHW only</option><option value="4">Heat + DHW</option><option value="5">Cool + DHW</option><option value="6">Auto + DHW</option></select>';}else if(action==='set_quiet_mode'){container.innerHTML='<select id="schedulerActionValue" class="scheduler-input"><option value="0">Off</option><option value="1">Level 1</option><option value="2">Level 2</option><option value="3">Level 3</option></select>';}else if(action==='set_dhw_target'){container.innerHTML='<input id="schedulerActionValue" class="scheduler-input" type="number" min="40" max="75" step="1" value="45">';}else if(action==='set_z1_request'){container.innerHTML='<input id="schedulerActionValue" class="scheduler-input" type="number" min="-5" max="65" step="1" value="0">';}else{container.innerHTML='<input id="schedulerActionValue" type="hidden" value="0"><span class="dashboard-muted">No value required</span>';field.style.visibility='visible';}if(selectedValue!==undefined&&document.getElementById('schedulerActionValue'))document.getElementById('schedulerActionValue').value=String(selectedValue);}
+function schedulerActionChanged(selectedValue){var action=document.getElementById('schedulerAction').value;var container=document.getElementById('schedulerActionValueContainer');var field=document.getElementById('schedulerActionValueField');field.style.visibility='visible';if(action==='set_operation_mode'){container.innerHTML='<select id="schedulerActionValue" class="scheduler-input"><option value="0">Heat only</option><option value="1">Cool only</option><option value="2">Auto</option><option value="3">DHW only</option><option value="4">Heat + DHW</option><option value="5">Cool + DHW</option><option value="6">Auto + DHW</option></select>';}else if(action==='set_quiet_mode'){container.innerHTML='<select id="schedulerActionValue" class="scheduler-input"><option value="0">Off</option><option value="1">Level 1</option><option value="2">Level 2</option><option value="3">Level 3</option></select>';}else if(action==='set_dhw_target'){container.innerHTML='<input id="schedulerActionValue" class="scheduler-input" type="number" min="40" max="75" step="1" value="45">';}else if(action==='set_heat_curve_shift'){container.innerHTML='<input id="schedulerActionValue" class="scheduler-input" type="number" min="-5" max="5" step="1" value="0">';}else if(action==='set_z1_heating_water_target'){var min=schedulerSemantic&&Number.isFinite(Number(schedulerSemantic.min))?schedulerSemantic.min:20;var max=schedulerSemantic&&Number.isFinite(Number(schedulerSemantic.max))?schedulerSemantic.max:65;container.innerHTML='<input id="schedulerActionValue" class="scheduler-input" type="number" min="'+min+'" max="'+max+'" step="1" value="'+min+'">';}else if(action==='set_z1_room_target'){container.innerHTML='<input id="schedulerActionValue" class="scheduler-input" type="number" min="10" max="35" step="1" value="20">';}else{container.innerHTML='<input id="schedulerActionValue" type="hidden" value="0"><span class="dashboard-muted">No value required</span>';field.style.visibility='visible';}if(selectedValue!==undefined&&document.getElementById('schedulerActionValue'))document.getElementById('schedulerActionValue').value=String(selectedValue);}
 function schedulerSaveEditor(){
   var name=document.getElementById('schedulerName').value.trim();var time=document.getElementById('schedulerTime').value;if(!name){schedulerSetStatus('A schedule name is required.',true);return;}if(!time||time.indexOf(':')<0){schedulerSetStatus('A valid execution time is required.',true);return;}
   var days=0;document.querySelectorAll('.scheduler-day input').forEach(function(input){if(input.checked)days|=(1<<Number(input.dataset.day));});if(!days){schedulerSetStatus('Select at least one weekday.',true);return;}
   var parts=time.split(':');var hour=Number(parts[0]);var minute=Number(parts[1]);if(!Number.isInteger(hour)||hour<0||hour>23||!Number.isInteger(minute)||minute<0||minute>59){schedulerSetStatus('Time must be between 00:00 and 23:59.',true);return;}
-  var action=document.getElementById('schedulerAction').value;var actionValue=Number(document.getElementById('schedulerActionValue').value);var validActions=['force_dhw','heatpump_on','heatpump_off','set_operation_mode','set_dhw_target','set_z1_request','set_quiet_mode'];if(validActions.indexOf(action)<0||!Number.isFinite(actionValue)){schedulerSetStatus('Select a valid action.',true);return;}if(action==='set_operation_mode'&&(actionValue<0||actionValue>6)||action==='set_dhw_target'&&(actionValue<40||actionValue>75)||action==='set_z1_request'&&(actionValue<-5||actionValue>65)||action==='set_quiet_mode'&&(actionValue<0||actionValue>3)){schedulerSetStatus('Action value is outside its supported range.',true);return;}
+  var action=document.getElementById('schedulerAction').value;var actionValue=Number(document.getElementById('schedulerActionValue').value);var validActions=['force_dhw','heatpump_on','heatpump_off','set_operation_mode','set_dhw_target','set_heat_curve_shift','set_z1_heating_water_target','set_z1_room_target','set_quiet_mode'];if(validActions.indexOf(action)<0||!Number.isFinite(actionValue)){schedulerSetStatus('Select a valid action.',true);return;}if((action==='set_heat_curve_shift'&&(actionValue<-5||actionValue>5))||(action==='set_z1_heating_water_target'&&(actionValue<Number(schedulerSemantic?schedulerSemantic.min:20)||actionValue>Number(schedulerSemantic?schedulerSemantic.max:65)))||(action==='set_z1_room_target'&&(actionValue<10||actionValue>35))||(action==='set_operation_mode'&&(actionValue<0||actionValue>6))||(action==='set_dhw_target'&&(actionValue<40||actionValue>75))||(action==='set_quiet_mode'&&(actionValue<0||actionValue>3))){schedulerSetStatus('Action value is outside its supported range.',true);return;}if((action==='set_heat_curve_shift'||action==='set_z1_heating_water_target'||action==='set_z1_room_target')&&!schedulerSemanticMatches(action)){schedulerSetStatus('This action does not match the current Zone 1 control configuration.',true);return;}
   var conditions=schedulerReadConditions();if(conditions.length>4){schedulerSetStatus('At most four conditions are supported.',true);return;}for(var ci=0;ci<conditions.length;ci++){if(!Number.isFinite(conditions[ci].value)||conditions[ci].value<-100||conditions[ci].value>200||(conditions[ci].source==='mqtt'&&!conditions[ci].sensorId)){schedulerSetStatus('Condition is outside its supported range.',true);return;}}
   var payload={id:schedulerEditingId,enabled:document.getElementById('schedulerEntryEnabled').checked,name:name,days:days,hour:hour,minute:minute,action:action,actionValue:actionValue,conditions:conditions};
   schedulerCommand('save',JSON.stringify(payload)).then(function(){schedulerCloseEditor();});

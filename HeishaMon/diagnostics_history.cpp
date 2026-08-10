@@ -6,6 +6,8 @@
 #include "version.h"
 #include "webfunctions.h"
 #include "htmlcode.h"
+#include "zone1_heat_semantics.h"
+#include "heating_curve_shift.h"
 
 #include <ArduinoJson.h>
 #include <LittleFS.h>
@@ -87,7 +89,6 @@ constexpr uint8_t TOP_STERILIZATION_MAX = 71;
 constexpr uint8_t TOP_HEATING_MODE = 76;
 constexpr uint8_t TOP_HEATING_OFF_OUTSIDE = 77;
 constexpr uint8_t TOP_ROOM_TEMP = 56;
-constexpr uint8_t TOP_ROOM_TARGET = 27;
 constexpr uint8_t TOP_LIQUID_TYPE = 107;
 // TOP16 is decoded by HeishaMon as instantaneous electrical power in watts.
 // It is quantized, so values below this threshold are not useful for COP.
@@ -115,6 +116,7 @@ struct CycleState {
   int valve = -1;
   int operationMode = -1;
   bool errorActive = false;
+  uint8_t zone1RequestSemantic = ZONE1_HEAT_SEMANTIC_UNKNOWN;
   unsigned long compressorStartedAt = 0;
   uint32_t compressorStartTimestamp = 0;
   uint32_t compressorStartSequence = 0;
@@ -249,7 +251,7 @@ static void appendText(struct webserver_t *client, const char *text) {
 }
 
 static void appendFmt(struct webserver_t *client, const char *format, ...) {
-  char buffer[512];
+  char buffer[640];
   va_list args;
   va_start(args, format);
   vsnprintf(buffer, sizeof(buffer), format, args);
@@ -275,6 +277,7 @@ static const char *eventTypeName(HistoryEventType type) {
     case HISTORY_EVENT_COMMUNICATION: return "communication";
     case HISTORY_EVENT_MQTT: return "mqtt";
     case HISTORY_EVENT_OPERATION_MODE_CHANGED: return "operation_mode_changed";
+    case HISTORY_EVENT_ZONE1_SEMANTIC_CHANGED: return "zone1_semantic_changed";
     default: return "unknown";
   }
 }
@@ -332,6 +335,12 @@ static void updateCycleState() {
   int valve = readTopic(TOP_VALVE, value) ? (int)lroundf(value) : -1;
   bool errorActive = currentErrorActive();
   int operationMode = readTopic(TOP_OPERATION_MODE, value) ? (int)lroundf(value) : -1;
+  Zone1HeatRequestSemantic zone1Semantic;
+  uint8_t currentZone1Semantic = ZONE1_HEAT_SEMANTIC_UNKNOWN;
+  if (resolveZone1HeatRequestSemantic(actData, heishamonSettings.wpHeatMin,
+      heishamonSettings.wpHeatMax, &zone1Semantic)) {
+    currentZone1Semantic = (uint8_t)zone1Semantic.type;
+  }
 
   if (!cycle.initialized) {
     cycle.initialized = true;
@@ -342,6 +351,7 @@ static void updateCycleState() {
     cycle.valve = valve;
     cycle.operationMode = operationMode;
     cycle.errorActive = errorActive;
+    cycle.zone1RequestSemantic = currentZone1Semantic;
     if (compressorRunning) {
       cycle.compressorStartedAt = millis();
       cycle.compressorStartTimestamp = currentTimestamp();
@@ -384,6 +394,13 @@ static void updateCycleState() {
   if (operationMode >= 0 && cycle.operationMode >= 0 && operationMode != cycle.operationMode) {
     addEvent(HISTORY_EVENT_OPERATION_MODE_CHANGED, "Operating mode changed", operationMode);
   }
+  if (currentZone1Semantic != cycle.zone1RequestSemantic) {
+    char message[48];
+    snprintf(message, sizeof(message), "Z1: %s>%s",
+      zone1HeatRequestSemanticName((Zone1HeatRequestSemanticType)cycle.zone1RequestSemantic),
+      zone1HeatRequestSemanticName((Zone1HeatRequestSemanticType)currentZone1Semantic));
+    addEvent(HISTORY_EVENT_ZONE1_SEMANTIC_CHANGED, message, currentZone1Semantic);
+  }
   if (errorActive != cycle.errorActive) {
     addEvent(errorActive ? HISTORY_EVENT_ERROR_APPEARED : HISTORY_EVENT_ERROR_CLEARED,
       errorActive ? "Heat pump error appeared" : "Heat pump error cleared");
@@ -395,6 +412,7 @@ static void updateCycleState() {
   cycle.valve = valve;
   cycle.operationMode = operationMode;
   cycle.errorActive = errorActive;
+  cycle.zone1RequestSemantic = currentZone1Semantic;
 }
 
 static bool makeSample(HistorySample &sample) {
@@ -431,10 +449,6 @@ static bool makeSample(HistorySample &sample) {
   if (readTemperature(TOP_ROOM_TEMP, value)) {
     sample.roomTemp10 = scaledSigned(value, 10.0f);
     sample.validFields |= HISTORY_FIELD_ROOM;
-  }
-  if (readTemperature(TOP_ROOM_TARGET, value)) {
-    sample.roomTarget10 = scaledSigned(value, 10.0f);
-    sample.validFields |= HISTORY_FIELD_ROOM_TARGET;
   }
   if (readNonNegative(TOP_FLOW, value)) {
     sample.flow100 = scaledUnsigned(value, 100.0f);
@@ -489,6 +503,23 @@ static bool makeSample(HistorySample &sample) {
   if (readNonNegative(TOP_COMPRESSOR_HZ, value) && value > 0.5f) sample.flags |= SAMPLE_FLAG_COMPRESSOR;
   if (dhwActive) sample.flags |= SAMPLE_FLAG_DHW;
   if (readTopic(TOP_DEFROST, value) && lroundf(value) != 0) sample.flags |= SAMPLE_FLAG_DEFROST;
+  Zone1HeatRequestSemantic zone1Semantic;
+  float zone1Request = 0;
+  if (resolveZone1HeatRequestSemantic(actData, heishamonSettings.wpHeatMin,
+      heishamonSettings.wpHeatMax, &zone1Semantic) &&
+      zone1Semantic.type != ZONE1_HEAT_CURVE_SHIFT &&
+      readZone1HeatRequestRaw(actData, &zone1Request) &&
+      isfinite(zone1Request)) {
+    sample.zone1RequestValue10 = scaledSigned(zone1Request, 10.0f);
+    sample.zone1RequestSemantic = (uint8_t)zone1Semantic.type;
+    sample.validFields |= HISTORY_FIELD_ZONE1_REQUEST;
+  }
+  HeatingCurveShiftStatus curveShift;
+  if (heatingCurveShiftGetStatus(&curveShift) && curveShift.available &&
+      curveShift.valueValid) {
+    sample.heatingCurveShift = curveShift.requestedShift;
+    sample.validFields |= HISTORY_FIELD_HEATING_CURVE_SHIFT;
+  }
   if (timestampValid) sample.flags |= SAMPLE_FLAG_TIME_VALID;
   sample.operatingState = (sample.flags & SAMPLE_FLAG_DEFROST) ? HISTORY_STATE_DEFROST :
     (sample.flags & SAMPLE_FLAG_COMPRESSOR) ?
@@ -533,9 +564,8 @@ static uint16_t parseInterval(const char *value) {
   if (value == nullptr || *value == '\0') return 0;
   char *end = nullptr;
   long parsed = strtol(value, &end, 10);
-  if (end == value || *end != '\0' || parsed < 5 || parsed > 60) return 0;
-  if (parsed != 5 && parsed != 10 && parsed != 30 && parsed != 60) return 0;
-  return (uint16_t)parsed;
+  if (end == value || *end != '\0' || parsed < 1 || parsed > 10) return 0;
+  return (uint16_t)(parsed * 60);
 }
 
 static uint16_t parseRetention(const char *value) {
@@ -945,6 +975,10 @@ struct SampleAggregate {
   HistorySample sample;
   float sums[17];
   uint16_t counts[17];
+  float zone1RequestSum;
+  uint16_t zone1RequestCount;
+  int8_t heatingCurveShiftValue;
+  uint16_t heatingCurveShiftCount;
   EnergyTotals energy;
   uint16_t count;
 };
@@ -962,6 +996,28 @@ static void addAggregate(SampleAggregate &aggregate, const HistorySample &sample
   aggregate.sample.operatingState = sample.operatingState;
   aggregate.sample.electricalSource = sample.electricalSource;
   aggregate.sample.validFields |= sample.validFields;
+  if ((sample.validFields & HISTORY_FIELD_ZONE1_REQUEST) != 0) {
+    if (aggregate.zone1RequestCount == 0) {
+      aggregate.sample.zone1RequestSemantic = sample.zone1RequestSemantic;
+      aggregate.sample.validFields |= HISTORY_FIELD_ZONE1_REQUEST;
+    } else if (aggregate.sample.zone1RequestSemantic != sample.zone1RequestSemantic) {
+      aggregate.sample.validFields &= ~HISTORY_FIELD_ZONE1_REQUEST;
+    }
+    if ((aggregate.sample.validFields & HISTORY_FIELD_ZONE1_REQUEST) != 0) {
+      aggregate.zone1RequestSum += sample.zone1RequestValue10 / 10.0f;
+    }
+    aggregate.zone1RequestCount++;
+  }
+  if ((sample.validFields & HISTORY_FIELD_HEATING_CURVE_SHIFT) != 0) {
+    if (aggregate.heatingCurveShiftCount == 0) {
+      aggregate.heatingCurveShiftValue = sample.heatingCurveShift;
+      aggregate.sample.heatingCurveShift = sample.heatingCurveShift;
+      aggregate.sample.validFields |= HISTORY_FIELD_HEATING_CURVE_SHIFT;
+    } else if (aggregate.heatingCurveShiftValue != sample.heatingCurveShift) {
+      aggregate.sample.validFields &= ~HISTORY_FIELD_HEATING_CURVE_SHIFT;
+    }
+    aggregate.heatingCurveShiftCount++;
+  }
   memcpy(aggregate.sample.externalValues, sample.externalValues,
     sizeof(aggregate.sample.externalValues));
   const uint32_t fields[] = {
@@ -1029,6 +1085,17 @@ static void finishAggregate(SampleAggregate &aggregate) {
       case 16: aggregate.sample.dhwConsumptionW = scaledUnsigned(value, 1.0f); break;
     }
   }
+  if (aggregate.zone1RequestCount > 0 &&
+      (aggregate.sample.validFields & HISTORY_FIELD_ZONE1_REQUEST) != 0) {
+    aggregate.sample.zone1RequestValue10 = scaledSigned(
+      aggregate.zone1RequestSum / aggregate.zone1RequestCount, 10.0f);
+  } else {
+    aggregate.sample.validFields &= ~HISTORY_FIELD_ZONE1_REQUEST;
+  }
+  if (aggregate.heatingCurveShiftCount == 0 ||
+      (aggregate.sample.validFields & HISTORY_FIELD_HEATING_CURVE_SHIFT) == 0) {
+    aggregate.sample.validFields &= ~HISTORY_FIELD_HEATING_CURVE_SHIFT;
+  }
 }
 
 static void appendSampleJson(struct webserver_t *client, const HistorySample &sample,
@@ -1036,7 +1103,8 @@ static void appendSampleJson(struct webserver_t *client, const HistorySample &sa
   char outside[20], inlet[20], outlet[20], target[20], dhw[20];
   char dhwTarget[20], room[20], roomTarget[20], heatProduction[20];
   char heatConsumption[20], dhwProduction[20], dhwConsumption[20];
-  char flow[20], hz[20], pump[20], power[20], electrical[20], cop[20];
+  char flow[20], hz[20], pump[20], power[20], electrical[20], cop[20], zone1Request[20], curveShift[20];
+  const char *zone1Semantic = "unknown";
   snprintf(outside, sizeof(outside), (sample.validFields & HISTORY_FIELD_OUTSIDE) ? "%.1f" : "null", sample.outsideTemp10 / 10.0f);
   snprintf(inlet, sizeof(inlet), (sample.validFields & HISTORY_FIELD_INLET) ? "%.1f" : "null", sample.inletTemp10 / 10.0f);
   snprintf(outlet, sizeof(outlet), (sample.validFields & HISTORY_FIELD_OUTLET) ? "%.1f" : "null", sample.outletTemp10 / 10.0f);
@@ -1054,13 +1122,22 @@ static void appendSampleJson(struct webserver_t *client, const HistorySample &sa
   snprintf(heatConsumption, sizeof(heatConsumption), (sample.validFields & HISTORY_FIELD_HEAT_CONSUMPTION) ? "%.3f" : "null", sample.heatConsumptionW / 1000.0f);
   snprintf(dhwProduction, sizeof(dhwProduction), (sample.validFields & HISTORY_FIELD_DHW_PRODUCTION) ? "%.3f" : "null", sample.dhwProductionW / 1000.0f);
   snprintf(dhwConsumption, sizeof(dhwConsumption), (sample.validFields & HISTORY_FIELD_DHW_CONSUMPTION) ? "%.3f" : "null", sample.dhwConsumptionW / 1000.0f);
+  bool zone1RequestValid = (sample.validFields & HISTORY_FIELD_ZONE1_REQUEST) != 0;
+  snprintf(zone1Request, sizeof(zone1Request), zone1RequestValid ? "%.1f" : "null",
+    sample.zone1RequestValue10 / 10.0f);
+  snprintf(curveShift, sizeof(curveShift), (sample.validFields & HISTORY_FIELD_HEATING_CURVE_SHIFT) ? "%d" : "null", sample.heatingCurveShift);
+  if (zone1RequestValid) {
+    zone1Semantic = zone1HeatRequestSemanticName(
+      (Zone1HeatRequestSemanticType)sample.zone1RequestSemantic);
+  }
   bool copValid = useAggregatedCop ? isfinite(aggregatedCop) : instantaneousCop(sample, aggregatedCop);
   snprintf(cop, sizeof(cop), copValid ? "%.2f" : "null", aggregatedCop);
   appendFmt(client,
-    "{\"t\":%lu,\"u\":%lu,\"outside\":%s,\"inlet\":%s,\"outlet\":%s,\"target\":%s,\"dhw\":%s,\"dhwTarget\":%s,\"room\":%s,\"roomTarget\":%s,\"flow\":%s,\"hz\":%s,\"pump\":%s,\"power\":%s,\"electrical\":%s,\"electricalSource\":%u,\"heatProduction\":%s,\"heatConsumption\":%s,\"dhwProduction\":%s,\"dhwConsumption\":%s,\"cop\":%s,\"mode\":%u,\"valve\":%u,\"state\":%u,\"compressor\":%s,\"dhwActive\":%s,\"timeValid\":%s}",
+    "{\"t\":%lu,\"u\":%lu,\"outside\":%s,\"inlet\":%s,\"outlet\":%s,\"target\":%s,\"dhw\":%s,\"dhwTarget\":%s,\"room\":%s,\"roomTarget\":%s,\"flow\":%s,\"hz\":%s,\"pump\":%s,\"power\":%s,\"electrical\":%s,\"electricalSource\":%u,\"heatProduction\":%s,\"heatConsumption\":%s,\"dhwProduction\":%s,\"dhwConsumption\":%s,\"cop\":%s,\"zone1Request\":%s,\"zone1RequestSemantic\":\"%s\",\"heatingCurveShift\":%s,\"mode\":%u,\"valve\":%u,\"state\":%u,\"compressor\":%s,\"dhwActive\":%s,\"timeValid\":%s}",
     (unsigned long)sample.timestamp, (unsigned long)sample.uptimeSeconds,
     outside, inlet, outlet, target, dhw, dhwTarget, room, roomTarget, flow, hz, pump,
     power, electrical, sample.electricalSource, heatProduction, heatConsumption, dhwProduction, dhwConsumption, cop,
+    zone1Request, zone1Semantic, curveShift,
     sample.operatingMode,
     sample.valveState, sample.operatingState,
     (sample.flags & SAMPLE_FLAG_COMPRESSOR) ? "true" : "false",
@@ -1075,7 +1152,7 @@ static void loadHistoryConfig() {
   JsonDocument document;
   if (!deserializeJson(document, file)) {
     uint16_t configured = (uint16_t)(document["intervalSeconds"] | 0);
-    if (configured == 5 || configured == 10 || configured == 30 || configured == 60) {
+    if (configured >= 60 && configured <= 600 && configured % 60 == 0) {
       sampleIntervalSeconds = configured;
     }
     uint16_t retention = (uint16_t)(document["retentionDays"] | sdRetentionDays);
@@ -1253,7 +1330,7 @@ static bool writeSdSamples() {
     setSdError("Could not open history file");
     return false;
   }
-  if (!exists) file.println("timestamp,outside,inlet,outlet,target,dhw,dhw_target,room,room_target,flow,compressor_hz,pump_rpm,thermal_kw,electrical_kw,heat_production_kw,heat_consumption_kw,dhw_production_kw,dhw_consumption_kw,mode,valve,state,defrost,estimated_cop");
+  if (!exists) file.println("timestamp,outside,inlet,outlet,target,dhw,dhw_target,room,room_target,flow,compressor_hz,pump_rpm,thermal_kw,electrical_kw,heat_production_kw,heat_consumption_kw,dhw_production_kw,dhw_consumption_kw,z1_request,z1_request_semantic,heating_curve_shift,mode,valve,state,defrost,estimated_cop");
   uint32_t oldestSequence = sampleSequence >= sampleCount ?
     sampleSequence - sampleCount + 1 : 1;
   if (sdFlushedSequence < oldestSequence - 1) sdFlushedSequence = oldestSequence - 1;
@@ -1265,6 +1342,8 @@ static bool writeSdSamples() {
     char outside[16], inlet[16], outlet[16], target[16], dhw[16], dhwTarget[16];
     char room[16], roomTarget[16], flow[16], hz[16], pump[16], thermal[16], electrical[16];
     char heatProduction[16], heatConsumption[16], dhwProduction[16], dhwConsumption[16], copText[16];
+    char zone1Request[16], curveShift[16];
+    const char *zone1Semantic = "";
     snprintf(outside, sizeof(outside), (sample.validFields & HISTORY_FIELD_OUTSIDE) ? "%.1f" : "", sample.outsideTemp10 / 10.0f);
     snprintf(inlet, sizeof(inlet), (sample.validFields & HISTORY_FIELD_INLET) ? "%.1f" : "", sample.inletTemp10 / 10.0f);
     snprintf(outlet, sizeof(outlet), (sample.validFields & HISTORY_FIELD_OUTLET) ? "%.1f" : "", sample.outletTemp10 / 10.0f);
@@ -1283,10 +1362,20 @@ static bool writeSdSamples() {
     snprintf(dhwProduction, sizeof(dhwProduction), (sample.validFields & HISTORY_FIELD_DHW_PRODUCTION) ? "%.3f" : "", sample.dhwProductionW / 1000.0f);
     snprintf(dhwConsumption, sizeof(dhwConsumption), (sample.validFields & HISTORY_FIELD_DHW_CONSUMPTION) ? "%.3f" : "", sample.dhwConsumptionW / 1000.0f);
     snprintf(copText, sizeof(copText), copValid ? "%.2f" : "", cop);
-    file.printf("%lu,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%u,%u,%u,%u,%s\n",
+    bool zone1RequestValid = (sample.validFields & HISTORY_FIELD_ZONE1_REQUEST) != 0;
+    snprintf(zone1Request, sizeof(zone1Request), zone1RequestValid ? "%.1f" : "",
+      sample.zone1RequestValue10 / 10.0f);
+    if (zone1RequestValid) {
+      zone1Semantic = zone1HeatRequestSemanticName(
+        (Zone1HeatRequestSemanticType)sample.zone1RequestSemantic);
+    }
+    snprintf(curveShift, sizeof(curveShift), (sample.validFields & HISTORY_FIELD_HEATING_CURVE_SHIFT) ? "%d" : "",
+      sample.heatingCurveShift);
+    file.printf("%lu,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%u,%u,%u,%u,%s\n",
       (unsigned long)sample.timestamp, outside, inlet, outlet, target, dhw,
       dhwTarget, room, roomTarget, flow, hz, pump, thermal, electrical,
       heatProduction, heatConsumption, dhwProduction, dhwConsumption,
+      zone1Request, zone1Semantic, curveShift,
       sample.operatingMode, sample.valveState, sample.operatingState,
       (sample.flags & SAMPLE_FLAG_DEFROST) ? 1 : 0, copText);
   }
@@ -1476,6 +1565,11 @@ static void appendDiagnosticsJson(JsonDocument &document) {
     delta - configuredDelta);
 
   JsonObject control = document["control"].to<JsonObject>();
+  JsonObject zone1Request = control["zone1HeatRequest"].to<JsonObject>();
+  zone1HeatRequestSemanticToJson(zone1Request, actData,
+    heishamonSettings.wpHeatMin, heishamonSettings.wpHeatMax);
+  JsonObject curveShift = control["heatingCurveShift"].to<JsonObject>();
+  heatingCurveShiftToJson(curveShift);
   if (readTemperature(TOP_ROOM_TEMP, value)) control["roomTemperature"] = value;
   else control["roomTemperature"] = nullptr;
   if (readTemperature(TOP_HEATING_OFF_OUTSIDE, value)) control["heatingOffOutside"] = value;
@@ -1573,9 +1667,10 @@ function esc(v){return String(v==null?'N/A':v).replace(/[&<>"']/g,function(c){re
 function val(v,unit){return v===null||v===undefined?'N/A':esc(v)+(unit||'')}
 function row(k,v){return '<div class="diagnostics-row"><span>'+esc(k)+'</span><span class="diagnostics-value">'+v+'</span></div>'}
 function card(title,rows){return '<section class="panel diagnostics-card"><div class="panel-header"><h3>'+title+'</h3></div><div class="diagnostics-rows">'+rows.join('')+'</div></section>'}
-function render(d){var s=d.system||{},o=d.operation||{},h=d.hydraulics||{},c=d.control||{},w=d.dhw||{},n=d.counters||{},sd=d.sd||{};
+function render(d){var s=d.system||{},o=d.operation||{},h=d.hydraulics||{},c=d.control||{},z1=c.zone1HeatRequest||{},cs=c.heatingCurveShift||{},w=d.dhw||{},n=d.counters||{},sd=d.sd||{};
  document.getElementById('status').innerHTML='Panasonic: <b class="'+(s.panasonic&&s.panasonic.fresh?'diagnostics-ok':'diagnostics-bad')+'">'+esc(s.panasonic?s.panasonic.status:'NO DATA')+'</b> · Last frame: '+val(s.panasonic&&s.panasonic.ageSeconds,' s');
- document.getElementById('cards').innerHTML=card('SYSTEM STATUS',[row('WiFi',s.wifi?'Connected':'Offline'),row('Ethernet',s.ethernet?'Connected':'Offline'),row('MQTT',s.mqtt?'Connected':'Offline'),row('NTP',s.ntp?'Synchronized':'Unavailable'),row('Uptime',val(s.uptimeSeconds,' s')),row('Free heap',val(s.freeHeap,' B')),row('PSRAM',s.psramFound?val(s.freePsram,' B free'):'Not available'),row('Firmware',val(s.firmware))])+card('CURRENT OPERATION',[row('Interpreted state',val(o.state)),row('Operating mode',val(o.mode)),row('Compressor',o.compressorRunning?'Running':'Stopped'),row('Compressor frequency',val(o.compressorFrequency,' Hz')),row('Current runtime',val(o.currentRuntimeSeconds,' s')),row('Flow',val(o.flow,' l/min')),row('Pump speed',val(o.pumpSpeed,' rpm')),row('Fan 1',val(o.fan1,' rpm')),row('3-way valve',val(o.valve))])+card('HYDRAULICS',[row('Inlet',val(h.inlet,' °C')),row('Outlet',val(h.outlet,' °C')),row('Target',val(h.target,' °C')),row('Delta T',val(h.deltaT,' K')),row('Target error',val(h.targetError,' K')),row('Delta-T error',val(h.deltaTError,' K')),row('Calculated thermal power',val(h.calculatedThermalPowerKw,' kW'))])+card('CONTROL / DHW',[row('Room temperature',val(c.roomTemperature,' °C')),row('Heating mode',val(c.heatingMode)),row('Heating-off outdoor temp',val(c.heatingOffOutside,' °C')),row('DHW actual',val(w.actual,' °C')),row('DHW target',val(w.target,' °C')),row('DHW active',w.active?'Yes':'No'),row('Force DHW',val(w.forceState)),row('Smart DHW','See Smart DHW page')])+card('COUNTERS',[row('Panasonic operation hours',val(n.panasonicOperationHours)),row('Panasonic operation counter',val(n.panasonicOperationCounter)),row('Compressor starts since boot',val(n.compressorStartsSinceBoot)),row('Current cycle',val(n.currentCycleSeconds,' s')),row('Previous cycle',val(n.previousCycleSeconds,' s')),row('Average cycle',val(n.averageCycleSeconds,' s'))])+card('PERSISTENT HISTORY',[row('RAM samples',val((d.history||{}).sampleCount)+' / '+val((d.history||{}).capacity)),row('Sample interval',val((d.history||{}).intervalSeconds,' s')),row('RAM memory',val((d.history||{}).sampleMemoryBytes,' B')),row('SD support',sd.support?'Enabled':'Disabled'),row('SD card',sd.present?'Present':'Not present'),row('History logging',sd.active?'Active':'RAM only'),row('Retention',sd.retentionDays===0?'Unlimited':val(sd.retentionDays,' days')),row('SD error',val(sd.lastError))]);
+ document.getElementById('cards').innerHTML=card('SYSTEM STATUS',[row('WiFi',s.wifi?'Connected':'Offline'),row('Ethernet',s.ethernet?'Connected':'Offline'),row('MQTT',s.mqtt?'Connected':'Offline'),row('NTP',s.ntp?'Synchronized':'Unavailable'),row('Uptime',val(s.uptimeSeconds,' s')),row('Free heap',val(s.freeHeap,' B')),row('PSRAM',s.psramFound?val(s.freePsram,' B free'):'Not available'),row('Firmware',val(s.firmware))])+card('CURRENT OPERATION',[row('Interpreted state',val(o.state)),row('Operating mode',val(o.mode)),row('Compressor',o.compressorRunning?'Running':'Stopped'),row('Compressor frequency',val(o.compressorFrequency,' Hz')),row('Current runtime',val(o.currentRuntimeSeconds,' s')),row('Flow',val(o.flow,' l/min')),row('Pump speed',val(o.pumpSpeed,' rpm')),row('Fan 1',val(o.fan1,' rpm')),row('3-way valve',val(o.valve))])+card('HYDRAULICS',[row('Inlet',val(h.inlet,' °C')),row('Outlet',val(h.outlet,' °C')),row('Target',val(h.target,' °C')),row('Delta T',val(h.deltaT,' K')),row('Target error',val(h.targetError,' K')),row('Delta-T error',val(h.deltaTError,' K')),row('Calculated thermal power',val(h.calculatedThermalPowerKw,' kW'))])+card('CONTROL / DHW',[row('Zone 1 raw TOP27',val(z1.rawValue)),row(z1.label||'Zone 1 request',val(z1.value,z1.unit?' '+z1.unit:'')),row('Heating mode',val(z1.heatingModeLabel||c.heatingMode)),row('Zone 1 sensor setting',val(z1.sensorSettingLabel||z1.sensorSetting)),row('Heating-off outdoor temp',val(c.heatingOffOutside,' °C')),row('Room temperature',val(c.roomTemperature,' °C')),row('DHW actual',val(w.actual,' °C')),row('DHW target',val(w.target,' °C')),row('DHW active',w.active?'Yes':'No'),row('Force DHW',val(w.forceState)),row('Smart DHW','See Smart DHW page')])+card('COUNTERS',[row('Panasonic operation hours',val(n.panasonicOperationHours)),row('Panasonic operation counter',val(n.panasonicOperationCounter)),row('Compressor starts since boot',val(n.compressorStartsSinceBoot)),row('Current cycle',val(n.currentCycleSeconds,' s')),row('Previous cycle',val(n.previousCycleSeconds,' s')),row('Average cycle',val(n.averageCycleSeconds,' s'))])+card('PERSISTENT HISTORY',[row('RAM samples',val((d.history||{}).sampleCount)+' / '+val((d.history||{}).capacity)),row('Sample interval',val((d.history||{}).intervalSeconds,' s')),row('RAM memory',val((d.history||{}).sampleMemoryBytes,' B')),row('SD support',sd.support?'Enabled':'Disabled'),row('SD card',sd.present?'Present':'Not present'),row('History logging',sd.active?'Active':'RAM only'),row('Retention',sd.retentionDays===0?'Unlimited':val(sd.retentionDays,' days')),row('SD error',val(sd.lastError))]);
+ document.getElementById('cards').insertAdjacentHTML('beforeend',card('HEATING CURVE SHIFT',[row('Requested shift',val(cs.shift,' K')),row('Implementation',val(cs.implementationLabel)),row('Base high',val(cs.baseTargetHigh,' °C')),row('Base low',val(cs.baseTargetLow,' °C')),row('Effective high',val(cs.effectiveTargetHigh,' °C')),row('Effective low',val(cs.effectiveTargetLow,' °C')),row('External mismatch',cs.externalMismatch?'Yes':'No')]));
  document.getElementById('raw').textContent=JSON.stringify(d,null,2);
 }
 function refresh(){fetch('/diagnosticsapi',{cache:'no-store'}).then(function(r){if(!r.ok)throw Error(r.status);return r.json()}).then(render).catch(function(e){document.getElementById('status').textContent='Diagnostics unavailable: '+e.message})}document.title='Diagnostics - HeishaMon';refresh();setInterval(refresh,5000);
@@ -1604,8 +1699,10 @@ static const char historyPage[] PROGMEM = R"HTML(
 </style>
 <main class='main-content history-page'>
 <div class='history-heading'><h1>History</h1><span id='status' class='history-status'>Loading…</span></div>
-<div class='history-toolbar'><label>Range <select id='range' onchange='refresh()'><option value='30m'>Last 30 min</option><option value='1h' selected>Last 1 h</option><option value='3h'>Last 3 h</option><option value='all'>All RAM history</option></select></label><label>Sample interval <select id='interval' onchange='setIntervalValue()'><option>5</option><option selected>10</option><option>30</option><option>60</option></select> s</label><label>SD retention <select id='retention' onchange='setRetentionValue()'><option value='0'>Unlimited</option><option value='7'>7 days</option><option value='14'>14 days</option><option value='30' selected>30 days</option><option value='90'>90 days</option></select></label></div>
+<div class='history-toolbar'><label>Display range <select id='range' onchange='refresh()'><option value='30m'>Last 30 min</option><option value='1h' selected>Last 1 h</option><option value='3h'>Last 3 h</option><option value='all'>All RAM history</option></select></label><label>Storage interval <select id='interval' onchange='setIntervalValue()'><option value='1' selected>1 min</option><option value='2'>2 min</option><option value='3'>3 min</option><option value='4'>4 min</option><option value='5'>5 min</option><option value='6'>6 min</option><option value='7'>7 min</option><option value='8'>8 min</option><option value='9'>9 min</option><option value='10'>10 min</option></select></label><label>SD retention <select id='retention' onchange='setRetentionValue()'><option value='0'>Unlimited</option><option value='7'>7 days</option><option value='14'>14 days</option><option value='30' selected>30 days</option><option value='90'>90 days</option></select></label></div>
+<div class='history-note' style='margin:-4px 0 14px'>Storage interval controls how often a new point is stored in RAM and on the SD card. Display range only changes the time range shown below.</div>
 <section class='panel history-card'><div class='panel-header'><h3>Temperatures</h3></div><div class='history-card-body'><canvas id='temps' class='history-chart'></canvas><div id='tempsLegend' class='history-legend'></div><div class='history-note'>All values are in °C. The colored legend identifies every line.</div></div></section>
+<section class='panel history-card'><div class='panel-header'><h3>Zone 1 request</h3></div><div class='history-card-body'><canvas id='zone1Request' class='history-chart'></canvas><div id='zone1RequestLegend' class='history-legend'></div><div class='history-note'>Only the semantic series matching each sample is drawn. Heating curve shift (K), heating water target (°C) and room target (°C) are never merged into one line.</div></div></section>
 <section class='panel history-card'><div class='panel-header'><h3>Compressor / hydraulics</h3></div><div class='history-card-body'><canvas id='hydraulics' class='history-chart'></canvas><div id='hydraulicsLegend' class='history-legend'></div><div class='history-note'>The series use their native units: Hz, l/min and kW.</div></div></section>
 <section class='panel history-card'><div class='panel-header'><h3>Efficiency / COP</h3></div><div class='history-card-body'><div id='efficiencySummary' class='history-note' style='margin-top:0'></div><canvas id='efficiency' class='history-chart'></canvas><div id='efficiencyLegend' class='history-legend'></div><div class='history-note'>Estimated COP is calculated from thermal and electrical source values. Aggregated ranges use energy totals, not averaged COP samples.</div></div></section>
 <section class='panel history-card'><div class='panel-header'><h3>Weather / heating degree days</h3></div><div class='history-card-body'><div id='dailySummary' class='history-note' style='margin-top:0'>N/A</div></div></section>
@@ -1613,17 +1710,20 @@ static const char historyPage[] PROGMEM = R"HTML(
 <section class='panel history-card'><div class='panel-header'><h3>DHW</h3></div><div class='history-card-body'><canvas id='dhw' class='history-chart'></canvas><div id='dhwLegend' class='history-legend'></div></div></section>
 <section class='panel history-card'><div class='panel-header'><h3>Events</h3></div><div class='history-card-body'><div id='events' class='history-events'></div></div></section>
 <script>
-var chartLines={outlet:{key:'outlet',label:'Outlet',color:'#e53935'},inlet:{key:'inlet',label:'Inlet',color:'#1e88e5'},target:{key:'target',label:'Target',color:'#f9a825'},outside:{key:'outside',label:'Outside',color:'#43a047'},hz:{key:'hz',label:'Compressor frequency',color:'#8e44ad'},flow:{key:'flow',label:'Water flow',color:'#00897b'},power:{key:'power',label:'Thermal power',color:'#ef6c00'},cop:{key:'cop',label:'Estimated COP',color:'#1565c0'},electrical:{key:'electrical',label:'Electrical power',color:'#c62828'},dhw:{key:'dhw',label:'DHW actual',color:'#d32f2f'},dhwTarget:{key:'target',label:'DHW target',color:'#f9a825'}};
+var chartLines={outlet:{key:'outlet',label:'Outlet',color:'#e53935'},inlet:{key:'inlet',label:'Inlet',color:'#1e88e5'},target:{key:'target',label:'Target',color:'#f9a825'},outside:{key:'outside',label:'Outside',color:'#43a047'},hz:{key:'hz',label:'Compressor frequency',color:'#8e44ad'},flow:{key:'flow',label:'Water flow',color:'#00897b'},power:{key:'power',label:'Thermal power',color:'#ef6c00'},cop:{key:'cop',label:'Estimated COP',color:'#1565c0'},electrical:{key:'electrical',label:'Electrical power',color:'#c62828'},dhw:{key:'dhw',label:'DHW actual',color:'#d32f2f'},dhwTarget:{key:'target',label:'DHW target',color:'#f9a825'},zone1Shift:{key:'heatingCurveShift',label:'Heating curve shift (K)',color:'#6a1b9a'},zone1Water:{key:'zone1Request',semantic:'heatingWaterTarget',label:'Heating water target (°C)',color:'#00838f'},zone1Room:{key:'zone1Request',semantic:'roomTarget',label:'Room target (°C)',color:'#ad1457'}};
 function lineLegend(id,lines){document.getElementById(id).innerHTML=lines.map(function(l){return '<span class="history-legend-item"><i class="history-legend-line" style="background:'+l.color+'"></i>'+l.label+'</span>'}).join('')}
-function draw(id,points,lines){var c=document.getElementById(id),ctx=c.getContext('2d'),w=c.clientWidth||800,h=230,d=devicePixelRatio||1;c.width=w*d;c.height=h*d;ctx.scale(d,d);ctx.clearRect(0,0,w,h);if(!points.length)return;var values=[];lines.forEach(function(l){points.forEach(function(p){var n=Number(p[l.key]);if(p[l.key]!==null&&p[l.key]!==undefined&&Number.isFinite(n))values.push(n)})});if(!values.length)return;var min=Math.min.apply(null,values),max=Math.max.apply(null,values);if(min===max){min-=1;max+=1}function x(i){return 10+(w-25)*(i/(points.length-1||1))}function y(v){return h-18-(h-35)*(v-min)/(max-min)};ctx.font='11px Arial';ctx.fillStyle='#75818a';ctx.fillText(max.toFixed(1),4,14);ctx.fillText(min.toFixed(1),4,h-5);lines.forEach(function(l){ctx.strokeStyle=l.color;ctx.lineWidth=2;ctx.beginPath();var started=false;points.forEach(function(p,i){var n=Number(p[l.key]);if(p[l.key]===null||p[l.key]===undefined||!Number.isFinite(n))return;var px=x(i),py=y(n);if(!started){ctx.moveTo(px,py);started=true}else ctx.lineTo(px,py)});if(started)ctx.stroke()})}
+function draw(id,points,lines){var c=document.getElementById(id),ctx=c.getContext('2d'),w=c.clientWidth||800,h=230,d=devicePixelRatio||1;c.width=w*d;c.height=h*d;ctx.scale(d,d);ctx.clearRect(0,0,w,h);if(!points.length)return;function matches(l,p){return !l.semantic||p.zone1RequestSemantic===l.semantic}var values=[];lines.forEach(function(l){points.forEach(function(p){var n=Number(p[l.key]);if(matches(l,p)&&p[l.key]!==null&&p[l.key]!==undefined&&Number.isFinite(n))values.push(n)})});if(!values.length)return;var min=Math.min.apply(null,values),max=Math.max.apply(null,values);if(min===max){min-=1;max+=1}function x(i){return 10+(w-25)*(i/(points.length-1||1))}function y(v){return h-18-(h-35)*(v-min)/(max-min)};ctx.font='11px Arial';ctx.fillStyle='#75818a';ctx.fillText(max.toFixed(1),4,14);ctx.fillText(min.toFixed(1),4,h-5);lines.forEach(function(l){ctx.strokeStyle=l.color;ctx.lineWidth=2;ctx.beginPath();var started=false;points.forEach(function(p,i){var n=Number(p[l.key]);if(!matches(l,p)||p[l.key]===null||p[l.key]===undefined||!Number.isFinite(n)){started=false;return}var px=x(i),py=y(n);if(!started){ctx.moveTo(px,py);started=true}else ctx.lineTo(px,py)});if(started)ctx.stroke()})}
 function val(v,unit){return v===null||v===undefined?'N/A':Number(v).toFixed(2)+(unit||'')}
-function render(d){var p=d.samples||[],e2=d.efficiency||{},day=d.daily||{};var temps=[chartLines.outlet,chartLines.inlet,chartLines.target,chartLines.outside],hydraulics=[chartLines.hz,chartLines.flow,chartLines.power],efficiency=[chartLines.cop,chartLines.power,chartLines.electrical],dhw=[chartLines.dhw,chartLines.dhwTarget];draw('temps',p,temps);lineLegend('tempsLegend',temps);draw('hydraulics',p,hydraulics);lineLegend('hydraulicsLegend',hydraulics);draw('efficiency',p,efficiency);lineLegend('efficiencyLegend',efficiency);draw('dhw',p,dhw);lineLegend('dhwLegend',dhw);document.getElementById('efficiencySummary').innerHTML='Current estimated COP: <b>'+val(e2.currentEstimatedCop)+'</b> · Current cycle COP: <b>'+val(e2.currentCycleCop)+'</b> · Today heating COP: <b>'+val(e2.todayHeatingCop)+'</b> · Today DHW COP: <b>'+val(e2.todayDhwCop)+'</b> · Last 24 h COP: <b>'+val(e2.last24hCop)+'</b>';document.getElementById('dailySummary').innerHTML='Heating degree days: <b>'+val(day.heatingDegreeDays)+'</b> · Heating COP: <b>'+val(day.heatingCop)+'</b> · DHW COP: <b>'+val(day.dhwCop)+'</b> · Heating energy: <b>'+val(day.heatingThermalKWh)+' kWh</b> · DHW energy: <b>'+val(day.dhwThermalKWh)+' kWh</b> · Outside average: <b>'+val(day.outsideAverage)+' °C</b>';var cycles=d.cycles||[];document.getElementById('cycles').innerHTML=cycles.length?cycles.slice().reverse().map(function(x){return '<div class="history-event"><b>'+val(x.durationSeconds)+' s</b> · '+(x.state===3?'DHW':'Heating')+' · COP '+val(x.cop)+' · '+val(x.thermalKWh)+' kWh thermal</div>'}).join(''):'No completed cycles';var e=d.events||[];document.getElementById('events').innerHTML=e.length?e.slice().reverse().map(function(x){var stamp=x.timeValid?new Date((x.t||0)*1000).toLocaleString():'uptime '+(x.u||0)+' s';return '<div class="history-event"><b>'+stamp+'</b> '+x.type+': '+x.message+'</div>'}).join(''):'No events';document.getElementById('status').textContent=p.length+' samples · '+(d.intervalSeconds||0)+' s interval'}
+// Explicit units, grid/tick labels and a time axis keep the lightweight canvas
+// charts readable without adding another browser-side chart library.
+function draw(id,points,lines){var c=document.getElementById(id),ctx=c.getContext('2d'),w=c.clientWidth||800,h=230,d=devicePixelRatio||1;c.width=w*d;c.height=h*d;ctx.scale(d,d);ctx.clearRect(0,0,w,h);if(!points.length)return;function matches(l,p){return !l.semantic||p.zone1RequestSemantic===l.semantic}var values=[];lines.forEach(function(l){points.forEach(function(p){var n=Number(p[l.key]);if(matches(l,p)&&p[l.key]!==null&&p[l.key]!==undefined&&Number.isFinite(n))values.push(n)})});if(!values.length)return;var min=Math.min.apply(null,values),max=Math.max.apply(null,values);if(min===max){min-=1;max+=1}var left=48,right=12,top=18,bottom=34,plotW=w-left-right,plotH=h-top-bottom;function x(i){return left+plotW*(i/(points.length-1||1))}function y(v){return top+plotH-(plotH*(v-min)/(max-min))}function timeText(p){if(p&&p.timeValid&&Number(p.t)>1000000000)return new Date(Number(p.t)*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});var last=Number(points[points.length-1].u||0),current=Number(p&&p.u||0);return '-'+Math.max(0,Math.round((last-current)/60))+'m'}var units=id==='temps'||id==='dhw'?'°C':id==='zone1Request'?'°C / K':id==='hydraulics'?'Hz / L/min / kW':'COP / kW';ctx.font='11px Arial';ctx.fillStyle='#75818a';ctx.strokeStyle='rgba(117,129,138,.22)';ctx.lineWidth=1;for(var tick=0;tick<=4;tick++){var number=max-(max-min)*tick/4,py=top+plotH*tick/4;ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(w-right,py);ctx.stroke();ctx.fillText(number.toFixed(1),4,py+4)}ctx.strokeStyle='#75818a';ctx.beginPath();ctx.moveTo(left,top);ctx.lineTo(left,top+plotH);ctx.lineTo(w-right,top+plotH);ctx.stroke();ctx.fillText(units,4,top-5);ctx.textAlign='center';[0,.25,.5,.75,1].forEach(function(f){var index=Math.round((points.length-1)*f);ctx.fillText(timeText(points[index]),left+plotW*f,h-12)});ctx.fillText('Time',left+plotW/2,h-1);ctx.textAlign='left';lines.forEach(function(l){ctx.strokeStyle=l.color;ctx.lineWidth=2;ctx.beginPath();var started=false;points.forEach(function(p,i){var n=Number(p[l.key]);if(!matches(l,p)||p[l.key]===null||p[l.key]===undefined||!Number.isFinite(n)){started=false;return}var px=x(i),py=y(n);if(!started){ctx.moveTo(px,py);started=true}else ctx.lineTo(px,py)});if(started)ctx.stroke()})}
+function render(d){var p=d.samples||[],e2=d.efficiency||{},day=d.daily||{};var temps=[chartLines.outlet,chartLines.inlet,chartLines.target,chartLines.outside],zone1=[chartLines.zone1Shift,chartLines.zone1Water,chartLines.zone1Room],hydraulics=[chartLines.hz,chartLines.flow,chartLines.power],efficiency=[chartLines.cop,chartLines.power,chartLines.electrical],dhw=[chartLines.dhw,chartLines.dhwTarget];draw('temps',p,temps);lineLegend('tempsLegend',temps);draw('zone1Request',p,zone1);lineLegend('zone1RequestLegend',zone1);draw('hydraulics',p,hydraulics);lineLegend('hydraulicsLegend',hydraulics);draw('efficiency',p,efficiency);lineLegend('efficiencyLegend',efficiency);draw('dhw',p,dhw);lineLegend('dhwLegend',dhw);document.getElementById('efficiencySummary').innerHTML='Current estimated COP: <b>'+val(e2.currentEstimatedCop)+'</b> · Current cycle COP: <b>'+val(e2.currentCycleCop)+'</b> · Today heating COP: <b>'+val(e2.todayHeatingCop)+'</b> · Today DHW COP: <b>'+val(e2.todayDhwCop)+'</b> · Last 24 h COP: <b>'+val(e2.last24hCop)+'</b>';document.getElementById('dailySummary').innerHTML='Heating degree days: <b>'+val(day.heatingDegreeDays)+'</b> · Heating COP: <b>'+val(day.heatingCop)+'</b> · DHW COP: <b>'+val(day.dhwCop)+'</b> · Heating energy: <b>'+val(day.heatingThermalKWh)+' kWh</b> · DHW energy: <b>'+val(day.dhwThermalKWh)+' kWh</b> · Outside average: <b>'+val(day.outsideAverage)+' °C</b>';var cycles=d.cycles||[];document.getElementById('cycles').innerHTML=cycles.length?cycles.slice().reverse().map(function(x){return '<div class="history-event"><b>'+val(x.durationSeconds)+' s</b> · '+(x.state===3?'DHW':'Heating')+' · COP '+val(x.cop)+' · '+val(x.thermalKWh)+' kWh thermal</div>'}).join(''):'No completed cycles';var e=d.events||[];document.getElementById('events').innerHTML=e.length?e.slice().reverse().map(function(x){var stamp=x.timeValid?new Date((x.t||0)*1000).toLocaleString():'uptime '+(x.u||0)+' s';return '<div class="history-event"><b>'+stamp+'</b> '+x.type+': '+x.message+'</div>'}).join(''):'No events';document.getElementById('status').textContent=p.length+' samples · '+(d.intervalSeconds||0)+' s interval'}
 function refresh(){fetch('/historyapi?range='+encodeURIComponent(document.getElementById('range').value),{cache:'no-store'}).then(function(r){if(!r.ok)throw Error(r.status);return r.json()}).then(render).catch(function(e){document.getElementById('status').textContent='History unavailable: '+e.message})}
 function setIntervalValue(){fetch('/historycommand?interval='+document.getElementById('interval').value).then(refresh)}
 function setRetentionValue(){fetch('/historycommand?retention='+document.getElementById('retention').value).then(refresh)}
 function setElectricalSource(){fetch('/historycommand?electricalSource='+encodeURIComponent(document.getElementById('electricalSource').value)).then(refresh)}
 function loadElectricalSources(){fetch('/externalsensorsapi',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){var label=document.createElement('label');label.textContent='Electrical source ';var select=document.createElement('select');select.id='electricalSource';select.onchange=setElectricalSource;var p=document.createElement('option');p.value='panasonic';p.textContent='Panasonic';select.appendChild(p);(d.sensors||[]).filter(function(s){return Number(s.role)===1}).forEach(function(s){var o=document.createElement('option');o.value='external:'+s.id;o.textContent=s.name+' (MQTT)';select.appendChild(o)});label.appendChild(select);document.querySelector('.toolbar').insertBefore(label,document.getElementById('status'));fetch('/history/status').then(function(r){return r.json()}).then(function(s){select.value=s.electricalSourceId?'external:'+s.electricalSourceId:'panasonic';});}).catch(function(){})}
-loadElectricalSources();document.title='History - HeishaMon';fetch('/history/status').then(function(r){return r.json()}).then(function(s){document.getElementById('interval').value=String(s.intervalSeconds||10);document.getElementById('retention').value=String(s.sdRetentionDays===undefined?30:s.sdRetentionDays)}).catch(function(){}).then(refresh);setInterval(refresh,10000);window.addEventListener('resize',refresh);
+loadElectricalSources();document.title='History - HeishaMon';fetch('/history/status').then(function(r){return r.json()}).then(function(s){document.getElementById('interval').value=String(Math.max(1,Math.min(10,Math.round((s.intervalSeconds||60)/60))));document.getElementById('retention').value=String(s.sdRetentionDays===undefined?30:s.sdRetentionDays)}).catch(function(){}).then(refresh);setInterval(refresh,10000);window.addEventListener('resize',refresh);
 </script>)HTML";
 
 static void sendJsonDocument(struct webserver_t *client, JsonDocument &document) {
@@ -1891,7 +1991,7 @@ bool diagnosticsHistoryHandleArgs(struct webserver_t *client,
       char value[args->len + 1];
       snprintf(value, sizeof(value), "%.*s", args->len, args->value);
       uint16_t parsed = parseInterval(value);
-      if (parsed == 0) snprintf(request->response, sizeof(request->response), "ERROR: interval must be 5, 10, 30 or 60 seconds");
+      if (parsed == 0) snprintf(request->response, sizeof(request->response), "ERROR: storage interval must be 1..10 minutes");
       else {
         sampleIntervalSeconds = parsed;
         lastSampleAt = millis();

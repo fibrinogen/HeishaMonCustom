@@ -246,12 +246,25 @@ void loadSettings(settingsStruct *heishamonSettings) {
           if ( jsonDoc[F("wp_heat_min")]) heishamonSettings->wpHeatMin = jsonDoc[F("wp_heat_min")];
           if ( jsonDoc[F("wp_heat_max")]) heishamonSettings->wpHeatMax = jsonDoc[F("wp_heat_max")];
           if ( jsonDoc[F("wp_dhw_block_above")]) heishamonSettings->wpDhwBlockAbove = jsonDoc[F("wp_dhw_block_above")];
+          if ( jsonDoc[F("wp_curve_base_high")]) heishamonSettings->wpCurveBaseHigh = jsonDoc[F("wp_curve_base_high")];
+          if ( jsonDoc[F("wp_curve_base_low")]) heishamonSettings->wpCurveBaseLow = jsonDoc[F("wp_curve_base_low")];
+          if ( jsonDoc[F("wp_curve_outside_high")]) heishamonSettings->wpCurveOutsideHigh = jsonDoc[F("wp_curve_outside_high")];
+          if ( jsonDoc[F("wp_curve_outside_low")]) heishamonSettings->wpCurveOutsideLow = jsonDoc[F("wp_curve_outside_low")];
+          if ( jsonDoc[F("wp_curve_shift")]) heishamonSettings->wpCurveShift = jsonDoc[F("wp_curve_shift")];
+          if ( jsonDoc[F("wp_curve_baseline_valid")]) heishamonSettings->wpCurveBaselineValid = jsonDoc[F("wp_curve_baseline_valid")];
           if (heishamonSettings->wpHeatMin < 20 || heishamonSettings->wpHeatMin > 100) heishamonSettings->wpHeatMin = 20;
           if (heishamonSettings->wpHeatMax < heishamonSettings->wpHeatMin || heishamonSettings->wpHeatMax > 100) {
             heishamonSettings->wpHeatMin = 20;
             heishamonSettings->wpHeatMax = 65;
           }
           if (heishamonSettings->wpDhwBlockAbove < 40 || heishamonSettings->wpDhwBlockAbove > 100) heishamonSettings->wpDhwBlockAbove = 75;
+          if (heishamonSettings->wpCurveShift < -5 || heishamonSettings->wpCurveShift > 5) heishamonSettings->wpCurveShift = 0;
+          if (heishamonSettings->wpCurveBaseHigh < -50 || heishamonSettings->wpCurveBaseHigh > 100 ||
+              heishamonSettings->wpCurveBaseLow < -50 || heishamonSettings->wpCurveBaseLow > 100 ||
+              heishamonSettings->wpCurveOutsideHigh < -100 || heishamonSettings->wpCurveOutsideHigh > 100 ||
+              heishamonSettings->wpCurveOutsideLow < -100 || heishamonSettings->wpCurveOutsideLow > 100) {
+            heishamonSettings->wpCurveBaselineValid = false;
+          }
 #ifdef TLS_SUPPORT
           heishamonSettings->mqtt_tls_enabled = ( jsonDoc[F("mqtt_tls_enabled")] == "enabled" ) ? true : false; 
 #endif
@@ -497,6 +510,12 @@ void settingsToJson(JsonDocument &jsonDoc, settingsStruct *heishamonSettings) {
   jsonDoc[F("wp_heat_min")] = heishamonSettings->wpHeatMin;
   jsonDoc[F("wp_heat_max")] = heishamonSettings->wpHeatMax;
   jsonDoc[F("wp_dhw_block_above")] = heishamonSettings->wpDhwBlockAbove;
+  jsonDoc[F("wp_curve_base_high")] = heishamonSettings->wpCurveBaseHigh;
+  jsonDoc[F("wp_curve_base_low")] = heishamonSettings->wpCurveBaseLow;
+  jsonDoc[F("wp_curve_outside_high")] = heishamonSettings->wpCurveOutsideHigh;
+  jsonDoc[F("wp_curve_outside_low")] = heishamonSettings->wpCurveOutsideLow;
+  jsonDoc[F("wp_curve_shift")] = heishamonSettings->wpCurveShift;
+  jsonDoc[F("wp_curve_baseline_valid")] = heishamonSettings->wpCurveBaselineValid;
   jsonDoc[F("waitDallasTime")] = heishamonSettings->waitDallasTime;
   jsonDoc[F("dallasResolution")] = heishamonSettings->dallasResolution;
   jsonDoc[F("updateAllTime")] = heishamonSettings->updateAllTime;
@@ -1303,9 +1322,8 @@ int handleHardwareApi(struct webserver_t *client, char* actData, settingsStruct 
   root[F("waterPressure")] = modelKnown && hardwareSupportsWaterPressure(&modelInfo) ?
     hardwareTopicValue(actData, 115) : String("n/a");
   root[F("heatingMode")] = hardwareMappedTopicValue(actData, 76);
-  // MQTT-Topics.md defines TOP112 as zone 1 and TOP111 as zone 2.
-  root[F("zone1Sensor")] = hardwareMappedTopicValue(actData, 112);
-  root[F("zone2Sensor")] = hardwareMappedTopicValue(actData, 111);
+  root[F("zone1Sensor")] = hardwareMappedTopicValue(actData, 111);
+  root[F("zone2Sensor")] = hardwareMappedTopicValue(actData, 112);
   root[F("roomHeaterState")] = hardwareMappedTopicValue(actData, 59);
   root[F("bufferInstalled")] = hardwareMappedTopicValue(actData, 99);
   root[F("bufferTankDelta")] = hardwareTopicValue(actData, 113);

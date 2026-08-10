@@ -39,6 +39,14 @@ struct settingsStruct {
   int16_t wpHeatMin = 20; //minimum direct heat water setpoint used by the web UI
   int16_t wpHeatMax = 65; //maximum direct heat water setpoint used by the web UI
   int16_t wpDhwBlockAbove = 75; //block dashboard Force DHW above this tank temperature
+  // Custom compensation-curve state. These fields are persisted in the normal
+  // JSON configuration and are intentionally kept outside upstream protocol code.
+  int16_t wpCurveBaseHigh = 0;
+  int16_t wpCurveBaseLow = 0;
+  int16_t wpCurveOutsideHigh = 0;
+  int16_t wpCurveOutsideLow = 0;
+  int8_t wpCurveShift = 0;
+  bool wpCurveBaselineValid = false;
 
   #define PASSWORD_LENGTH 65
 

@@ -11,6 +11,8 @@
 #include "external_sensors.h"
 #include "diagnostics_history.h"
 #include "webfunctions.h"
+#include "zone1_heat_semantics.h"
+#include "heating_curve_shift.h"
 
 #define DATASIZE 203
 #define NUMBER_OF_TOPICS 144
@@ -90,6 +92,9 @@ static bool schedulerReadValue(SchedulerConditionSource source, uint8_t sourceId
 static bool smartDhwReadTopic(uint8_t topic, float *value);
 static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType action,
   int16_t value, char *detail, size_t detailSize);
+static bool dispatchZone1HeatSemanticCommand(const char *commandName,
+  const char *valueText, Zone1HeatRequestSemanticType expectedType,
+  char *response, size_t responseSize);
 
 static bool dashboardWorkflowTimeReached(unsigned long target) {
   return (long)(millis() - target) >= 0;
@@ -356,9 +361,33 @@ static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType actio
     case SCHEDULER_ACTION_HEATPUMP_OFF: stateTopic = 0; desired = 0; break;
     case SCHEDULER_ACTION_SET_OPERATION_MODE: stateTopic = 4; break;
     case SCHEDULER_ACTION_SET_DHW_TARGET: stateTopic = 9; break;
-    case SCHEDULER_ACTION_SET_Z1_REQUEST: stateTopic = 27; break;
     case SCHEDULER_ACTION_SET_QUIET_MODE: stateTopic = 18; break;
+    case SCHEDULER_ACTION_SET_Z1_REQUEST:
+      snprintf(detail, detailSize, "Legacy ambiguous Zone 1 request action is disabled; edit the schedule");
+      return SCHEDULER_DISPATCH_FAILED;
     default: break;
+  }
+
+  if (action == SCHEDULER_ACTION_SET_HEAT_CURVE_SHIFT) {
+    char response[160] = {0};
+    bool accepted = heatingCurveShiftSet(desired, response, sizeof(response));
+    strlcpy(detail, response, detailSize);
+    return accepted ? SCHEDULER_DISPATCH_EXECUTED : SCHEDULER_DISPATCH_FAILED;
+  }
+
+  if (action == SCHEDULER_ACTION_SET_Z1_HEATING_WATER_TARGET ||
+      action == SCHEDULER_ACTION_SET_Z1_ROOM_TARGET) {
+    Zone1HeatRequestSemanticType expectedType = ZONE1_HEAT_SEMANTIC_UNKNOWN;
+    if (action == SCHEDULER_ACTION_SET_Z1_HEATING_WATER_TARGET) expectedType = ZONE1_HEATING_WATER_TARGET;
+    else expectedType = ZONE1_ROOM_TARGET;
+    char valueString[16] = {0};
+    snprintf(valueString, sizeof(valueString), "%d", desired);
+    bool accepted = dispatchZone1HeatSemanticCommand(
+      SchedulerManager::actionName(action), valueString, expectedType,
+      detail, detailSize);
+  return accepted ? (strstr(detail, "already has requested value") != nullptr ?
+      SCHEDULER_DISPATCH_NO_CHANGE : SCHEDULER_DISPATCH_EXECUTED) :
+      SCHEDULER_DISPATCH_FAILED;
   }
 
   if (stateTopic != 255 && schedulerReadTopic(stateTopic, &current)) {
@@ -406,8 +435,6 @@ static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType actio
       length = set_operation_mode(valueString, command, commandLog); break;
     case SCHEDULER_ACTION_SET_DHW_TARGET:
       length = set_DHW_temp(valueString, command, commandLog); break;
-    case SCHEDULER_ACTION_SET_Z1_REQUEST:
-      length = set_z1_heat_request_temperature(valueString, command, commandLog); break;
     case SCHEDULER_ACTION_SET_QUIET_MODE:
       length = set_quiet_mode(valueString, command, commandLog); break;
     default:
@@ -440,6 +467,9 @@ static int handleSchedulerStatus(struct webserver_t *client) {
   if (client->content != 0) return 0;
   JsonDocument document;
   schedulerManager.toJson(document);
+  zone1HeatRequestSemanticToJson(document["zone1HeatRequest"].to<JsonObject>(),
+    actData, heishamonSettings.wpHeatMin, heishamonSettings.wpHeatMax);
+  heatingCurveShiftToJson(document["heatingCurveShift"].to<JsonObject>());
   document["ntpSynchronized"] = lastNtpSyncEpoch > 0;
   char lastSync[20] = "Never";
   if (lastNtpSyncEpoch > 0) {
@@ -638,6 +668,94 @@ static int handleWpSettingsConfigStatus(struct webserver_t *client) {
   return 0;
 }
 
+static int handleZone1HeatSemanticStatus(struct webserver_t *client) {
+  if (client->content != 0) return 0;
+  JsonDocument document;
+  zone1HeatRequestSemanticToJson(document.to<JsonObject>(), actData,
+    heishamonSettings.wpHeatMin, heishamonSettings.wpHeatMax);
+  size_t length = measureJson(document);
+  char *response = (char *)malloc(length + 1);
+  if (response == nullptr) {
+    webserver_send(client, 503, (char *)"text/plain", 26);
+    webserver_send_content_P(client, PSTR("Semantic state unavailable"), 26);
+    return 0;
+  }
+  serializeJson(document, response, length + 1);
+  webserver_send(client, 200, (char *)"application/json", length);
+  webserver_send_content(client, response, length);
+  free(response);
+  return 0;
+}
+
+static int handleHeatingCurveShiftStatus(struct webserver_t *client) {
+  if (client->content != 0) return 0;
+  JsonDocument document;
+  heatingCurveShiftToJson(document.to<JsonObject>());
+  size_t length = measureJson(document);
+  char *response = (char *)malloc(length + 1);
+  if (response == nullptr) {
+    webserver_send(client, 503, (char *)"text/plain", 23);
+    webserver_send_content_P(client, PSTR("Curve shift unavailable"), 23);
+    return 0;
+  }
+  serializeJson(document, response, length + 1);
+  webserver_send(client, 200, (char *)"application/json", length);
+  webserver_send_content(client, response, length);
+  free(response);
+  return 0;
+}
+
+static bool dispatchZone1HeatSemanticCommand(const char *commandName,
+    const char *valueText, Zone1HeatRequestSemanticType expectedType,
+    char *response, size_t responseSize) {
+  if (heishamonSettings.listenonly) {
+    snprintf(response, responseSize, "Listen-only mode");
+    return false;
+  }
+
+  Zone1HeatRequestSemantic semantic;
+  if (!resolveZone1HeatRequestSemantic(actData, heishamonSettings.wpHeatMin,
+      heishamonSettings.wpHeatMax, &semantic)) {
+    snprintf(response, responseSize, "Zone 1 heat request semantics unavailable");
+    return false;
+  }
+  if (semantic.type != expectedType) {
+    snprintf(response, responseSize, "Current Zone 1 mode is %s, not %s",
+      semantic.name, zone1HeatRequestSemanticName(expectedType));
+    return false;
+  }
+
+  char *end = nullptr;
+  long parsed = strtol(valueText, &end, 10);
+  if (end == valueText || *end != '\0' || parsed < INT16_MIN || parsed > INT16_MAX ||
+      !zone1HeatRequestValueValid(semantic, (float)parsed)) {
+    snprintf(response, responseSize, "%s value must be an integer between %d and %d %s",
+      semantic.label, semantic.minValue, semantic.maxValue, semantic.unit);
+    return false;
+  }
+
+  float current = 0;
+  if (readZone1HeatRequestRaw(actData, &current) &&
+      zone1HeatRequestValueValid(semantic, current) && lroundf(current) == parsed) {
+    snprintf(response, responseSize, "%s already has requested value %ld %s",
+      semantic.label, parsed, semantic.unit);
+    return true;
+  }
+
+  unsigned char command[256] = {0};
+  char commandLog[256] = {0};
+  char valueBuffer[16] = {0};
+  snprintf(valueBuffer, sizeof(valueBuffer), "%ld", parsed);
+  unsigned int length = set_z1_heat_request_temperature(valueBuffer, command, commandLog);
+  if (length == 0 || !send_command(command, length)) {
+    snprintf(response, responseSize, "%s command queue rejected", commandName);
+    return false;
+  }
+  snprintf(response, responseSize, "%s: %s", commandName, commandLog);
+  log_message(commandLog);
+  return true;
+}
+
 static bool updateWpSettingsConfig(const char *name, const char *value,
     char *response, size_t responseSize) {
   char *end = nullptr;
@@ -689,6 +807,8 @@ bool customFeaturesHandleUri(struct webserver_t *client, const char *uri) {
   else if (strcmp(uri, "/externalsensors") == 0) client->route = 24;
   else if (strcmp(uri, "/externalsensorsapi") == 0) client->route = 25;
   else if (strcmp(uri, "/externalsensorscommand") == 0) client->route = 26;
+  else if (strcmp(uri, "/zone1heatsemantic") == 0) client->route = 36;
+  else if (strcmp(uri, "/heatingcurveshift") == 0) client->route = 37;
   else return false;
 
   if (client->route == 14 || client->route == 19 || client->route == 26) {
@@ -727,6 +847,41 @@ bool customFeaturesHandleCommandArgument(struct webserver_t *client, struct argu
   if (strcmp((char *)args->name, "DashboardWorkflow") == 0) {
     char response[160] = {0};
     dashboardWorkflowRequest(value, response, sizeof(response));
+    appendCustomResponse(client, response);
+    log_message(response);
+    return true;
+  }
+
+  if (strcmp((char *)args->name, "SetHeatingCurveShift") == 0 ||
+      strcmp((char *)args->name, "SetZ1HeatCurveBaseHigh") == 0 ||
+      strcmp((char *)args->name, "SetZ1HeatCurveBaseLow") == 0) {
+    char *end = nullptr;
+    long parsed = strtol(value, &end, 10);
+    char response[192] = {0};
+    bool accepted = end != value && *end == '\0' && parsed >= -32768 && parsed <= 32767;
+    if (accepted && strcmp((char *)args->name, "SetHeatingCurveShift") == 0) {
+      accepted = heatingCurveShiftSet((int)parsed, response, sizeof(response));
+    } else if (accepted) {
+      accepted = heatingCurveShiftSetBase(
+        strcmp((char *)args->name, "SetZ1HeatCurveBaseHigh") == 0,
+        (int)parsed, response, sizeof(response));
+    }
+    if (!accepted && response[0] == '\0') snprintf(response, sizeof(response), "Invalid curve value");
+    appendCustomResponse(client, response);
+    log_message(response);
+    return true;
+  }
+
+  Zone1HeatRequestSemanticType expectedType = ZONE1_HEAT_SEMANTIC_UNKNOWN;
+  if (strcmp((char *)args->name, "SetZ1HeatingWaterTarget") == 0) {
+    expectedType = ZONE1_HEATING_WATER_TARGET;
+  } else if (strcmp((char *)args->name, "SetZ1RoomTarget") == 0) {
+    expectedType = ZONE1_ROOM_TARGET;
+  }
+  if (expectedType != ZONE1_HEAT_SEMANTIC_UNKNOWN) {
+    char response[192] = {0};
+    bool accepted = dispatchZone1HeatSemanticCommand((char *)args->name,
+      value, expectedType, response, sizeof(response));
     appendCustomResponse(client, response);
     log_message(response);
     return true;
@@ -776,6 +931,8 @@ bool customFeaturesHandleWrite(struct webserver_t *client) {
         client->userdata = nullptr;
       }
       return true;
+    case 36: handleZone1HeatSemanticStatus(client); return true;
+    case 37: handleHeatingCurveShiftStatus(client); return true;
     default: return false;
   }
 }
@@ -825,6 +982,7 @@ void customFeaturesLoop(PubSubClient &mqttClient, const char *mqttBase) {
     externalSensors.subscribe(mqttClient, mqttBase);
   }
   processDashboardWorkflow();
+  heatingCurveShiftLoop();
   schedulerManager.loop();
   smartDhwController.loop();
   diagnosticsHistoryLoop();
