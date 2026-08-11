@@ -98,6 +98,7 @@ enum HistoryEventType : uint8_t {
   HISTORY_EVENT_MQTT,
   HISTORY_EVENT_OPERATION_MODE_CHANGED,
   HISTORY_EVENT_ZONE1_SEMANTIC_CHANGED,
+  HISTORY_EVENT_SYSTEM,
   HISTORY_EVENT_COUNT
 };
 
@@ -108,7 +109,7 @@ struct HistoryEvent {
   int32_t value;
   HistoryEventType type;
   uint8_t timeValid;
-  char message[48];
+  char message[96];
 };
 
 void diagnosticsHistoryBegin();

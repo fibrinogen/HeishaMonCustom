@@ -51,6 +51,8 @@ constexpr uint8_t ROUTE_HISTORY_API = 31;
 constexpr uint8_t ROUTE_EVENTS_API = 32;
 constexpr uint8_t ROUTE_HISTORY_COMMAND = 33;
 constexpr uint8_t ROUTE_CYCLES_API = 34;
+constexpr uint8_t ROUTE_PERSISTENT_EVENTS_API = 38;
+constexpr uint8_t ROUTE_PERSISTENT_EVENTS_CSV = 39;
 
 constexpr uint8_t TOP_HEATPUMP_STATE = 0;
 constexpr uint8_t TOP_FLOW = 1;
@@ -104,7 +106,10 @@ constexpr uint8_t SAMPLE_FLAG_EXTERNAL_ELECTRICAL = 0x20;
 
 struct HistoryRequest {
   uint32_t rangeSeconds;
+  uint32_t startTimestamp;
+  uint32_t endTimestamp;
   uint16_t maxPoints;
+  bool persistentStorage;
   char response[128];
 };
 
@@ -283,6 +288,7 @@ static const char *eventTypeName(HistoryEventType type) {
     case HISTORY_EVENT_MQTT: return "mqtt";
     case HISTORY_EVENT_OPERATION_MODE_CHANGED: return "operation_mode_changed";
     case HISTORY_EVENT_ZONE1_SEMANTIC_CHANGED: return "zone1_semantic_changed";
+    case HISTORY_EVENT_SYSTEM: return "system";
     default: return "unknown";
   }
 }
@@ -297,7 +303,7 @@ static void addEvent(HistoryEventType type, const char *message, int32_t value =
   bool timestampValid = false;
   uint32_t timestamp = currentTimestamp(&timestampValid);
   uint32_t uptimeSeconds = (uint32_t)(millis() / 1000UL);
-  char loggedMessage[48];
+  char loggedMessage[sizeof(events[0].message)];
   snprintf(loggedMessage, sizeof(loggedMessage), "%s", message == nullptr ? "" : message);
 #if defined(ESP32)
   portENTER_CRITICAL(&historyDataMux);
@@ -610,6 +616,16 @@ static uint32_t parseRange(const char *value) {
   return UINT32_MAX;
 }
 
+static bool parseHistoryTimestamp(const char *value, uint32_t &timestamp) {
+  if (value == nullptr || *value == '\0') return false;
+  char *end = nullptr;
+  unsigned long parsed = strtoul(value, &end, 10);
+  if (end == value || *end != '\0' || parsed < 1704067200UL ||
+      parsed > 4102444800UL) return false;
+  timestamp = (uint32_t)parsed;
+  return true;
+}
+
 static uint16_t orderedSampleIndex(uint16_t offset);
 
 static bool sampleInRange(const HistorySample &sample, uint32_t rangeSeconds) {
@@ -724,11 +740,13 @@ struct SdWorkItem {
 static QueueHandle_t sdWorkQueue = nullptr;
 static TaskHandle_t sdWriterTaskHandle = nullptr;
 static volatile bool sdWriterBusy = false;
+static volatile bool sdHistoryReaderBusy = false;
 static volatile unsigned long sdWriterStartedAt = 0;
 static volatile bool sdFlushQueued = false;
 static volatile SdWriterPhase sdWriterPhase = SD_PHASE_IDLE;
 static bool sdWriterStallReported = false;
 static volatile bool sdWriterErrorPending = false;
+static SemaphoreHandle_t sdFilesystemMutex = nullptr;
 #endif
 
 static CycleRecord cycleRecords[32];
@@ -1295,6 +1313,506 @@ static bool parseSdDate(const char *name, int &year, int &month, int &day) {
     day >= 1 && day <= 31;
 }
 
+#if defined(ESP32)
+// The CSV files are deliberately read as a stream.  Long retention must not
+// turn a History request into an in-RAM import of the complete SD archive.
+constexpr uint8_t MAX_STORED_HISTORY_FILES = 96;
+// These buffers are intentionally static rather than local to the HTTP
+// handler. The Arduino loop task has a small stack and VFS::open() itself
+// needs substantial stack space. Access is serialized by sdFilesystemMutex.
+static char storedArchivePaths[MAX_STORED_HISTORY_FILES][72];
+static char storedArchiveCsvLine[512];
+
+typedef bool (*StoredHistoryVisitor)(const HistorySample &sample, void *context);
+
+static bool parseCsvFloat(const char *text, float &value) {
+  if (text == nullptr || *text == '\0') return false;
+  char *end = nullptr;
+  value = strtof(text, &end);
+  return end != text && *end == '\0' && isfinite(value);
+}
+
+static bool parseCsvUnsigned(const char *text, uint32_t maximum, uint32_t &value) {
+  if (text == nullptr || *text == '\0') return false;
+  char *end = nullptr;
+  unsigned long parsed = strtoul(text, &end, 10);
+  if (end == text || *end != '\0' || parsed > maximum) return false;
+  value = (uint32_t)parsed;
+  return true;
+}
+
+static bool parseStoredHistorySample(char *line, HistorySample &sample) {
+  if (line == nullptr || strncmp(line, "timestamp,", 10) == 0) return false;
+  char *fields[26] = {};
+  char *cursor = line;
+  for (uint8_t index = 0; index < 26; index++) {
+    fields[index] = cursor;
+    char *separator = strchr(cursor, ',');
+    if (separator == nullptr) {
+      if (index != 25) return false;
+      break;
+    }
+    *separator = '\0';
+    cursor = separator + 1;
+  }
+  if (strchr(fields[25], ',') != nullptr) return false;
+
+  memset(&sample, 0, sizeof(sample));
+  uint32_t integer = 0;
+  if (!parseCsvUnsigned(fields[0], UINT32_MAX, sample.timestamp) ||
+      sample.timestamp < 1704067200UL) return false;
+  sample.flags |= SAMPLE_FLAG_TIME_VALID;
+
+  float value = 0;
+#define SET_CSV_SIGNED(index, member, field, scale) \
+  if (parseCsvFloat(fields[index], value)) { \
+    sample.member = scaledSigned(value, scale); \
+    sample.validFields |= field; \
+  }
+#define SET_CSV_UNSIGNED(index, member, field, scale) \
+  if (parseCsvFloat(fields[index], value) && value >= 0.0f) { \
+    sample.member = scaledUnsigned(value, scale); \
+    sample.validFields |= field; \
+  }
+  SET_CSV_SIGNED(1, outsideTemp10, HISTORY_FIELD_OUTSIDE, 10.0f);
+  SET_CSV_SIGNED(2, inletTemp10, HISTORY_FIELD_INLET, 10.0f);
+  SET_CSV_SIGNED(3, outletTemp10, HISTORY_FIELD_OUTLET, 10.0f);
+  SET_CSV_SIGNED(4, targetTemp10, HISTORY_FIELD_TARGET, 10.0f);
+  SET_CSV_SIGNED(5, dhwTemp10, HISTORY_FIELD_DHW, 10.0f);
+  SET_CSV_SIGNED(6, dhwTargetTemp10, HISTORY_FIELD_DHW_TARGET, 10.0f);
+  SET_CSV_SIGNED(7, roomTemp10, HISTORY_FIELD_ROOM, 10.0f);
+  SET_CSV_SIGNED(8, roomTarget10, HISTORY_FIELD_ROOM_TARGET, 10.0f);
+  SET_CSV_UNSIGNED(9, flow100, HISTORY_FIELD_FLOW, 100.0f);
+  SET_CSV_UNSIGNED(10, compressorHz10, HISTORY_FIELD_COMPRESSOR_HZ, 10.0f);
+  SET_CSV_UNSIGNED(11, pumpRpm, HISTORY_FIELD_PUMP_RPM, 1.0f);
+  SET_CSV_SIGNED(12, thermalPower100, HISTORY_FIELD_THERMAL_POWER, 100.0f);
+  SET_CSV_UNSIGNED(13, electricalPowerW, HISTORY_FIELD_ELECTRICAL_POWER, 1000.0f);
+  SET_CSV_UNSIGNED(14, heatProductionW, HISTORY_FIELD_HEAT_PRODUCTION, 1000.0f);
+  SET_CSV_UNSIGNED(15, heatConsumptionW, HISTORY_FIELD_HEAT_CONSUMPTION, 1000.0f);
+  SET_CSV_UNSIGNED(16, dhwProductionW, HISTORY_FIELD_DHW_PRODUCTION, 1000.0f);
+  SET_CSV_UNSIGNED(17, dhwConsumptionW, HISTORY_FIELD_DHW_CONSUMPTION, 1000.0f);
+#undef SET_CSV_SIGNED
+#undef SET_CSV_UNSIGNED
+
+  if (parseCsvFloat(fields[18], value)) {
+    sample.zone1RequestValue10 = scaledSigned(value, 10.0f);
+    if (strcmp(fields[19], "heatingWaterTarget") == 0) {
+      sample.zone1RequestSemantic = ZONE1_HEATING_WATER_TARGET;
+      sample.validFields |= HISTORY_FIELD_ZONE1_REQUEST;
+    } else if (strcmp(fields[19], "roomTarget") == 0) {
+      sample.zone1RequestSemantic = ZONE1_ROOM_TARGET;
+      sample.validFields |= HISTORY_FIELD_ZONE1_REQUEST;
+    }
+  }
+  if (parseCsvUnsigned(fields[20], 127, integer)) {
+    sample.heatingCurveShift = (int8_t)integer;
+    sample.validFields |= HISTORY_FIELD_HEATING_CURVE_SHIFT;
+  } else if (parseCsvFloat(fields[20], value) && value >= -127.0f && value <= 127.0f &&
+      value == lroundf(value)) {
+    sample.heatingCurveShift = (int8_t)lroundf(value);
+    sample.validFields |= HISTORY_FIELD_HEATING_CURVE_SHIFT;
+  }
+  if (parseCsvUnsigned(fields[21], 255, integer)) sample.operatingMode = (uint8_t)integer;
+  if (parseCsvUnsigned(fields[22], 255, integer)) sample.valveState = (uint8_t)integer;
+  if (parseCsvUnsigned(fields[23], HISTORY_STATE_TRANSITION, integer)) {
+    sample.operatingState = (uint8_t)integer;
+  }
+  if (parseCsvUnsigned(fields[24], 1, integer) && integer != 0) {
+    sample.flags |= SAMPLE_FLAG_DEFROST;
+  }
+  if ((sample.validFields & HISTORY_FIELD_COMPRESSOR_HZ) != 0 &&
+      sample.compressorHz10 > 5) sample.flags |= SAMPLE_FLAG_COMPRESSOR;
+  if (sample.operatingState == HISTORY_STATE_HEATING ||
+      sample.operatingState == HISTORY_STATE_DHW ||
+      sample.operatingState == HISTORY_STATE_DEFROST) sample.flags |= SAMPLE_FLAG_COMPRESSOR;
+  if (sample.operatingState == HISTORY_STATE_DHW) sample.flags |= SAMPLE_FLAG_DHW;
+  if (sample.operatingState == HISTORY_STATE_DEFROST) sample.flags |= SAMPLE_FLAG_DEFROST;
+  return true;
+}
+
+static uint8_t collectStoredArchiveFiles(const char *directory,
+    const char *posixDirectory, uint32_t lowerTimestamp) {
+  File root = SD_MMC.open(directory);
+  if (!root) return 0;
+  time_t lowerTime = (time_t)lowerTimestamp;
+  struct tm lowerDate = {};
+  if (localtime_r(&lowerTime, &lowerDate) == nullptr) {
+    root.close();
+    return 0;
+  }
+  uint8_t count = 0;
+  while (true) {
+    File entry = root.openNextFile();
+    if (!entry) break;
+    char name[72] = {};
+    snprintf(name, sizeof(name), "%s", entry.name());
+    bool isDirectory = entry.isDirectory();
+    entry.close();
+    int year = 0, month = 0, day = 0;
+    if (isDirectory || !parseSdDate(name, year, month, day)) continue;
+    if (year < lowerDate.tm_year + 1900 ||
+        (year == lowerDate.tm_year + 1900 && month < lowerDate.tm_mon + 1) ||
+        (year == lowerDate.tm_year + 1900 && month == lowerDate.tm_mon + 1 &&
+          day < lowerDate.tm_mday)) continue;
+    if (count < MAX_STORED_HISTORY_FILES) {
+      // Arduino File::name() intentionally returns only the final file name.
+      // The CSV reader uses POSIX fopen(), which requires the SDMMC mount path.
+      snprintf(storedArchivePaths[count], sizeof(storedArchivePaths[count]),
+        "%s/%04d-%02d-%02d.csv", posixDirectory, year, month, day);
+      count++;
+    }
+  }
+  root.close();
+  for (uint8_t first = 0; first < count; first++) {
+    for (uint8_t second = first + 1; second < count; second++) {
+      if (strcmp(storedArchivePaths[first], storedArchivePaths[second]) > 0) {
+        char temporary[72];
+        memcpy(temporary, storedArchivePaths[first], sizeof(temporary));
+        memcpy(storedArchivePaths[first], storedArchivePaths[second], sizeof(temporary));
+        memcpy(storedArchivePaths[second], temporary, sizeof(temporary));
+      }
+    }
+  }
+  return count;
+}
+
+static bool visitStoredHistory(uint32_t lowerTimestamp, uint32_t upperTimestamp,
+    StoredHistoryVisitor visitor, void *context) {
+  uint8_t fileCount = collectStoredArchiveFiles("/history", "/sd/history", lowerTimestamp);
+  uint32_t processed = 0;
+  for (uint8_t fileIndex = 0; fileIndex < fileCount; fileIndex++) {
+    FILE *file = fopen(storedArchivePaths[fileIndex], "r");
+    if (file == nullptr) continue;
+    while (fgets(storedArchiveCsvLine, sizeof(storedArchiveCsvLine), file) != nullptr) {
+      size_t length = strlen(storedArchiveCsvLine);
+      while (length > 0 && (storedArchiveCsvLine[length - 1] == '\n' ||
+          storedArchiveCsvLine[length - 1] == '\r')) {
+        storedArchiveCsvLine[--length] = '\0';
+      }
+      HistorySample sample;
+      if (!parseStoredHistorySample(storedArchiveCsvLine, sample) || sample.timestamp < lowerTimestamp ||
+          sample.timestamp > upperTimestamp) continue;
+      if (!visitor(sample, context)) {
+        fclose(file);
+        return false;
+      }
+      if ((++processed & 0x1fU) == 0) delay(0);
+    }
+    fclose(file);
+  }
+  return true;
+}
+
+struct StoredHistoryStats {
+  uint32_t lowerTimestamp;
+  uint32_t upperTimestamp;
+  uint32_t sampleCount = 0;
+  EnergyTotals heating;
+  EnergyTotals dhw;
+  HistorySample previous = {};
+  bool previousValid = false;
+};
+
+static bool countStoredHistorySample(const HistorySample &sample, void *context) {
+  StoredHistoryStats &stats = *(StoredHistoryStats *)context;
+  if (stats.previousValid) {
+    addEnergyPair(stats.previous, sample, 1, stats.lowerTimestamp,
+      stats.upperTimestamp, stats.heating);
+    addEnergyPair(stats.previous, sample, 2, stats.lowerTimestamp,
+      stats.upperTimestamp, stats.dhw);
+  }
+  stats.previous = sample;
+  stats.previousValid = true;
+  stats.sampleCount++;
+  return true;
+}
+
+static void appendStoredSampleJson(struct webserver_t *client,
+    const HistorySample &sample, float aggregatedCop) {
+  char outside[12], inlet[12], outlet[12], target[12], dhw[12], dhwTarget[12];
+  char flow[12], hz[12], power[12], electrical[12], cop[12], request[12], shift[12];
+  const char *semantic = "unknown";
+#define FORMAT_FIELD(buffer, field, format, value) \
+  snprintf(buffer, sizeof(buffer), (sample.validFields & field) ? format : "null", value)
+  FORMAT_FIELD(outside, HISTORY_FIELD_OUTSIDE, "%.1f", sample.outsideTemp10 / 10.0f);
+  FORMAT_FIELD(inlet, HISTORY_FIELD_INLET, "%.1f", sample.inletTemp10 / 10.0f);
+  FORMAT_FIELD(outlet, HISTORY_FIELD_OUTLET, "%.1f", sample.outletTemp10 / 10.0f);
+  FORMAT_FIELD(target, HISTORY_FIELD_TARGET, "%.1f", sample.targetTemp10 / 10.0f);
+  FORMAT_FIELD(dhw, HISTORY_FIELD_DHW, "%.1f", sample.dhwTemp10 / 10.0f);
+  FORMAT_FIELD(dhwTarget, HISTORY_FIELD_DHW_TARGET, "%.1f", sample.dhwTargetTemp10 / 10.0f);
+  FORMAT_FIELD(flow, HISTORY_FIELD_FLOW, "%.2f", sample.flow100 / 100.0f);
+  FORMAT_FIELD(hz, HISTORY_FIELD_COMPRESSOR_HZ, "%.1f", sample.compressorHz10 / 10.0f);
+  FORMAT_FIELD(power, HISTORY_FIELD_THERMAL_POWER, "%.2f", sample.thermalPower100 / 100.0f);
+  FORMAT_FIELD(electrical, HISTORY_FIELD_ELECTRICAL_POWER, "%.3f", sample.electricalPowerW / 1000.0f);
+  FORMAT_FIELD(request, HISTORY_FIELD_ZONE1_REQUEST, "%.1f", sample.zone1RequestValue10 / 10.0f);
+  FORMAT_FIELD(shift, HISTORY_FIELD_HEATING_CURVE_SHIFT, "%d", sample.heatingCurveShift);
+#undef FORMAT_FIELD
+  if ((sample.validFields & HISTORY_FIELD_ZONE1_REQUEST) != 0) {
+    semantic = zone1HeatRequestSemanticName(
+      (Zone1HeatRequestSemanticType)sample.zone1RequestSemantic);
+  }
+  snprintf(cop, sizeof(cop), isfinite(aggregatedCop) ? "%.2f" : "null", aggregatedCop);
+  appendFmt(client,
+    "{\"t\":%lu,\"outside\":%s,\"inlet\":%s,\"outlet\":%s,\"target\":%s,\"dhw\":%s,\"dhwTarget\":%s,\"flow\":%s,\"hz\":%s,\"power\":%s,\"electrical\":%s,\"cop\":%s,\"zone1Request\":%s,\"zone1RequestSemantic\":\"%s\",\"heatingCurveShift\":%s,\"timeValid\":true}",
+    (unsigned long)sample.timestamp, outside, inlet, outlet, target, dhw,
+    dhwTarget, flow, hz, power, electrical, cop, request, semantic, shift);
+}
+
+struct StoredHistoryOutput {
+  struct webserver_t *client;
+  uint16_t step;
+  uint32_t matched = 0;
+  uint32_t emitted = 0;
+  bool first = true;
+  SampleAggregate aggregate = {};
+  HistorySample previous = {};
+  bool previousValid = false;
+};
+
+static bool appendStoredHistorySample(const HistorySample &sample, void *context) {
+  StoredHistoryOutput &output = *(StoredHistoryOutput *)context;
+  addAggregate(output.aggregate, sample);
+  if (output.previousValid) {
+    addEnergyPair(output.previous, sample, 0, 0, UINT32_MAX,
+      output.aggregate.energy);
+  }
+  output.previous = sample;
+  output.previousValid = true;
+  output.matched++;
+  if (output.aggregate.count < output.step) return true;
+  finishAggregate(output.aggregate);
+  float cop = NAN;
+  totalsCop(output.aggregate.energy, cop);
+  if (!output.first) appendText(output.client, ",");
+  output.first = false;
+  appendStoredSampleJson(output.client, output.aggregate.sample, cop);
+  resetAggregate(output.aggregate);
+  output.emitted++;
+  return true;
+}
+
+static void handleStoredHistoryApi(struct webserver_t *client, uint32_t lowerTimestamp,
+    uint32_t upperTimestamp, uint16_t maxPoints) {
+  constexpr uint32_t MAX_STORED_HISTORY_RANGE_SECONDS = 90UL * 86400UL;
+  if (!sdState.active || !validClock() || lowerTimestamp == 0 ||
+      upperTimestamp <= lowerTimestamp ||
+      upperTimestamp - lowerTimestamp > MAX_STORED_HISTORY_RANGE_SECONDS ||
+      sdFilesystemMutex == nullptr) {
+    webserver_send(client, 400, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"Select a valid SD period of up to 90 days\"}");
+    return;
+  }
+  if (xSemaphoreTake(sdFilesystemMutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+    webserver_send(client, 503, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"SD card is busy writing history\"}");
+    return;
+  }
+  sdHistoryReaderBusy = true;
+  uint32_t rangeSeconds = upperTimestamp - lowerTimestamp;
+  StoredHistoryStats stats;
+  stats.lowerTimestamp = lowerTimestamp;
+  stats.upperTimestamp = upperTimestamp;
+  bool counted = visitStoredHistory(lowerTimestamp, upperTimestamp,
+    countStoredHistorySample, &stats);
+  if (!counted) {
+    sdHistoryReaderBusy = false;
+    xSemaphoreGive(sdFilesystemMutex);
+    webserver_send(client, 500, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"Could not read persistent history\"}");
+    return;
+  }
+  uint16_t effectiveMaxPoints = min<uint16_t>(maxPoints, 72);
+  uint16_t step = stats.sampleCount > effectiveMaxPoints ?
+    (uint16_t)((stats.sampleCount + effectiveMaxPoints - 1) / effectiveMaxPoints) : 1;
+  float heatingCop = NAN, dhwCop = NAN;
+  totalsCop(stats.heating, heatingCop);
+  totalsCop(stats.dhw, dhwCop);
+  webserver_send(client, 200, (char *)"application/json", 0);
+  appendFmt(client,
+    "{\"source\":\"sd\",\"intervalSeconds\":%u,\"storedSampleCount\":%lu,\"rangeSeconds\":%lu,\"efficiency\":{\"heatingThermalKWh\":%.4f,\"heatingElectricalKWh\":%.4f,\"heatingCop\":",
+    sampleIntervalSeconds, (unsigned long)stats.sampleCount, (unsigned long)rangeSeconds,
+    stats.heating.thermalKWh, stats.heating.electricalKWh);
+  appendJsonFloat(client, isfinite(heatingCop), heatingCop);
+  appendFmt(client, ",\"dhwThermalKWh\":%.4f,\"dhwElectricalKWh\":%.4f,\"dhwCop\":",
+    stats.dhw.thermalKWh, stats.dhw.electricalKWh);
+  appendJsonFloat(client, isfinite(dhwCop), dhwCop);
+  appendText(client, "},\"samples\":[");
+  StoredHistoryOutput output = {};
+  output.client = client;
+  output.step = step;
+  bool written = visitStoredHistory(lowerTimestamp, upperTimestamp,
+    appendStoredHistorySample, &output);
+  if (output.aggregate.count > 0) {
+    finishAggregate(output.aggregate);
+    float cop = NAN;
+    totalsCop(output.aggregate.energy, cop);
+    if (!output.first) appendText(client, ",");
+    appendStoredSampleJson(client, output.aggregate.sample, cop);
+  }
+  appendText(client, "]}");
+  sdHistoryReaderBusy = false;
+  xSemaphoreGive(sdFilesystemMutex);
+  if (!written) log_message((char *)"[SD] Persistent history read stopped early");
+}
+
+struct PersistentEventLine {
+  uint32_t timestamp;
+  int32_t value;
+  char type[32];
+  char message[96];
+};
+
+typedef bool (*PersistentEventVisitor)(const PersistentEventLine &event, void *context);
+
+static void sanitizePersistentEventText(char *text) {
+  if (text == nullptr) return;
+  for (; *text; text++) {
+    unsigned char value = (unsigned char)*text;
+    if (value < 0x20 || *text == '"' || *text == '\\') *text = ' ';
+  }
+}
+
+static bool parsePersistentEventLine(char *line, PersistentEventLine &event) {
+  if (line == nullptr || strncmp(line, "timestamp,", 10) == 0) return false;
+  char *first = strchr(line, ',');
+  if (first == nullptr) return false;
+  *first = '\0';
+  uint32_t timestamp = 0;
+  if (!parseCsvUnsigned(line, UINT32_MAX, timestamp) || timestamp < 1704067200UL) return false;
+  char *second = strchr(first + 1, ',');
+  if (second == nullptr) return false;
+  *second = '\0';
+  char *message = second + 1;
+  char *valueText = nullptr;
+  if (*message == '"') {
+    message++;
+    char *closingQuote = strrchr(message, '"');
+    if (closingQuote == nullptr || closingQuote[1] != ',') return false;
+    *closingQuote = '\0';
+    valueText = closingQuote + 2;
+  } else {
+    valueText = strrchr(message, ',');
+    if (valueText == nullptr) return false;
+    *valueText++ = '\0';
+  }
+  char *end = nullptr;
+  long value = strtol(valueText, &end, 10);
+  if (end == valueText || *end != '\0' || value < INT32_MIN || value > INT32_MAX) return false;
+  memset(&event, 0, sizeof(event));
+  event.timestamp = timestamp;
+  event.value = (int32_t)value;
+  strlcpy(event.type, first + 1, sizeof(event.type));
+  strlcpy(event.message, message, sizeof(event.message));
+  sanitizePersistentEventText(event.type);
+  sanitizePersistentEventText(event.message);
+  return true;
+}
+
+static bool visitPersistentEventLog(uint32_t lowerTimestamp, uint32_t upperTimestamp,
+    PersistentEventVisitor visitor, void *context) {
+  uint8_t fileCount = collectStoredArchiveFiles("/events", "/sd/events", lowerTimestamp);
+  uint32_t processed = 0;
+  for (uint8_t fileIndex = 0; fileIndex < fileCount; fileIndex++) {
+    FILE *file = fopen(storedArchivePaths[fileIndex], "r");
+    if (file == nullptr) continue;
+    while (fgets(storedArchiveCsvLine, sizeof(storedArchiveCsvLine), file) != nullptr) {
+      size_t length = strlen(storedArchiveCsvLine);
+      while (length > 0 && (storedArchiveCsvLine[length - 1] == '\n' ||
+          storedArchiveCsvLine[length - 1] == '\r')) storedArchiveCsvLine[--length] = '\0';
+      PersistentEventLine event;
+      if (!parsePersistentEventLine(storedArchiveCsvLine, event) ||
+          event.timestamp < lowerTimestamp || event.timestamp > upperTimestamp) continue;
+      if (!visitor(event, context)) {
+        fclose(file);
+        return false;
+      }
+      if ((++processed & 0x1fU) == 0) delay(0);
+    }
+    fclose(file);
+  }
+  return true;
+}
+
+struct PersistentEventCount {
+  uint32_t count = 0;
+};
+
+static bool countPersistentEvent(const PersistentEventLine &, void *context) {
+  ((PersistentEventCount *)context)->count++;
+  return true;
+}
+
+struct PersistentEventOutput {
+  struct webserver_t *client;
+  uint32_t skip;
+  uint32_t index = 0;
+  bool csv;
+  bool first = true;
+};
+
+static bool appendPersistentEvent(const PersistentEventLine &event, void *context) {
+  PersistentEventOutput &output = *(PersistentEventOutput *)context;
+  if (output.index++ < output.skip) return true;
+  if (output.csv) {
+    appendFmt(output.client, "%lu,%s,\"%s\",%ld\n", (unsigned long)event.timestamp,
+      event.type, event.message, (long)event.value);
+    return true;
+  }
+  if (!output.first) appendText(output.client, ",");
+  output.first = false;
+  appendFmt(output.client, "{\"t\":%lu,\"type\":\"%s\",\"message\":\"%s\",\"value\":%ld}",
+    (unsigned long)event.timestamp, event.type, event.message, (long)event.value);
+  return true;
+}
+
+static void handlePersistentEventLog(struct webserver_t *client, uint32_t lowerTimestamp,
+    uint32_t upperTimestamp, bool csv) {
+  constexpr uint32_t MAX_EVENT_LOG_RANGE_SECONDS = 90UL * 86400UL;
+  constexpr uint32_t MAX_RETURNED_EVENTS = 100;
+  if (!sdState.active || !validClock() || lowerTimestamp == 0 ||
+      upperTimestamp <= lowerTimestamp ||
+      upperTimestamp - lowerTimestamp > MAX_EVENT_LOG_RANGE_SECONDS ||
+      sdFilesystemMutex == nullptr) {
+    webserver_send(client, 400, (char *)(csv ? "text/csv" : "application/json"), 0);
+    appendText(client, csv ? "timestamp,type,message,value\n" :
+      "{\"error\":\"Select a valid event-log period of up to 90 days\"}");
+    return;
+  }
+  if (xSemaphoreTake(sdFilesystemMutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+    webserver_send(client, 503, (char *)(csv ? "text/csv" : "application/json"), 0);
+    appendText(client, csv ? "timestamp,type,message,value\n" :
+      "{\"error\":\"SD card is busy writing history\"}");
+    return;
+  }
+  sdHistoryReaderBusy = true;
+  PersistentEventCount count;
+  bool counted = visitPersistentEventLog(lowerTimestamp, upperTimestamp,
+    countPersistentEvent, &count);
+  if (!counted) {
+    sdHistoryReaderBusy = false;
+    xSemaphoreGive(sdFilesystemMutex);
+    webserver_send(client, 500, (char *)(csv ? "text/csv" : "application/json"), 0);
+    appendText(client, csv ? "timestamp,type,message,value\n" :
+      "{\"error\":\"Could not read persistent event log\"}");
+    return;
+  }
+  PersistentEventOutput output = {};
+  output.client = client;
+  output.skip = count.count > MAX_RETURNED_EVENTS ? count.count - MAX_RETURNED_EVENTS : 0;
+  output.csv = csv;
+  webserver_send(client, 200, (char *)(csv ? "text/csv" : "application/json"), 0);
+  if (csv) appendText(client, "timestamp,type,message,value\n");
+  else appendFmt(client, "{\"source\":\"sd\",\"eventCount\":%lu,\"events\":[",
+    (unsigned long)count.count);
+  bool written = visitPersistentEventLog(lowerTimestamp, upperTimestamp,
+    appendPersistentEvent, &output);
+  if (!csv) appendText(client, "]}");
+  sdHistoryReaderBusy = false;
+  xSemaphoreGive(sdFilesystemMutex);
+  if (!written) log_message((char *)"[SD] Persistent event-log read stopped early");
+}
+#endif
+
 static void pruneSdDirectory(const char *directory, time_t cutoff) {
   if (sdRetentionDays == 0) return;
   File root = SD_MMC.open(directory);
@@ -1690,6 +2208,7 @@ static void sdWriterTask(void *) {
     sdWriterBusy = true;
     sdWriterStartedAt = millis();
     sdWriterPhase = SD_PHASE_IDLE;
+    if (sdFilesystemMutex != nullptr) xSemaphoreTake(sdFilesystemMutex, portMAX_DELAY);
     switch (item.type) {
       case SD_WORK_FLUSH:
         flushSd();
@@ -1703,6 +2222,7 @@ static void sdWriterTask(void *) {
         writeCycleRecordToSd(item.cycle);
         break;
     }
+    if (sdFilesystemMutex != nullptr) xSemaphoreGive(sdFilesystemMutex);
     sdWriterPhase = SD_PHASE_IDLE;
     sdWriterStartedAt = 0;
     sdWriterBusy = false;
@@ -1711,8 +2231,15 @@ static void sdWriterTask(void *) {
 
 static void startSdWriter() {
   if (!sdState.active || sdWorkQueue != nullptr) return;
+  sdFilesystemMutex = xSemaphoreCreateMutex();
+  if (sdFilesystemMutex == nullptr) {
+    setSdError("Could not create SD filesystem lock");
+    return;
+  }
   sdWorkQueue = xQueueCreate(6, sizeof(SdWorkItem));
   if (sdWorkQueue == nullptr) {
+    vSemaphoreDelete(sdFilesystemMutex);
+    sdFilesystemMutex = nullptr;
     setSdError("Could not create SD writer queue");
     return;
   }
@@ -1720,6 +2247,8 @@ static void startSdWriter() {
       &sdWriterTaskHandle) != pdPASS) {
     vQueueDelete(sdWorkQueue);
     sdWorkQueue = nullptr;
+    vSemaphoreDelete(sdFilesystemMutex);
+    sdFilesystemMutex = nullptr;
     setSdError("Could not start SD writer task");
     return;
   }
@@ -1737,7 +2266,7 @@ static void checkSdWriterHealth() {
     snprintf(logLine, sizeof(logLine), "[SD] %s", error);
     log_message(logLine);
   }
-  if (!sdWriterBusy) {
+  if (!sdWriterBusy || sdHistoryReaderBusy) {
     sdWriterStallReported = false;
     return;
   }
@@ -1993,6 +2522,10 @@ static void handleHistoryStatus(struct webserver_t *client) {
   document["sdRetentionDays"] = sdRetentionDays;
   document["sdInterface"] = "sdmmc-1bit";
   document["sdBusFrequencyKHz"] = HEISHAMON_SDMMC_FREQUENCY_KHZ;
+  if (sdState.lastWriteAt == 0) document["sdLastWriteSecondsAgo"] = nullptr;
+  else document["sdLastWriteSecondsAgo"] =
+    (uint32_t)((millis() - sdState.lastWriteAt) / 1000UL);
+  document["sdLastError"] = sdState.lastError;
 #if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
   document["sdWriterBusy"] = sdWriterBusy;
   document["sdWriterPhase"] = sdWriterPhaseName(sdWriterPhase);
@@ -2167,11 +2700,16 @@ bool diagnosticsHistoryHandleUri(struct webserver_t *client, const char *uri) {
       strcmp(uri, "/api/history") == 0) client->route = ROUTE_HISTORY_API;
   else if (strcmp(uri, "/events") == 0 ||
       strcmp(uri, "/api/events") == 0) client->route = ROUTE_EVENTS_API;
+  else if (strcmp(uri, "/eventlogapi") == 0 ||
+      strcmp(uri, "/api/eventlog") == 0) client->route = ROUTE_PERSISTENT_EVENTS_API;
+  else if (strcmp(uri, "/eventlogcsv") == 0) client->route = ROUTE_PERSISTENT_EVENTS_CSV;
   else if (strcmp(uri, "/historycommand") == 0) client->route = ROUTE_HISTORY_COMMAND;
   else if (strcmp(uri, "/cycles") == 0 || strcmp(uri, "/api/cycles") == 0) client->route = ROUTE_CYCLES_API;
   else return false;
 
-  if (client->route == ROUTE_HISTORY_API || client->route == ROUTE_HISTORY_COMMAND) {
+  if (client->route == ROUTE_HISTORY_API || client->route == ROUTE_HISTORY_COMMAND ||
+      client->route == ROUTE_PERSISTENT_EVENTS_API ||
+      client->route == ROUTE_PERSISTENT_EVENTS_CSV) {
     HistoryRequest *request = new HistoryRequest();
     if (request == nullptr) {
       log_message((char *)"[HISTORY] Out of memory while creating request");
@@ -2179,7 +2717,10 @@ bool diagnosticsHistoryHandleUri(struct webserver_t *client, const char *uri) {
       return true;
     }
     request->rangeSeconds = 0;
+    request->startTimestamp = 0;
+    request->endTimestamp = 0;
     request->maxPoints = 600;
+    request->persistentStorage = false;
     request->response[0] = '\0';
     client->userdata = request;
   }
@@ -2188,7 +2729,9 @@ bool diagnosticsHistoryHandleUri(struct webserver_t *client, const char *uri) {
 
 bool diagnosticsHistoryHandleArgs(struct webserver_t *client,
     struct arguments_t *args) {
-  if (client->route == ROUTE_HISTORY_API) {
+  if (client->route == ROUTE_HISTORY_API ||
+      client->route == ROUTE_PERSISTENT_EVENTS_API ||
+      client->route == ROUTE_PERSISTENT_EVENTS_CSV) {
     HistoryRequest *request = requestContext(client);
     if (request == nullptr) return true;
     if (strcmp((char *)args->name, "range") == 0) {
@@ -2204,6 +2747,19 @@ bool diagnosticsHistoryHandleArgs(struct webserver_t *client,
       if (end != value && *end == '\0' && parsed >= 10 && parsed <= 1000) {
         request->maxPoints = (uint16_t)parsed;
       }
+    } else if (strcmp((char *)args->name, "start") == 0 ||
+        strcmp((char *)args->name, "end") == 0) {
+      if (args->len != 10) return true;
+      char value[11];
+      snprintf(value, sizeof(value), "%.*s", args->len, args->value);
+      uint32_t timestamp = 0;
+      if (parseHistoryTimestamp(value, timestamp)) {
+        if (strcmp((char *)args->name, "start") == 0) request->startTimestamp = timestamp;
+        else request->endTimestamp = timestamp;
+      }
+    } else if (strcmp((char *)args->name, "storage") == 0) {
+      request->persistentStorage = args->len == 2 &&
+        strncmp((char *)args->value, "sd", 2) == 0;
     }
     return true;
   }
@@ -2276,8 +2832,25 @@ bool diagnosticsHistoryHandleWrite(struct webserver_t *client) {
     case ROUTE_HISTORY_API: {
       if (client->content == 0) {
         HistoryRequest *request = requestContext(client);
-        handleHistoryApi(client, request == nullptr ? 0 : request->rangeSeconds,
-          request == nullptr ? 600 : request->maxPoints);
+        if (request != nullptr && request->persistentStorage) {
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+          uint32_t endTimestamp = request->endTimestamp == 0 ? currentTimestamp() :
+            request->endTimestamp;
+          uint32_t startTimestamp = request->startTimestamp;
+          if (startTimestamp == 0 && request->rangeSeconds != 0 &&
+              endTimestamp > request->rangeSeconds) {
+            startTimestamp = endTimestamp - request->rangeSeconds;
+          }
+          handleStoredHistoryApi(client, startTimestamp, endTimestamp,
+            request->maxPoints);
+#else
+          webserver_send(client, 503, (char *)"application/json", 0);
+          appendText(client, "{\"error\":\"Persistent SD history is disabled\"}");
+#endif
+        } else {
+          handleHistoryApi(client, request == nullptr ? 0 : request->rangeSeconds,
+            request == nullptr ? 600 : request->maxPoints);
+        }
         delete request;
         client->userdata = nullptr;
       }
@@ -2285,6 +2858,31 @@ bool diagnosticsHistoryHandleWrite(struct webserver_t *client) {
     }
     case ROUTE_EVENTS_API:
       if (client->content == 0) handleEventsApi(client);
+      return true;
+    case ROUTE_PERSISTENT_EVENTS_API:
+    case ROUTE_PERSISTENT_EVENTS_CSV:
+      if (client->content == 0) {
+        HistoryRequest *request = requestContext(client);
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+        uint32_t endTimestamp = request == nullptr || request->endTimestamp == 0 ?
+          currentTimestamp() : request->endTimestamp;
+        uint32_t startTimestamp = request == nullptr ? 0 : request->startTimestamp;
+        if (startTimestamp == 0 && request != nullptr && request->rangeSeconds != 0 &&
+            endTimestamp > request->rangeSeconds) {
+          startTimestamp = endTimestamp - request->rangeSeconds;
+        }
+        handlePersistentEventLog(client, startTimestamp, endTimestamp,
+          client->route == ROUTE_PERSISTENT_EVENTS_CSV);
+#else
+        webserver_send(client, 503, (char *)(client->route == ROUTE_PERSISTENT_EVENTS_CSV ?
+          "text/csv" : "application/json"), 0);
+        appendText(client, client->route == ROUTE_PERSISTENT_EVENTS_CSV ?
+          "timestamp,type,message,value\n" :
+          "{\"error\":\"Persistent SD events are disabled\"}");
+#endif
+        delete request;
+        client->userdata = nullptr;
+      }
       return true;
     case ROUTE_CYCLES_API:
       if (client->content == 0) {
@@ -2309,7 +2907,9 @@ bool diagnosticsHistoryHandleWrite(struct webserver_t *client) {
 }
 
 bool diagnosticsHistoryHandleClose(struct webserver_t *client) {
-  if (client->route == ROUTE_HISTORY_API || client->route == ROUTE_HISTORY_COMMAND) {
+  if (client->route == ROUTE_HISTORY_API || client->route == ROUTE_HISTORY_COMMAND ||
+      client->route == ROUTE_PERSISTENT_EVENTS_API ||
+      client->route == ROUTE_PERSISTENT_EVENTS_CSV) {
     if (client->userdata != nullptr) {
       delete requestContext(client);
       client->userdata = nullptr;

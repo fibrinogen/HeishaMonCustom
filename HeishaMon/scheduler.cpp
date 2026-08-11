@@ -9,7 +9,8 @@ static const unsigned long SCHEDULER_DISPATCH_INTERVAL_MS = 2000UL;
 SchedulerManager::SchedulerManager()
   : count_(0), eventStart_(0), eventCount_(0), pendingStart_(0), pendingCount_(0),
     enabled_(true), clockWasValid_(false), lastCheckedMinuteKey_(UINT32_MAX),
-    lastDispatchAt_(0), valueReader_(nullptr), dispatcher_(nullptr), logger_(nullptr) {
+    lastDispatchAt_(0), valueReader_(nullptr), dispatcher_(nullptr), logger_(nullptr),
+    persistentEventLogger_(nullptr) {
   memset(entries_, 0, sizeof(entries_));
   memset(events_, 0, sizeof(events_));
   memset(pending_, 0, sizeof(pending_));
@@ -251,6 +252,7 @@ void SchedulerManager::addEvent(const SchedulerEntry &entry, const char *result,
   snprintf(message, sizeof(message), "[SCHED] #%u %s -> %s: %s",
     entry.id, entry.name, result, detail);
   log(message);
+  if (persistentEventLogger_ != nullptr) persistentEventLogger_(&event);
 }
 
 void SchedulerManager::log(const char *message) const {

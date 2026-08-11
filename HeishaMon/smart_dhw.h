@@ -40,11 +40,16 @@ struct SmartDhwEvent {
   char detail[128];
 };
 
+typedef void (*SmartDhwPersistentEventLogger)(const SmartDhwEvent *event);
+
 class SmartDhwController {
  public:
   SmartDhwController();
   void begin(SchedulerManager *scheduler, SchedulerStateReader stateReader,
     SchedulerLogger logger);
+  void setPersistentEventLogger(SmartDhwPersistentEventLogger logger) {
+    persistentEventLogger_ = logger;
+  }
   void loop();
 
   bool load();
@@ -61,6 +66,7 @@ class SmartDhwController {
   SchedulerManager *scheduler_;
   SchedulerStateReader stateReader_;
   SchedulerLogger logger_;
+  SmartDhwPersistentEventLogger persistentEventLogger_;
   SmartDhwState state_;
   uint32_t lastEveningKey_;
   uint32_t lastMorningKey_;

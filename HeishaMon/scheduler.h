@@ -85,6 +85,7 @@ typedef bool (*SchedulerValueReader)(SchedulerConditionSource source, uint8_t so
 typedef SchedulerDispatchResult (*SchedulerActionDispatcher)(SchedulerActionType action,
   int16_t value, char *detail, size_t detailSize);
 typedef void (*SchedulerLogger)(char *message);
+typedef void (*SchedulerPersistentEventLogger)(const SchedulerEvent *event);
 typedef void (*SchedulerDispatchObserver)(SchedulerDispatchResult result,
   const char *detail, void *context);
 typedef bool (*SchedulerDispatchGuard)(void *context);
@@ -94,6 +95,9 @@ class SchedulerManager {
   SchedulerManager();
   void begin(SchedulerValueReader valueReader, SchedulerActionDispatcher dispatcher,
     SchedulerLogger logger);
+  void setPersistentEventLogger(SchedulerPersistentEventLogger logger) {
+    persistentEventLogger_ = logger;
+  }
   void loop();
 
   bool load();
@@ -147,6 +151,7 @@ class SchedulerManager {
   SchedulerValueReader valueReader_;
   SchedulerActionDispatcher dispatcher_;
   SchedulerLogger logger_;
+  SchedulerPersistentEventLogger persistentEventLogger_;
 
   bool readClock(SchedulerClock &clock) const;
   void checkSchedules(const SchedulerClock &clock);

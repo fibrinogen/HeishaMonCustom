@@ -8,6 +8,7 @@ static const unsigned long SMART_DHW_REQUEST_TIMEOUT_MS = 120000UL;
 
 SmartDhwController::SmartDhwController()
   : scheduler_(nullptr), stateReader_(nullptr), logger_(nullptr),
+    persistentEventLogger_(nullptr),
     state_(SMART_DHW_STATE_IDLE), lastEveningKey_(UINT32_MAX),
     lastMorningKey_(UINT32_MAX), lastSuccessfulStart_(0), requestStartedAt_(0),
     requestedSlot_(SMART_DHW_SLOT_EVENING), eventStart_(0), eventCount_(0) {
@@ -228,6 +229,7 @@ void SmartDhwController::addEvent(SmartDhwSlot slot, const char *result,
   snprintf(logMessage, sizeof(logMessage), "[SMART_DHW] %s -> %s: %s",
     event.reserve, event.result, event.detail);
   log(logMessage);
+  if (persistentEventLogger_ != nullptr) persistentEventLogger_(&event);
 }
 
 void SmartDhwController::log(const char *message) const {

@@ -97,6 +97,22 @@ static bool dispatchZone1HeatSemanticCommand(const char *commandName,
   const char *valueText, Zone1HeatRequestSemanticType expectedType,
   char *response, size_t responseSize);
 
+static void persistSchedulerEvent(const SchedulerEvent *event) {
+  if (event == nullptr) return;
+  char message[96];
+  snprintf(message, sizeof(message), "#%u %s -> %s: %s", event->entryId,
+    event->name, event->result, event->detail);
+  diagnosticsHistoryRecordEvent(HISTORY_EVENT_SCHEDULER, message, event->entryId);
+}
+
+static void persistSmartDhwEvent(const SmartDhwEvent *event) {
+  if (event == nullptr) return;
+  char message[96];
+  snprintf(message, sizeof(message), "%s -> %s: %s", event->reserve,
+    event->result, event->detail);
+  diagnosticsHistoryRecordEvent(HISTORY_EVENT_SMART_DHW, message);
+}
+
 static bool dashboardWorkflowTimeReached(unsigned long target) {
   return (long)(millis() - target) >= 0;
 }
@@ -948,10 +964,13 @@ void customFeaturesBegin() {
   sdWebUiBegin();
   externalSensors.begin(log_message);
   diagnosticsHistoryBegin();
+  diagnosticsHistoryRecordEvent(HISTORY_EVENT_SYSTEM, "Custom features started");
   log_message((char *)"Loading local scheduler...");
   schedulerManager.begin(schedulerReadValue, schedulerDispatchAction, log_message);
+  schedulerManager.setPersistentEventLogger(persistSchedulerEvent);
   log_message((char *)"Loading Smart DHW...");
   smartDhwController.begin(&schedulerManager, smartDhwReadTopic, log_message);
+  smartDhwController.setPersistentEventLogger(persistSmartDhwEvent);
 }
 
 bool customFeaturesHandleMqttMessage(const char *topic, const char *mqttBase,
