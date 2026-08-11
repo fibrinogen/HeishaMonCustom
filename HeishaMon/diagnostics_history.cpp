@@ -5,21 +5,22 @@
 #include "history_config.h"
 #include "version.h"
 #include "webfunctions.h"
-#include "htmlcode.h"
 #include "zone1_heat_semantics.h"
 #include "heating_curve_shift.h"
 
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <cstdarg>
+#include <cerrno>
+#include <cstdio>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <sys/stat.h>
 
 #if HEISHAMON_SD_HISTORY_ENABLED
-#include <SD.h>
-#include <SPI.h>
+#include <SD_MMC.h>
 #endif
 
 #if defined(ESP32)
@@ -138,6 +139,9 @@ struct SdState {
 
 static HistorySample samples[HEISHAMON_HISTORY_MAX_SAMPLES];
 static HistoryEvent events[HEISHAMON_HISTORY_MAX_EVENTS];
+#if defined(ESP32)
+static portMUX_TYPE historyDataMux = portMUX_INITIALIZER_UNLOCKED;
+#endif
 static uint16_t sampleStart = 0;
 static uint16_t sampleCount = 0;
 static uint16_t eventStart = 0;
@@ -161,6 +165,7 @@ static bool communicationStateKnown = false;
 static bool previousCommunicationState = false;
 static bool mqttStateKnown = false;
 static bool previousMqttState = false;
+static bool sdInitializationPending = false;
 static void finalizeCycle(uint32_t stopTimestamp);
 
 static bool frameHeaderValid() {
@@ -289,6 +294,14 @@ static void logHistoryEvent(HistoryEventType type, const char *message) {
 }
 
 static void addEvent(HistoryEventType type, const char *message, int32_t value = 0) {
+  bool timestampValid = false;
+  uint32_t timestamp = currentTimestamp(&timestampValid);
+  uint32_t uptimeSeconds = (uint32_t)(millis() / 1000UL);
+  char loggedMessage[48];
+  snprintf(loggedMessage, sizeof(loggedMessage), "%s", message == nullptr ? "" : message);
+#if defined(ESP32)
+  portENTER_CRITICAL(&historyDataMux);
+#endif
   uint16_t index;
   if (eventCount < HEISHAMON_HISTORY_MAX_EVENTS) {
     index = (uint16_t)((eventStart + eventCount) % HEISHAMON_HISTORY_MAX_EVENTS);
@@ -298,15 +311,17 @@ static void addEvent(HistoryEventType type, const char *message, int32_t value =
     eventStart = (uint16_t)((eventStart + 1) % HEISHAMON_HISTORY_MAX_EVENTS);
   }
   HistoryEvent &event = events[index];
-  bool timestampValid = false;
-  event.timestamp = currentTimestamp(&timestampValid);
-  event.uptimeSeconds = (uint32_t)(millis() / 1000UL);
+  event.timestamp = timestamp;
+  event.uptimeSeconds = uptimeSeconds;
   event.sequence = ++eventSequence;
   event.value = value;
   event.type = type;
   event.timeValid = timestampValid ? 1 : 0;
-  snprintf(event.message, sizeof(event.message), "%s", message == nullptr ? "" : message);
-  logHistoryEvent(type, event.message);
+  snprintf(event.message, sizeof(event.message), "%s", loggedMessage);
+#if defined(ESP32)
+  portEXIT_CRITICAL(&historyDataMux);
+#endif
+  logHistoryEvent(type, loggedMessage);
 }
 
 static bool currentErrorActive() {
@@ -554,10 +569,16 @@ static bool makeSample(HistorySample &sample) {
 }
 
 static void storeSample(const HistorySample &sample) {
+#if defined(ESP32)
+  portENTER_CRITICAL(&historyDataMux);
+#endif
   uint16_t index = (uint16_t)((sampleStart + sampleCount) % HEISHAMON_HISTORY_MAX_SAMPLES);
   if (sampleCount < HEISHAMON_HISTORY_MAX_SAMPLES) sampleCount++;
   else sampleStart = (uint16_t)((sampleStart + 1) % HEISHAMON_HISTORY_MAX_SAMPLES);
   samples[index] = sample;
+#if defined(ESP32)
+  portEXIT_CRITICAL(&historyDataMux);
+#endif
 }
 
 static uint16_t parseInterval(const char *value) {
@@ -674,6 +695,42 @@ struct DailySummary {
   uint32_t outsideSamples = 0;
 };
 
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+enum SdWorkType : uint8_t {
+  SD_WORK_FLUSH = 0,
+  SD_WORK_DAILY,
+  SD_WORK_CYCLE
+};
+
+enum SdWriterPhase : uint8_t {
+  SD_PHASE_IDLE = 0,
+  SD_PHASE_OPEN_SAMPLES,
+  SD_PHASE_WRITE_SAMPLES,
+  SD_PHASE_CLOSE_SAMPLES,
+  SD_PHASE_OPEN_EVENTS,
+  SD_PHASE_WRITE_EVENTS,
+  SD_PHASE_CLOSE_EVENTS,
+  SD_PHASE_RETENTION,
+  SD_PHASE_DAILY,
+  SD_PHASE_CYCLE
+};
+
+struct SdWorkItem {
+  SdWorkType type;
+  DailySummary daily;
+  CycleRecord cycle;
+};
+
+static QueueHandle_t sdWorkQueue = nullptr;
+static TaskHandle_t sdWriterTaskHandle = nullptr;
+static volatile bool sdWriterBusy = false;
+static volatile unsigned long sdWriterStartedAt = 0;
+static volatile bool sdFlushQueued = false;
+static volatile SdWriterPhase sdWriterPhase = SD_PHASE_IDLE;
+static bool sdWriterStallReported = false;
+static volatile bool sdWriterErrorPending = false;
+#endif
+
 static CycleRecord cycleRecords[32];
 static uint8_t cycleRecordStart = 0;
 static uint8_t cycleRecordCount = 0;
@@ -720,6 +777,10 @@ static bool totalsCop(const EnergyTotals &totals, float &cop) {
 
 static void persistDailySummary(const DailySummary &summary);
 static void persistCycleRecord(const CycleRecord &record);
+#if HEISHAMON_SD_HISTORY_ENABLED
+static void writeDailySummaryToSd(const DailySummary &summary);
+static void writeCycleRecordToSd(const CycleRecord &record);
+#endif
 
 static void addCycleRecord(const CycleRecord &record) {
   uint8_t index;
@@ -1182,13 +1243,6 @@ static bool saveHistoryConfig() {
 }
 
 #if HEISHAMON_SD_HISTORY_ENABLED
-#if defined(ESP32)
-// Keep the SD card on the second ESP32-S3 SPI controller.  The global SPI
-// instance is FSPI and is used by the W5500 Ethernet driver.
-static SPIClass sdSpi(HSPI);
-#else
-static SPIClass sdSpi(FSPI);
-#endif
 
 static void setSdError(const char *message) {
   sdState.active = false;
@@ -1204,16 +1258,25 @@ static bool sdDatePath(char *path, size_t pathSize, const char *directory,
   if (!validClock(&now)) return false;
   struct tm local = {};
   if (localtime_r(&now, &local) == nullptr) return false;
-  snprintf(path, pathSize, "%s/%04d-%02d-%02d.%s", directory,
+  snprintf(path, pathSize, "/sd%s/%04d-%02d-%02d.%s", directory,
     local.tm_year + 1900, local.tm_mon + 1, local.tm_mday, suffix);
   return true;
 }
 
-static void ensureSdDirectories() {
-  if (!SD.exists("/history")) SD.mkdir("/history");
-  if (!SD.exists("/events")) SD.mkdir("/events");
-  if (!SD.exists("/daily")) SD.mkdir("/daily");
-  if (!SD.exists("/cycles")) SD.mkdir("/cycles");
+static bool ensureSdDirectory(const char *path) {
+  struct stat info = {};
+  if (stat(path, &info) == 0) return S_ISDIR(info.st_mode);
+  if (mkdir(path, 0775) == 0) return true;
+  char message[80];
+  snprintf(message, sizeof(message), "mkdir %s failed: %d (%s)", path, errno,
+    strerror(errno));
+  setSdError(message);
+  return false;
+}
+
+static bool ensureSdDirectories() {
+  return ensureSdDirectory("/sd/history") && ensureSdDirectory("/sd/events") &&
+    ensureSdDirectory("/sd/daily") && ensureSdDirectory("/sd/cycles");
 }
 
 static bool parseSdDate(const char *name, int &year, int &month, int &day) {
@@ -1234,7 +1297,7 @@ static bool parseSdDate(const char *name, int &year, int &month, int &day) {
 
 static void pruneSdDirectory(const char *directory, time_t cutoff) {
   if (sdRetentionDays == 0) return;
-  File root = SD.open(directory);
+  File root = SD_MMC.open(directory);
   if (!root) return;
   while (true) {
     File entry = root.openNextFile();
@@ -1252,11 +1315,7 @@ static void pruneSdDirectory(const char *directory, time_t cutoff) {
     fileDate.tm_mday = day;
     fileDate.tm_hour = 12;
     time_t fileTime = mktime(&fileDate);
-    if (fileTime != (time_t)-1 && fileTime < cutoff && SD.remove(name)) {
-      char line[100];
-      snprintf(line, sizeof(line), "[SD] Removed expired history file %s", name);
-      log_message(line);
-    }
+    if (fileTime != (time_t)-1 && fileTime < cutoff) SD_MMC.remove(name);
   }
   root.close();
 }
@@ -1277,13 +1336,12 @@ static void initializeSd() {
     setSdError("SD enabled but no CS pin configured");
     return;
   }
-#if HEISHAMON_SD_SCK_PIN >= 0 && HEISHAMON_SD_MISO_PIN >= 0 && HEISHAMON_SD_MOSI_PIN >= 0
-  sdSpi.begin(HEISHAMON_SD_SCK_PIN, HEISHAMON_SD_MISO_PIN,
-    HEISHAMON_SD_MOSI_PIN, HEISHAMON_SD_CS_PIN);
-#else
-  sdSpi.begin();
-#endif
-  if (!SD.begin(HEISHAMON_SD_CS_PIN, sdSpi, HEISHAMON_SD_FREQUENCY)) {
+  // In 1-bit SDMMC mode the module's SPI labels map as follows:
+  // CLK -> CLK, MOSI -> CMD, MISO -> D0. CS/D3 must remain pulled high.
+  pinMode(HEISHAMON_SD_CS_PIN, INPUT_PULLUP);
+  if (!SD_MMC.setPins(HEISHAMON_SD_SCK_PIN, HEISHAMON_SD_MOSI_PIN,
+      HEISHAMON_SD_MISO_PIN) ||
+      !SD_MMC.begin("/sd", true, false, HEISHAMON_SDMMC_FREQUENCY_KHZ, 5)) {
     sdState.present = false;
     sdState.filesystemOk = false;
     setSdError("No card detected or filesystem unavailable");
@@ -1292,50 +1350,138 @@ static void initializeSd() {
   sdState.present = true;
   sdState.filesystemOk = true;
   sdState.active = true;
-  sdState.capacity = SD.cardSize();
-  sdState.freeBytes = SD.totalBytes() > SD.usedBytes() ? SD.totalBytes() - SD.usedBytes() : 0;
-  ensureSdDirectories();
+  sdState.capacity = SD_MMC.cardSize();
+  sdState.freeBytes = SD_MMC.totalBytes() > SD_MMC.usedBytes() ?
+    SD_MMC.totalBytes() - SD_MMC.usedBytes() : 0;
+  if (!ensureSdDirectories()) return;
   cleanupSdRetention();
-  log_message((char *)"[SD] Persistent history enabled");
+  char message[80];
+  snprintf(message, sizeof(message), "[SD] Persistent history enabled via 1-bit SDMMC at %d kHz",
+    HEISHAMON_SDMMC_FREQUENCY_KHZ);
+  log_message(message);
+}
+
+static void setSdWriterError(const char *message) {
+#if defined(ESP32)
+  portENTER_CRITICAL(&historyDataMux);
+  sdState.active = false;
+  snprintf(sdState.lastError, sizeof(sdState.lastError), "%s", message);
+  sdWriterErrorPending = true;
+  portEXIT_CRITICAL(&historyDataMux);
+#else
+  setSdError(message);
+#endif
+}
+
+static void setSdOpenError(const char *fileType) {
+  int errorNumber = errno;
+  char message[80];
+  snprintf(message, sizeof(message), "Open %s failed: %d (%s)", fileType,
+    errorNumber, strerror(errorNumber));
+  setSdWriterError(message);
 }
 
 static bool writeSdEvents() {
-  if (!sdState.active || eventCount == 0) return true;
+  if (!sdState.active) return true;
+  uint16_t localStart = 0;
+  uint16_t localCount = 0;
+#if defined(ESP32)
+  portENTER_CRITICAL(&historyDataMux);
+#endif
+  localStart = eventStart;
+  localCount = eventCount;
+#if defined(ESP32)
+  portEXIT_CRITICAL(&historyDataMux);
+#endif
+  if (localCount == 0) return true;
   char path[48];
   if (!sdDatePath(path, sizeof(path), "/events", "csv")) return false;
-  bool exists = SD.exists(path);
-  File file = SD.open(path, FILE_APPEND);
+#if defined(ESP32)
+  sdWriterPhase = SD_PHASE_OPEN_EVENTS;
+#endif
+  FILE *file = fopen(path, "a");
   if (!file) {
-    setSdError("Could not open event file");
+    setSdOpenError("event file");
     return false;
   }
-  if (!exists) file.println("timestamp,type,message,value");
-  for (uint16_t offset = 0; offset < eventCount; offset++) {
-    const HistoryEvent &event = events[(eventStart + offset) % HEISHAMON_HISTORY_MAX_EVENTS];
+  if (ftell(file) == 0) fputs("timestamp,type,message,value\n", file);
+  uint32_t newestWrittenSequence = sdFlushedEventSequence;
+#if defined(ESP32)
+  sdWriterPhase = SD_PHASE_WRITE_EVENTS;
+#endif
+  for (uint16_t offset = 0; offset < localCount; offset++) {
+    HistoryEvent event;
+#if defined(ESP32)
+    portENTER_CRITICAL(&historyDataMux);
+#endif
+    event = events[(localStart + offset) % HEISHAMON_HISTORY_MAX_EVENTS];
+#if defined(ESP32)
+    portEXIT_CRITICAL(&historyDataMux);
+#endif
     if (event.sequence <= sdFlushedEventSequence) continue;
-    file.printf("%lu,%s,\"%s\",%ld\n", (unsigned long)event.timestamp,
+    fprintf(file, "%lu,%s,\"%s\",%ld\n", (unsigned long)event.timestamp,
       eventTypeName(event.type), event.message, (long)event.value);
+    if (event.sequence > newestWrittenSequence) newestWrittenSequence = event.sequence;
   }
-  file.close();
+#if defined(ESP32)
+  sdWriterPhase = SD_PHASE_CLOSE_EVENTS;
+#endif
+  bool writeOk = ferror(file) == 0;
+  if (fclose(file) != 0 || !writeOk) {
+    setSdWriterError("Could not finish event file");
+    return false;
+  }
+  sdFlushedEventSequence = newestWrittenSequence;
   return true;
 }
 
 static bool writeSdSamples() {
-  if (!sdState.active || sampleCount == 0) return true;
+  if (!sdState.active) return true;
+  uint16_t localStart = 0;
+  uint16_t localCount = 0;
+#if defined(ESP32)
+  portENTER_CRITICAL(&historyDataMux);
+#endif
+  localStart = sampleStart;
+  localCount = sampleCount;
+#if defined(ESP32)
+  portEXIT_CRITICAL(&historyDataMux);
+#endif
+  if (localCount == 0) return true;
   char path[48];
   if (!sdDatePath(path, sizeof(path), "/history", "csv")) return false;
-  bool exists = SD.exists(path);
-  File file = SD.open(path, FILE_APPEND);
+#if defined(ESP32)
+  sdWriterPhase = SD_PHASE_OPEN_SAMPLES;
+#endif
+  FILE *file = fopen(path, "a");
   if (!file) {
-    setSdError("Could not open history file");
+    setSdOpenError("history file");
     return false;
   }
-  if (!exists) file.println("timestamp,outside,inlet,outlet,target,dhw,dhw_target,room,room_target,flow,compressor_hz,pump_rpm,thermal_kw,electrical_kw,heat_production_kw,heat_consumption_kw,dhw_production_kw,dhw_consumption_kw,z1_request,z1_request_semantic,heating_curve_shift,mode,valve,state,defrost,estimated_cop");
-  uint32_t oldestSequence = sampleSequence >= sampleCount ?
-    sampleSequence - sampleCount + 1 : 1;
+  if (ftell(file) == 0) fputs("timestamp,outside,inlet,outlet,target,dhw,dhw_target,room,room_target,flow,compressor_hz,pump_rpm,thermal_kw,electrical_kw,heat_production_kw,heat_consumption_kw,dhw_production_kw,dhw_consumption_kw,z1_request,z1_request_semantic,heating_curve_shift,mode,valve,state,defrost,estimated_cop\n", file);
+  HistorySample oldestSample;
+#if defined(ESP32)
+  portENTER_CRITICAL(&historyDataMux);
+#endif
+  oldestSample = samples[localStart];
+#if defined(ESP32)
+  portEXIT_CRITICAL(&historyDataMux);
+#endif
+  uint32_t oldestSequence = oldestSample.sequence;
   if (sdFlushedSequence < oldestSequence - 1) sdFlushedSequence = oldestSequence - 1;
-  for (uint16_t offset = 0; offset < sampleCount; offset++) {
-    const HistorySample &sample = samples[orderedSampleIndex(offset)];
+  uint32_t newestWrittenSequence = sdFlushedSequence;
+#if defined(ESP32)
+  sdWriterPhase = SD_PHASE_WRITE_SAMPLES;
+#endif
+  for (uint16_t offset = 0; offset < localCount; offset++) {
+    HistorySample sample;
+#if defined(ESP32)
+    portENTER_CRITICAL(&historyDataMux);
+#endif
+    sample = samples[(localStart + offset) % HEISHAMON_HISTORY_MAX_SAMPLES];
+#if defined(ESP32)
+    portEXIT_CRITICAL(&historyDataMux);
+#endif
     if (sample.sequence <= sdFlushedSequence) continue;
     float cop = 0;
     bool copValid = instantaneousCop(sample, cop);
@@ -1371,23 +1517,32 @@ static bool writeSdSamples() {
     }
     snprintf(curveShift, sizeof(curveShift), (sample.validFields & HISTORY_FIELD_HEATING_CURVE_SHIFT) ? "%d" : "",
       sample.heatingCurveShift);
-    file.printf("%lu,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%u,%u,%u,%u,%s\n",
+    fprintf(file, "%lu,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%u,%u,%u,%u,%s\n",
       (unsigned long)sample.timestamp, outside, inlet, outlet, target, dhw,
       dhwTarget, room, roomTarget, flow, hz, pump, thermal, electrical,
       heatProduction, heatConsumption, dhwProduction, dhwConsumption,
       zone1Request, zone1Semantic, curveShift,
       sample.operatingMode, sample.valveState, sample.operatingState,
       (sample.flags & SAMPLE_FLAG_DEFROST) ? 1 : 0, copText);
+    if (sample.sequence > newestWrittenSequence) newestWrittenSequence = sample.sequence;
   }
-  file.close();
+#if defined(ESP32)
+  sdWriterPhase = SD_PHASE_CLOSE_SAMPLES;
+#endif
+  bool writeOk = ferror(file) == 0;
+  if (fclose(file) != 0 || !writeOk) {
+    setSdWriterError("Could not finish history file");
+    return false;
+  }
+  sdFlushedSequence = newestWrittenSequence;
   sdState.lastWriteAt = millis();
   return true;
 }
 
 static void flushSd() {
-  if (!sdState.active || (sampleCount == 0 && eventCount == 0)) return;
-  if (writeSdSamples()) sdFlushedSequence = sampleSequence;
-  if (writeSdEvents()) sdFlushedEventSequence = eventSequence;
+  if (!sdState.active) return;
+  writeSdSamples();
+  writeSdEvents();
 }
 #else
 static void initializeSd() {
@@ -1402,24 +1557,29 @@ static void flushSd() {}
 static void cleanupSdRetention() {}
 #endif
 
-static void persistDailySummary(const DailySummary &summary) {
+static void writeDailySummaryToSd(const DailySummary &summary) {
 #if HEISHAMON_SD_HISTORY_ENABLED
   if (!summary.valid || !sdState.active) return;
+#if defined(ESP32)
+  sdWriterPhase = SD_PHASE_DAILY;
+#endif
   time_t value = (time_t)summary.dayStart;
   struct tm local = {};
   if (localtime_r(&value, &local) == nullptr) return;
   char path[48];
-  snprintf(path, sizeof(path), "/daily/%04d-%02d-%02d.csv", local.tm_year + 1900,
+  snprintf(path, sizeof(path), "/sd/daily/%04d-%02d-%02d.csv", local.tm_year + 1900,
     local.tm_mon + 1, local.tm_mday);
-  bool exists = SD.exists(path);
-  File file = SD.open(path, FILE_APPEND);
-  if (!file) return;
-  if (!exists) file.println("day,heating_thermal_kwh,heating_electrical_kwh,heating_cop,dhw_thermal_kwh,dhw_electrical_kwh,dhw_cop,heating_degree_days,compressor_seconds,compressor_starts,outside_min,outside_max,outside_average");
+  FILE *file = fopen(path, "a");
+  if (!file) {
+    setSdOpenError("daily summary file");
+    return;
+  }
+  if (ftell(file) == 0) fputs("day,heating_thermal_kwh,heating_electrical_kwh,heating_cop,dhw_thermal_kwh,dhw_electrical_kwh,dhw_cop,heating_degree_days,compressor_seconds,compressor_starts,outside_min,outside_max,outside_average\n", file);
   float heatingCop = 0, dhwCop = 0;
   bool heatingValid = totalsCop(summary.heating, heatingCop);
   bool dhwValid = totalsCop(summary.dhw, dhwCop);
   double outsideAverage = summary.outsideSamples == 0 ? NAN : summary.outsideSum / summary.outsideSamples;
-  file.printf("%lu,%.4f,%.4f,%s,%.4f,%.4f,%s,%.4f,%lu,%lu,%s,%s,%s\n",
+  fprintf(file, "%lu,%.4f,%.4f,%s,%.4f,%.4f,%s,%.4f,%lu,%lu,%s,%s,%s\n",
     (unsigned long)summary.dayStart, summary.heating.thermalKWh,
     summary.heating.electricalKWh, heatingValid ? String(heatingCop, 3).c_str() : "",
     summary.dhw.thermalKWh, summary.dhw.electricalKWh, dhwValid ? String(dhwCop, 3).c_str() : "",
@@ -1428,39 +1588,185 @@ static void persistDailySummary(const DailySummary &summary) {
     isfinite(summary.outsideMinimum) ? String(summary.outsideMinimum, 1).c_str() : "",
     isfinite(summary.outsideMaximum) ? String(summary.outsideMaximum, 1).c_str() : "",
     isfinite(outsideAverage) ? String(outsideAverage, 1).c_str() : "");
-  file.close();
+  bool writeOk = ferror(file) == 0;
+  if (fclose(file) != 0 || !writeOk) {
+    setSdWriterError("Could not finish daily summary file");
+  }
 #else
   (void)summary;
 #endif
 }
 
-static void persistCycleRecord(const CycleRecord &record) {
+static void writeCycleRecordToSd(const CycleRecord &record) {
 #if HEISHAMON_SD_HISTORY_ENABLED
   if (!sdState.active || record.stopTimestamp == 0) return;
+#if defined(ESP32)
+  sdWriterPhase = SD_PHASE_CYCLE;
+#endif
   time_t value = (time_t)record.stopTimestamp;
   struct tm local = {};
   if (localtime_r(&value, &local) == nullptr) return;
   char path[48];
-  snprintf(path, sizeof(path), "/cycles/%04d-%02d.csv", local.tm_year + 1900,
+  snprintf(path, sizeof(path), "/sd/cycles/%04d-%02d.csv", local.tm_year + 1900,
     local.tm_mon + 1);
-  bool exists = SD.exists(path);
-  File file = SD.open(path, FILE_APPEND);
-  if (!file) return;
-  if (!exists) file.println("start,stop,duration_seconds,state,outside_average,flow_average,frequency_average,frequency_max,thermal_kwh,electrical_kwh,cop");
+  FILE *file = fopen(path, "a");
+  if (!file) {
+    setSdOpenError("cycle summary file");
+    return;
+  }
+  if (ftell(file) == 0) fputs("start,stop,duration_seconds,state,outside_average,flow_average,frequency_average,frequency_max,thermal_kwh,electrical_kwh,cop\n", file);
   char copText[16];
   snprintf(copText, sizeof(copText), record.copValid ? "%.3f" : "", record.cop);
-  file.printf("%lu,%lu,%lu,%u,%s,%s,%s,%.2f,%.4f,%.4f,%s\n",
+  fprintf(file, "%lu,%lu,%lu,%u,%s,%s,%s,%.2f,%.4f,%.4f,%s\n",
     (unsigned long)record.startTimestamp, (unsigned long)record.stopTimestamp,
     (unsigned long)record.durationSeconds, record.operatingState,
     isfinite(record.outsideAverage) ? String(record.outsideAverage, 2).c_str() : "",
     isfinite(record.flowAverage) ? String(record.flowAverage, 2).c_str() : "",
     isfinite(record.frequencyAverage) ? String(record.frequencyAverage, 2).c_str() : "",
     record.frequencyMaximum, record.thermalKWh, record.electricalKWh, copText);
-  file.close();
+  bool writeOk = ferror(file) == 0;
+  if (fclose(file) != 0 || !writeOk) {
+    setSdWriterError("Could not finish cycle summary file");
+  }
 #else
   (void)record;
 #endif
 }
+
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+static const char *sdWriterPhaseName(SdWriterPhase phase) {
+  switch (phase) {
+    case SD_PHASE_OPEN_SAMPLES: return "opening history CSV";
+    case SD_PHASE_WRITE_SAMPLES: return "writing history CSV";
+    case SD_PHASE_CLOSE_SAMPLES: return "closing history CSV";
+    case SD_PHASE_OPEN_EVENTS: return "opening events CSV";
+    case SD_PHASE_WRITE_EVENTS: return "writing events CSV";
+    case SD_PHASE_CLOSE_EVENTS: return "closing events CSV";
+    case SD_PHASE_RETENTION: return "cleaning retained files";
+    case SD_PHASE_DAILY: return "writing daily summary";
+    case SD_PHASE_CYCLE: return "writing cycle summary";
+    default: return "idle";
+  }
+}
+
+static bool queueSdWork(const SdWorkItem &item) {
+  if (!sdState.active || sdWorkQueue == nullptr) return false;
+  if (xQueueSend(sdWorkQueue, &item, 0) == pdTRUE) return true;
+  snprintf(sdState.lastError, sizeof(sdState.lastError),
+    "SD writer queue full; record skipped");
+  log_message((char *)"[SD] Writer queue full; record skipped");
+  return false;
+}
+
+static void requestSdFlush() {
+  if (!sdState.active || sdWorkQueue == nullptr || sdFlushQueued) return;
+  SdWorkItem item = {};
+  item.type = SD_WORK_FLUSH;
+  sdFlushQueued = true;
+  if (!queueSdWork(item)) sdFlushQueued = false;
+}
+
+static void persistDailySummary(const DailySummary &summary) {
+  if (!summary.valid || !sdState.active) return;
+  SdWorkItem item = {};
+  item.type = SD_WORK_DAILY;
+  item.daily = summary;
+  queueSdWork(item);
+}
+
+static void persistCycleRecord(const CycleRecord &record) {
+  if (record.stopTimestamp == 0 || !sdState.active) return;
+  SdWorkItem item = {};
+  item.type = SD_WORK_CYCLE;
+  item.cycle = record;
+  queueSdWork(item);
+}
+
+static void sdWriterTask(void *) {
+  SdWorkItem item;
+  while (true) {
+    if (xQueueReceive(sdWorkQueue, &item, portMAX_DELAY) != pdTRUE) continue;
+    if (item.type == SD_WORK_FLUSH) sdFlushQueued = false;
+    sdWriterBusy = true;
+    sdWriterStartedAt = millis();
+    sdWriterPhase = SD_PHASE_IDLE;
+    switch (item.type) {
+      case SD_WORK_FLUSH:
+        flushSd();
+        sdWriterPhase = SD_PHASE_RETENTION;
+        cleanupSdRetention();
+        break;
+      case SD_WORK_DAILY:
+        writeDailySummaryToSd(item.daily);
+        break;
+      case SD_WORK_CYCLE:
+        writeCycleRecordToSd(item.cycle);
+        break;
+    }
+    sdWriterPhase = SD_PHASE_IDLE;
+    sdWriterStartedAt = 0;
+    sdWriterBusy = false;
+  }
+}
+
+static void startSdWriter() {
+  if (!sdState.active || sdWorkQueue != nullptr) return;
+  sdWorkQueue = xQueueCreate(6, sizeof(SdWorkItem));
+  if (sdWorkQueue == nullptr) {
+    setSdError("Could not create SD writer queue");
+    return;
+  }
+  if (xTaskCreate(sdWriterTask, "sd-history", 6144, nullptr, 1,
+      &sdWriterTaskHandle) != pdPASS) {
+    vQueueDelete(sdWorkQueue);
+    sdWorkQueue = nullptr;
+    setSdError("Could not start SD writer task");
+    return;
+  }
+  log_message((char *)"[SD] Background SDMMC/POSIX writer started");
+}
+
+static void checkSdWriterHealth() {
+  if (sdWriterErrorPending) {
+    char error[sizeof(sdState.lastError)];
+    portENTER_CRITICAL(&historyDataMux);
+    snprintf(error, sizeof(error), "%s", sdState.lastError);
+    sdWriterErrorPending = false;
+    portEXIT_CRITICAL(&historyDataMux);
+    char logLine[112];
+    snprintf(logLine, sizeof(logLine), "[SD] %s", error);
+    log_message(logLine);
+  }
+  if (!sdWriterBusy) {
+    sdWriterStallReported = false;
+    return;
+  }
+  unsigned long startedAt = sdWriterStartedAt;
+  if (startedAt == 0 || (unsigned long)(millis() - startedAt) < 15000UL ||
+      sdWriterStallReported) return;
+  sdWriterStallReported = true;
+  char message[80];
+  snprintf(message, sizeof(message), "SD writer stalled while %s; logging disabled",
+    sdWriterPhaseName(sdWriterPhase));
+  setSdError(message);
+}
+#else
+static void requestSdFlush() {
+  flushSd();
+  cleanupSdRetention();
+}
+
+static void persistDailySummary(const DailySummary &summary) {
+  writeDailySummaryToSd(summary);
+}
+
+static void persistCycleRecord(const CycleRecord &record) {
+  writeCycleRecordToSd(record);
+}
+
+static void startSdWriter() {}
+static void checkSdWriterHealth() {}
+#endif
 
 static void setNullable(JsonObject object, const char *name, bool valid, float value) {
   if (valid && isfinite(value)) object[name] = value;
@@ -1631,100 +1937,22 @@ static void appendDiagnosticsJson(JsonDocument &document) {
   sd["filesystem"] = sdState.filesystemOk;
   sd["active"] = sdState.active;
   sd["retentionDays"] = sdRetentionDays;
+  sd["interface"] = "sdmmc-1bit";
+  sd["busFrequencyKHz"] = HEISHAMON_SDMMC_FREQUENCY_KHZ;
   sd["capacityBytes"] = sdState.capacity;
   sd["freeBytes"] = sdState.freeBytes;
   if (sdState.lastWriteAt == 0) sd["lastWriteSecondsAgo"] = nullptr;
   else sd["lastWriteSecondsAgo"] = (uint32_t)((millis() - sdState.lastWriteAt) / 1000UL);
   sd["lastError"] = sdState.lastError;
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+  sd["writerBusy"] = sdWriterBusy;
+  sd["writerPhase"] = sdWriterPhaseName(sdWriterPhase);
+  if (!sdWriterBusy || sdWriterStartedAt == 0) sd["writerBusySeconds"] = 0;
+  else sd["writerBusySeconds"] = (uint32_t)((millis() - sdWriterStartedAt) / 1000UL);
+#endif
 }
 
-static const char diagnosticsPage[] PROGMEM = R"HTML(
-<style>
-.diagnostics-page{max-width:1500px;margin:0 auto}
-.diagnostics-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
-.diagnostics-heading h1{font-size:20px;font-weight:500;color:var(--text-primary)}
-.diagnostics-status{font-size:12px;color:var(--text-muted)}
-.diagnostics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
-.diagnostics-card{min-width:0}
-.diagnostics-rows{padding:8px 20px 12px}
-.diagnostics-row{display:flex;justify-content:space-between;gap:14px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-secondary)}
-.diagnostics-row:last-child{border-bottom:0}
-.diagnostics-value{font-weight:600;color:var(--text-primary);text-align:right;overflow-wrap:anywhere}
-.diagnostics-ok{color:var(--green)}
-.diagnostics-bad{color:var(--red)}
-.diagnostics-muted{color:var(--text-muted)}
-.diagnostics-raw{margin-top:14px}
-.diagnostics-raw summary{padding:14px 20px;cursor:pointer;font-size:13px;font-weight:500;color:var(--text-primary)}
-.diagnostics-raw pre{margin:0 20px 20px;max-height:360px;overflow:auto;background:#0a0c0f;color:#6ee7b7;padding:12px;border-radius:var(--radius);font:11px 'JetBrains Mono',monospace}
-@media(max-width:680px){.diagnostics-heading{align-items:flex-start;flex-direction:column}.diagnostics-grid{grid-template-columns:1fr}.diagnostics-rows{padding-left:14px;padding-right:14px}}
-</style>
-<main class='main-content diagnostics-page'>
-<div class='diagnostics-heading'><h1>Diagnostics</h1><div id='status' class='diagnostics-status'>Loading…</div></div>
-<div id='cards' class='diagnostics-grid'></div><details class='panel diagnostics-raw'><summary>Raw Panasonic values</summary><pre id='raw'>Loading…</pre></details>
-</main>
-<script>
-function esc(v){return String(v==null?'N/A':v).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]})}
-function val(v,unit){return v===null||v===undefined?'N/A':esc(v)+(unit||'')}
-function row(k,v){return '<div class="diagnostics-row"><span>'+esc(k)+'</span><span class="diagnostics-value">'+v+'</span></div>'}
-function card(title,rows){return '<section class="panel diagnostics-card"><div class="panel-header"><h3>'+title+'</h3></div><div class="diagnostics-rows">'+rows.join('')+'</div></section>'}
-function render(d){var s=d.system||{},o=d.operation||{},h=d.hydraulics||{},c=d.control||{},z1=c.zone1HeatRequest||{},cs=c.heatingCurveShift||{},w=d.dhw||{},n=d.counters||{},sd=d.sd||{};
- document.getElementById('status').innerHTML='Panasonic: <b class="'+(s.panasonic&&s.panasonic.fresh?'diagnostics-ok':'diagnostics-bad')+'">'+esc(s.panasonic?s.panasonic.status:'NO DATA')+'</b> · Last frame: '+val(s.panasonic&&s.panasonic.ageSeconds,' s');
- document.getElementById('cards').innerHTML=card('SYSTEM STATUS',[row('WiFi',s.wifi?'Connected':'Offline'),row('Ethernet',s.ethernet?'Connected':'Offline'),row('MQTT',s.mqtt?'Connected':'Offline'),row('NTP',s.ntp?'Synchronized':'Unavailable'),row('Uptime',val(s.uptimeSeconds,' s')),row('Free heap',val(s.freeHeap,' B')),row('PSRAM',s.psramFound?val(s.freePsram,' B free'):'Not available'),row('Firmware',val(s.firmware))])+card('CURRENT OPERATION',[row('Interpreted state',val(o.state)),row('Operating mode',val(o.mode)),row('Compressor',o.compressorRunning?'Running':'Stopped'),row('Compressor frequency',val(o.compressorFrequency,' Hz')),row('Current runtime',val(o.currentRuntimeSeconds,' s')),row('Flow',val(o.flow,' l/min')),row('Pump speed',val(o.pumpSpeed,' rpm')),row('Fan 1',val(o.fan1,' rpm')),row('3-way valve',val(o.valve))])+card('HYDRAULICS',[row('Inlet',val(h.inlet,' °C')),row('Outlet',val(h.outlet,' °C')),row('Target',val(h.target,' °C')),row('Delta T',val(h.deltaT,' K')),row('Target error',val(h.targetError,' K')),row('Delta-T error',val(h.deltaTError,' K')),row('Calculated thermal power',val(h.calculatedThermalPowerKw,' kW'))])+card('CONTROL / DHW',[row('Zone 1 raw TOP27',val(z1.rawValue)),row(z1.label||'Zone 1 request',val(z1.value,z1.unit?' '+z1.unit:'')),row('Heating mode',val(z1.heatingModeLabel||c.heatingMode)),row('Zone 1 sensor setting',val(z1.sensorSettingLabel||z1.sensorSetting)),row('Heating-off outdoor temp',val(c.heatingOffOutside,' °C')),row('Room temperature',val(c.roomTemperature,' °C')),row('DHW actual',val(w.actual,' °C')),row('DHW target',val(w.target,' °C')),row('DHW active',w.active?'Yes':'No'),row('Force DHW',val(w.forceState)),row('Smart DHW','See Smart DHW page')])+card('COUNTERS',[row('Panasonic operation hours',val(n.panasonicOperationHours)),row('Panasonic operation counter',val(n.panasonicOperationCounter)),row('Compressor starts since boot',val(n.compressorStartsSinceBoot)),row('Current cycle',val(n.currentCycleSeconds,' s')),row('Previous cycle',val(n.previousCycleSeconds,' s')),row('Average cycle',val(n.averageCycleSeconds,' s'))])+card('PERSISTENT HISTORY',[row('RAM samples',val((d.history||{}).sampleCount)+' / '+val((d.history||{}).capacity)),row('Sample interval',val((d.history||{}).intervalSeconds,' s')),row('RAM memory',val((d.history||{}).sampleMemoryBytes,' B')),row('SD support',sd.support?'Enabled':'Disabled'),row('SD card',sd.present?'Present':'Not present'),row('History logging',sd.active?'Active':'RAM only'),row('Retention',sd.retentionDays===0?'Unlimited':val(sd.retentionDays,' days')),row('SD error',val(sd.lastError))]);
- document.getElementById('cards').insertAdjacentHTML('beforeend',card('HEATING CURVE SHIFT',[row('Requested shift',val(cs.shift,' K')),row('Implementation',val(cs.implementationLabel)),row('Base high',val(cs.baseTargetHigh,' °C')),row('Base low',val(cs.baseTargetLow,' °C')),row('Effective high',val(cs.effectiveTargetHigh,' °C')),row('Effective low',val(cs.effectiveTargetLow,' °C')),row('External mismatch',cs.externalMismatch?'Yes':'No')]));
- document.getElementById('raw').textContent=JSON.stringify(d,null,2);
-}
-function refresh(){fetch('/diagnosticsapi',{cache:'no-store'}).then(function(r){if(!r.ok)throw Error(r.status);return r.json()}).then(render).catch(function(e){document.getElementById('status').textContent='Diagnostics unavailable: '+e.message})}document.title='Diagnostics - HeishaMon';refresh();setInterval(refresh,5000);
-</script>)HTML";
 
-static const char historyPage[] PROGMEM = R"HTML(
-<style>
-.history-page{max-width:1500px;margin:0 auto}
-.history-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
-.history-heading h1{font-size:20px;font-weight:500;color:var(--text-primary)}
-.history-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
-.history-toolbar label{display:flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:12px}
-.history-toolbar select{padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-elevated);color:var(--text-primary);font:12px 'JetBrains Mono',monospace}
-.history-status{color:var(--text-muted);font-size:12px;margin-left:auto}
-.history-card{margin-bottom:14px}
-.history-card-body{padding:14px 20px 16px}
-.history-chart{display:block;width:100%;height:230px}
-.history-legend{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px;color:var(--text-secondary);font-size:11px}
-.history-legend-item{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.history-legend-line{display:inline-block;width:22px;height:3px;border-radius:2px}
-.history-note{color:var(--text-muted);font-size:11px;line-height:1.5;margin-top:8px}
-.history-events{max-height:250px;overflow:auto}
-.history-event{padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-secondary)}
-.history-event:last-child{border-bottom:0}
-@media(max-width:680px){.history-heading{align-items:flex-start;flex-direction:column}.history-status{margin-left:0}.history-card-body{padding-left:14px;padding-right:14px}}
-</style>
-<main class='main-content history-page'>
-<div class='history-heading'><h1>History</h1><span id='status' class='history-status'>Loading…</span></div>
-<div class='history-toolbar'><label>Display range <select id='range' onchange='refresh()'><option value='30m'>Last 30 min</option><option value='1h' selected>Last 1 h</option><option value='3h'>Last 3 h</option><option value='all'>All RAM history</option></select></label><label>Storage interval <select id='interval' onchange='setIntervalValue()'><option value='1' selected>1 min</option><option value='2'>2 min</option><option value='3'>3 min</option><option value='4'>4 min</option><option value='5'>5 min</option><option value='6'>6 min</option><option value='7'>7 min</option><option value='8'>8 min</option><option value='9'>9 min</option><option value='10'>10 min</option></select></label><label>SD retention <select id='retention' onchange='setRetentionValue()'><option value='0'>Unlimited</option><option value='7'>7 days</option><option value='14'>14 days</option><option value='30' selected>30 days</option><option value='90'>90 days</option></select></label></div>
-<div class='history-note' style='margin:-4px 0 14px'>Storage interval controls how often a new point is stored in RAM and on the SD card. Display range only changes the time range shown below.</div>
-<section class='panel history-card'><div class='panel-header'><h3>Temperatures</h3></div><div class='history-card-body'><canvas id='temps' class='history-chart'></canvas><div id='tempsLegend' class='history-legend'></div><div class='history-note'>All values are in °C. The colored legend identifies every line.</div></div></section>
-<section class='panel history-card'><div class='panel-header'><h3>Zone 1 request</h3></div><div class='history-card-body'><canvas id='zone1Request' class='history-chart'></canvas><div id='zone1RequestLegend' class='history-legend'></div><div class='history-note'>Only the semantic series matching each sample is drawn. Heating curve shift (K), heating water target (°C) and room target (°C) are never merged into one line.</div></div></section>
-<section class='panel history-card'><div class='panel-header'><h3>Compressor / hydraulics</h3></div><div class='history-card-body'><canvas id='hydraulics' class='history-chart'></canvas><div id='hydraulicsLegend' class='history-legend'></div><div class='history-note'>The series use their native units: Hz, l/min and kW.</div></div></section>
-<section class='panel history-card'><div class='panel-header'><h3>Efficiency / COP</h3></div><div class='history-card-body'><div id='efficiencySummary' class='history-note' style='margin-top:0'></div><canvas id='efficiency' class='history-chart'></canvas><div id='efficiencyLegend' class='history-legend'></div><div class='history-note'>Estimated COP is calculated from thermal and electrical source values. Aggregated ranges use energy totals, not averaged COP samples.</div></div></section>
-<section class='panel history-card'><div class='panel-header'><h3>Weather / heating degree days</h3></div><div class='history-card-body'><div id='dailySummary' class='history-note' style='margin-top:0'>N/A</div></div></section>
-<section class='panel history-card'><div class='panel-header'><h3>Compressor cycles</h3></div><div class='history-card-body'><div id='cycles' class='history-events'>No completed cycles</div></div></section>
-<section class='panel history-card'><div class='panel-header'><h3>DHW</h3></div><div class='history-card-body'><canvas id='dhw' class='history-chart'></canvas><div id='dhwLegend' class='history-legend'></div></div></section>
-<section class='panel history-card'><div class='panel-header'><h3>Events</h3></div><div class='history-card-body'><div id='events' class='history-events'></div></div></section>
-<script>
-var chartLines={outlet:{key:'outlet',label:'Outlet',color:'#e53935'},inlet:{key:'inlet',label:'Inlet',color:'#1e88e5'},target:{key:'target',label:'Target',color:'#f9a825'},outside:{key:'outside',label:'Outside',color:'#43a047'},hz:{key:'hz',label:'Compressor frequency',color:'#8e44ad'},flow:{key:'flow',label:'Water flow',color:'#00897b'},power:{key:'power',label:'Thermal power',color:'#ef6c00'},cop:{key:'cop',label:'Estimated COP',color:'#1565c0'},electrical:{key:'electrical',label:'Electrical power',color:'#c62828'},dhw:{key:'dhw',label:'DHW actual',color:'#d32f2f'},dhwTarget:{key:'target',label:'DHW target',color:'#f9a825'},zone1Shift:{key:'heatingCurveShift',label:'Heating curve shift (K)',color:'#6a1b9a'},zone1Water:{key:'zone1Request',semantic:'heatingWaterTarget',label:'Heating water target (°C)',color:'#00838f'},zone1Room:{key:'zone1Request',semantic:'roomTarget',label:'Room target (°C)',color:'#ad1457'}};
-function lineLegend(id,lines){document.getElementById(id).innerHTML=lines.map(function(l){return '<span class="history-legend-item"><i class="history-legend-line" style="background:'+l.color+'"></i>'+l.label+'</span>'}).join('')}
-function draw(id,points,lines){var c=document.getElementById(id),ctx=c.getContext('2d'),w=c.clientWidth||800,h=230,d=devicePixelRatio||1;c.width=w*d;c.height=h*d;ctx.scale(d,d);ctx.clearRect(0,0,w,h);if(!points.length)return;function matches(l,p){return !l.semantic||p.zone1RequestSemantic===l.semantic}var values=[];lines.forEach(function(l){points.forEach(function(p){var n=Number(p[l.key]);if(matches(l,p)&&p[l.key]!==null&&p[l.key]!==undefined&&Number.isFinite(n))values.push(n)})});if(!values.length)return;var min=Math.min.apply(null,values),max=Math.max.apply(null,values);if(min===max){min-=1;max+=1}function x(i){return 10+(w-25)*(i/(points.length-1||1))}function y(v){return h-18-(h-35)*(v-min)/(max-min)};ctx.font='11px Arial';ctx.fillStyle='#75818a';ctx.fillText(max.toFixed(1),4,14);ctx.fillText(min.toFixed(1),4,h-5);lines.forEach(function(l){ctx.strokeStyle=l.color;ctx.lineWidth=2;ctx.beginPath();var started=false;points.forEach(function(p,i){var n=Number(p[l.key]);if(!matches(l,p)||p[l.key]===null||p[l.key]===undefined||!Number.isFinite(n)){started=false;return}var px=x(i),py=y(n);if(!started){ctx.moveTo(px,py);started=true}else ctx.lineTo(px,py)});if(started)ctx.stroke()})}
-function val(v,unit){return v===null||v===undefined?'N/A':Number(v).toFixed(2)+(unit||'')}
-// Explicit units, grid/tick labels and a time axis keep the lightweight canvas
-// charts readable without adding another browser-side chart library.
-function draw(id,points,lines){var c=document.getElementById(id),ctx=c.getContext('2d'),w=c.clientWidth||800,h=230,d=devicePixelRatio||1;c.width=w*d;c.height=h*d;ctx.scale(d,d);ctx.clearRect(0,0,w,h);if(!points.length)return;function matches(l,p){return !l.semantic||p.zone1RequestSemantic===l.semantic}var values=[];lines.forEach(function(l){points.forEach(function(p){var n=Number(p[l.key]);if(matches(l,p)&&p[l.key]!==null&&p[l.key]!==undefined&&Number.isFinite(n))values.push(n)})});if(!values.length)return;var min=Math.min.apply(null,values),max=Math.max.apply(null,values);if(min===max){min-=1;max+=1}var left=48,right=12,top=18,bottom=34,plotW=w-left-right,plotH=h-top-bottom;function x(i){return left+plotW*(i/(points.length-1||1))}function y(v){return top+plotH-(plotH*(v-min)/(max-min))}function timeText(p){if(p&&p.timeValid&&Number(p.t)>1000000000)return new Date(Number(p.t)*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});var last=Number(points[points.length-1].u||0),current=Number(p&&p.u||0);return '-'+Math.max(0,Math.round((last-current)/60))+'m'}var units=id==='temps'||id==='dhw'?'°C':id==='zone1Request'?'°C / K':id==='hydraulics'?'Hz / L/min / kW':'COP / kW';ctx.font='11px Arial';ctx.fillStyle='#75818a';ctx.strokeStyle='rgba(117,129,138,.22)';ctx.lineWidth=1;for(var tick=0;tick<=4;tick++){var number=max-(max-min)*tick/4,py=top+plotH*tick/4;ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(w-right,py);ctx.stroke();ctx.fillText(number.toFixed(1),4,py+4)}ctx.strokeStyle='#75818a';ctx.beginPath();ctx.moveTo(left,top);ctx.lineTo(left,top+plotH);ctx.lineTo(w-right,top+plotH);ctx.stroke();ctx.fillText(units,4,top-5);ctx.textAlign='center';[0,.25,.5,.75,1].forEach(function(f){var index=Math.round((points.length-1)*f);ctx.fillText(timeText(points[index]),left+plotW*f,h-12)});ctx.fillText('Time',left+plotW/2,h-1);ctx.textAlign='left';lines.forEach(function(l){ctx.strokeStyle=l.color;ctx.lineWidth=2;ctx.beginPath();var started=false;points.forEach(function(p,i){var n=Number(p[l.key]);if(!matches(l,p)||p[l.key]===null||p[l.key]===undefined||!Number.isFinite(n)){started=false;return}var px=x(i),py=y(n);if(!started){ctx.moveTo(px,py);started=true}else ctx.lineTo(px,py)});if(started)ctx.stroke()})}
-function render(d){var p=d.samples||[],e2=d.efficiency||{},day=d.daily||{};var temps=[chartLines.outlet,chartLines.inlet,chartLines.target,chartLines.outside],zone1=[chartLines.zone1Shift,chartLines.zone1Water,chartLines.zone1Room],hydraulics=[chartLines.hz,chartLines.flow,chartLines.power],efficiency=[chartLines.cop,chartLines.power,chartLines.electrical],dhw=[chartLines.dhw,chartLines.dhwTarget];draw('temps',p,temps);lineLegend('tempsLegend',temps);draw('zone1Request',p,zone1);lineLegend('zone1RequestLegend',zone1);draw('hydraulics',p,hydraulics);lineLegend('hydraulicsLegend',hydraulics);draw('efficiency',p,efficiency);lineLegend('efficiencyLegend',efficiency);draw('dhw',p,dhw);lineLegend('dhwLegend',dhw);document.getElementById('efficiencySummary').innerHTML='Current estimated COP: <b>'+val(e2.currentEstimatedCop)+'</b> · Current cycle COP: <b>'+val(e2.currentCycleCop)+'</b> · Today heating COP: <b>'+val(e2.todayHeatingCop)+'</b> · Today DHW COP: <b>'+val(e2.todayDhwCop)+'</b> · Last 24 h COP: <b>'+val(e2.last24hCop)+'</b>';document.getElementById('dailySummary').innerHTML='Heating degree days: <b>'+val(day.heatingDegreeDays)+'</b> · Heating COP: <b>'+val(day.heatingCop)+'</b> · DHW COP: <b>'+val(day.dhwCop)+'</b> · Heating energy: <b>'+val(day.heatingThermalKWh)+' kWh</b> · DHW energy: <b>'+val(day.dhwThermalKWh)+' kWh</b> · Outside average: <b>'+val(day.outsideAverage)+' °C</b>';var cycles=d.cycles||[];document.getElementById('cycles').innerHTML=cycles.length?cycles.slice().reverse().map(function(x){return '<div class="history-event"><b>'+val(x.durationSeconds)+' s</b> · '+(x.state===3?'DHW':'Heating')+' · COP '+val(x.cop)+' · '+val(x.thermalKWh)+' kWh thermal</div>'}).join(''):'No completed cycles';var e=d.events||[];document.getElementById('events').innerHTML=e.length?e.slice().reverse().map(function(x){var stamp=x.timeValid?new Date((x.t||0)*1000).toLocaleString():'uptime '+(x.u||0)+' s';return '<div class="history-event"><b>'+stamp+'</b> '+x.type+': '+x.message+'</div>'}).join(''):'No events';document.getElementById('status').textContent=p.length+' samples · '+(d.intervalSeconds||0)+' s interval'}
-function refresh(){fetch('/historyapi?range='+encodeURIComponent(document.getElementById('range').value),{cache:'no-store'}).then(function(r){if(!r.ok)throw Error(r.status);return r.json()}).then(render).catch(function(e){document.getElementById('status').textContent='History unavailable: '+e.message})}
-function setIntervalValue(){fetch('/historycommand?interval='+document.getElementById('interval').value).then(refresh)}
-function setRetentionValue(){fetch('/historycommand?retention='+document.getElementById('retention').value).then(refresh)}
-function setElectricalSource(){fetch('/historycommand?electricalSource='+encodeURIComponent(document.getElementById('electricalSource').value)).then(refresh)}
-function loadElectricalSources(){fetch('/externalsensorsapi',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){var label=document.createElement('label');label.textContent='Electrical source ';var select=document.createElement('select');select.id='electricalSource';select.onchange=setElectricalSource;var p=document.createElement('option');p.value='panasonic';p.textContent='Panasonic';select.appendChild(p);(d.sensors||[]).filter(function(s){return Number(s.role)===1}).forEach(function(s){var o=document.createElement('option');o.value='external:'+s.id;o.textContent=s.name+' (MQTT)';select.appendChild(o)});label.appendChild(select);document.querySelector('.toolbar').insertBefore(label,document.getElementById('status'));fetch('/history/status').then(function(r){return r.json()}).then(function(s){select.value=s.electricalSourceId?'external:'+s.electricalSourceId:'panasonic';});}).catch(function(){})}
-loadElectricalSources();document.title='History - HeishaMon';fetch('/history/status').then(function(r){return r.json()}).then(function(s){document.getElementById('interval').value=String(Math.max(1,Math.min(10,Math.round((s.intervalSeconds||60)/60))));document.getElementById('retention').value=String(s.sdRetentionDays===undefined?30:s.sdRetentionDays)}).catch(function(){}).then(refresh);setInterval(refresh,10000);window.addEventListener('resize',refresh);
-</script>)HTML";
 
 static void sendJsonDocument(struct webserver_t *client, JsonDocument &document) {
   size_t length = measureJson(document);
@@ -1738,26 +1966,6 @@ static void sendJsonDocument(struct webserver_t *client, JsonDocument &document)
   webserver_send(client, 200, (char *)"application/json", length);
   webserver_send_content(client, response, length);
   free(response);
-}
-
-static void handleDiagnosticsPage(struct webserver_t *client) {
-  webserver_send(client, 200, (char *)"text/html", 0);
-  webserver_send_content_P(client, webHeader, strlen_P(webHeader));
-  webserver_send_content_P(client, webCSS, strlen_P(webCSS));
-  webserver_send_content_P(client, webBodyStart, strlen_P(webBodyStart));
-  webserver_send_content_P(client, diagnosticsPage, strlen_P(diagnosticsPage));
-  webserver_send_content_P(client, menuJS, strlen_P(menuJS));
-  webserver_send_content_P(client, webFooter, strlen_P(webFooter));
-}
-
-static void handleHistoryPage(struct webserver_t *client) {
-  webserver_send(client, 200, (char *)"text/html", 0);
-  webserver_send_content_P(client, webHeader, strlen_P(webHeader));
-  webserver_send_content_P(client, webCSS, strlen_P(webCSS));
-  webserver_send_content_P(client, webBodyStart, strlen_P(webBodyStart));
-  webserver_send_content_P(client, historyPage, strlen_P(historyPage));
-  webserver_send_content_P(client, menuJS, strlen_P(menuJS));
-  webserver_send_content_P(client, webFooter, strlen_P(webFooter));
 }
 
 static HistoryRequest *requestContext(struct webserver_t *client) {
@@ -1783,6 +1991,15 @@ static void handleHistoryStatus(struct webserver_t *client) {
   document["sdPresent"] = sdState.present;
   document["sdActive"] = sdState.active;
   document["sdRetentionDays"] = sdRetentionDays;
+  document["sdInterface"] = "sdmmc-1bit";
+  document["sdBusFrequencyKHz"] = HEISHAMON_SDMMC_FREQUENCY_KHZ;
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+  document["sdWriterBusy"] = sdWriterBusy;
+  document["sdWriterPhase"] = sdWriterPhaseName(sdWriterPhase);
+  if (!sdWriterBusy || sdWriterStartedAt == 0) document["sdWriterBusySeconds"] = 0;
+  else document["sdWriterBusySeconds"] =
+    (uint32_t)((millis() - sdWriterStartedAt) / 1000UL);
+#endif
   document["electricalSource"] = electricalSourceId == 0 ? "panasonic" : "external";
   document["electricalSourceId"] = electricalSourceId;
   document["degreeDayBase"] = heatingDegreeDayBase;
@@ -1887,7 +2104,10 @@ void diagnosticsHistoryBegin() {
   mqttStateKnown = false;
   previousMqttState = false;
   loadHistoryConfig();
-  initializeSd();
+  // switchSerial() configures HeishaMon's generic GPIOs after custom feature
+  // setup and would detach an already initialized SDMMC bus on GPIO34..37.
+  // Defer SDMMC ownership until the first normal loop, after setup is complete.
+  sdInitializationPending = true;
   char message[128];
   snprintf(message, sizeof(message),
     "[HISTORY] RAM history ready: %u samples, %u bytes samples, %u bytes events, interval %u s",
@@ -1897,6 +2117,11 @@ void diagnosticsHistoryBegin() {
 }
 
 void diagnosticsHistoryLoop() {
+  if (sdInitializationPending) {
+    sdInitializationPending = false;
+    initializeSd();
+    startSdWriter();
+  }
   bool communicationOk = dataFresh();
   if (!communicationStateKnown) {
     communicationStateKnown = true;
@@ -1925,19 +2150,17 @@ void diagnosticsHistoryLoop() {
       lastSampleAt = millis();
     }
   }
+  checkSdWriterHealth();
   if (sdState.active && (lastSdFlushAt == 0 ||
       (unsigned long)(millis() - lastSdFlushAt) >= 60000UL)) {
-    flushSd();
-    cleanupSdRetention();
+    requestSdFlush();
     lastSdFlushAt = millis();
   }
 }
 
 bool diagnosticsHistoryHandleUri(struct webserver_t *client, const char *uri) {
-  if (strcmp(uri, "/diagnostics") == 0) client->route = ROUTE_DIAGNOSTICS;
-  else if (strcmp(uri, "/diagnosticsapi") == 0 ||
+  if (strcmp(uri, "/diagnosticsapi") == 0 ||
       strcmp(uri, "/api/diagnostics") == 0) client->route = ROUTE_DIAGNOSTICS_API;
-  else if (strcmp(uri, "/history") == 0) client->route = ROUTE_HISTORY;
   else if (strcmp(uri, "/history/status") == 0 ||
       strcmp(uri, "/api/history/status") == 0) client->route = ROUTE_HISTORY_STATUS;
   else if (strcmp(uri, "/historyapi") == 0 ||
@@ -2044,14 +2267,8 @@ bool diagnosticsHistoryHandleArgs(struct webserver_t *client,
 
 bool diagnosticsHistoryHandleWrite(struct webserver_t *client) {
   switch (client->route) {
-    case ROUTE_DIAGNOSTICS:
-      if (client->content == 0) handleDiagnosticsPage(client);
-      return true;
     case ROUTE_DIAGNOSTICS_API:
       if (client->content == 0) handleDiagnosticsApi(client);
-      return true;
-    case ROUTE_HISTORY:
-      if (client->content == 0) handleHistoryPage(client);
       return true;
     case ROUTE_HISTORY_STATUS:
       if (client->content == 0) handleHistoryStatus(client);

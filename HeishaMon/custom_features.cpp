@@ -13,6 +13,7 @@
 #include "webfunctions.h"
 #include "zone1_heat_semantics.h"
 #include "heating_curve_shift.h"
+#include "sd_webui.h"
 
 #define DATASIZE 203
 #define NUMBER_OF_TOPICS 144
@@ -795,16 +796,14 @@ static bool updateWpSettingsConfig(const char *name, const char *value,
 }
 
 bool customFeaturesHandleUri(struct webserver_t *client, const char *uri) {
+  if (sdWebUiHandleUri(client, uri)) return true;
   if (diagnosticsHistoryHandleUri(client, uri)) return true;
   if (strcmp(uri, "/dashboardworkflow") == 0) client->route = 15;
   else if (strcmp(uri, "/wpsettingsconfig") == 0) client->route = 16;
-  else if (strcmp(uri, "/scheduler") == 0) client->route = 12;
   else if (strcmp(uri, "/schedulerapi") == 0) client->route = 13;
   else if (strcmp(uri, "/schedulercommand") == 0) client->route = 14;
-  else if (strcmp(uri, "/smartdhw") == 0) client->route = 17;
   else if (strcmp(uri, "/smartdhwapi") == 0) client->route = 18;
   else if (strcmp(uri, "/smartdhwcommand") == 0) client->route = 19;
-  else if (strcmp(uri, "/externalsensors") == 0) client->route = 24;
   else if (strcmp(uri, "/externalsensorsapi") == 0) client->route = 25;
   else if (strcmp(uri, "/externalsensorscommand") == 0) client->route = 26;
   else if (strcmp(uri, "/zone1heatsemantic") == 0) client->route = 36;
@@ -824,6 +823,7 @@ bool customFeaturesHandleUri(struct webserver_t *client, const char *uri) {
 }
 
 bool customFeaturesHandleArgs(struct webserver_t *client, struct arguments_t *args) {
+  if (sdWebUiHandleArgs(client, args)) return true;
   if (diagnosticsHistoryHandleArgs(client, args)) return true;
   if (client->route == 14) {
     handleSchedulerArgument(client, args);
@@ -900,9 +900,9 @@ bool customFeaturesHandleCommandArgument(struct webserver_t *client, struct argu
 }
 
 bool customFeaturesHandleWrite(struct webserver_t *client) {
+  if (sdWebUiHandleWrite(client)) return true;
   if (diagnosticsHistoryHandleWrite(client)) return true;
   switch (client->route) {
-    case 12: handleScheduler(client); return true;
     case 13: handleSchedulerStatus(client); return true;
     case 14:
     case 19:
@@ -917,9 +917,7 @@ bool customFeaturesHandleWrite(struct webserver_t *client) {
       return true;
     case 15: handleDashboardWorkflowStatus(client); return true;
     case 16: handleWpSettingsConfigStatus(client); return true;
-    case 17: handleSmartDhw(client); return true;
     case 18: handleSmartDhwStatus(client); return true;
-    case 24: handleExternalSensors(client); return true;
     case 25: handleExternalSensorsStatus(client); return true;
     case 26:
       if (client->content == 0) {
@@ -937,11 +935,17 @@ bool customFeaturesHandleWrite(struct webserver_t *client) {
   }
 }
 
+bool customFeaturesHandleHeader(struct webserver_t *client, struct header_t *header) {
+  return sdWebUiHandleHeader(client, header);
+}
+
 bool customFeaturesHandleClose(struct webserver_t *client) {
+  if (sdWebUiHandleClose(client)) return true;
   return diagnosticsHistoryHandleClose(client);
 }
 
 void customFeaturesBegin() {
+  sdWebUiBegin();
   externalSensors.begin(log_message);
   diagnosticsHistoryBegin();
   log_message((char *)"Loading local scheduler...");
@@ -986,4 +990,5 @@ void customFeaturesLoop(PubSubClient &mqttClient, const char *mqttBase) {
   schedulerManager.loop();
   smartDhwController.loop();
   diagnosticsHistoryLoop();
+  sdWebUiLoop();
 }

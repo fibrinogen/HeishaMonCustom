@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>Heisha Monitor</title>
+<link rel='stylesheet' href='/webui/styles.css?v=0.1.0'>
+<script src='/webui/common.js?v=0.1.0'></script>
+</head>
+<body>
+<div class='sidemenu-overlay' id='menuOverlay' onclick='closeMenu()'></div>
+<aside class='sidemenu' id='sideMenu'>
+  <div class='sidemenu-header'>
+    <h2>HeishaMon</h2>
+    <p id='sideVersion'>Custom build 0.1.0<br><small>Base: v4.2.1</small></p>
+  </div>
+  <div class='theme-toggle'>
+    <label class='theme-toggle-label'><span class='nav-icon'>☀</span> Dark Mode</label>
+    <label class='theme-switch'><input type='checkbox' id='darkModeToggle' onchange='toggleDarkMode()'><span class='theme-slider'></span></label>
+  </div>
+  <nav class='sidemenu-nav' id='sideNav'></nav>
+  <div class='sidemenu-footer'><a href='https://github.com/heishamon/HeishaMon' target='_blank'>GitHub</a></div>
+</aside>
+<header class='topbar'>
+  <div class='topbar-left'><button class='hamburger' onclick='toggleMenu()'>&#9776;</button><a class='topbar-logo' href='/'>Heisha<span>Mon</span></a></div>
+  <div class='topbar-right'></div>
+</header>
+<script>document.title='Dashboard - HeishaMon';</script>
+<main class='main-content dashboard-page'>
+  <div class='dashboard-columns'>
+    <section class='dashboard-column'>
+      <h2 class='dashboard-title'>HEAT PUMP</h2>
+      <div class='dashboard-section'>
+        <div class='dashboard-row'>
+          <span class='dashboard-row-label'>Heat pump power</span>
+          <div class='dashboard-control'>
+            <span id='TOP0-Description' class='dashboard-value'>--</span><span id='TOP0-Value' class='dashboard-hidden'></span>
+            <label class='dashboard-toggle'><input id='heatpumpToggle' type='checkbox' onchange="setDashboardToggle(this,'SetHeatpump')"><span class='dashboard-toggle-slider'></span></label>
+          </div>
+        </div>
+        <div class='dashboard-section-title'>Quick controls</div>
+        <div class='dashboard-row'><label for='dashboardOperationMode'>Operating mode</label><select id='dashboardOperationMode' class='wp-settings-select' onchange="setDashboardSelect(this,'SetOperationMode')"><option value='0'>Heat only</option><option value='1'>Cool only</option><option value='2'>Auto</option><option value='3'>DHW only</option><option value='4'>Heat + DHW</option><option value='5'>Cool + DHW</option><option value='6'>Auto + DHW</option></select><span id='TOP4-Value' class='dashboard-hidden'></span><span id='TOP4-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><label for='dashboardQuietMode'>Quiet mode</label><select id='dashboardQuietMode' class='wp-settings-select' onchange="setDashboardSelect(this,'SetQuietMode')"><option value='0'>Off</option><option value='1'>Level 1</option><option value='2'>Level 2</option><option value='3'>Level 3</option></select><span id='TOP18-Value' class='dashboard-hidden'></span><span id='TOP18-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><label for='dashboardPowerfulMode'>Powerful mode</label><select id='dashboardPowerfulMode' class='wp-settings-select' onchange="setDashboardSelect(this,'SetPowerfulMode')"><option value='0'>Off</option><option value='1'>30 min</option><option value='2'>60 min</option><option value='3'>90 min</option></select><span id='TOP17-Value' class='dashboard-hidden'></span><span id='TOP17-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Valve position</span><span id='TOP20-Description' class='dashboard-value'>--</span><span id='TOP20-Value' class='dashboard-hidden'></span></div>
+        <div class='dashboard-section-title'>Water temperature</div>
+        <div class='dashboard-row'><span>Outlet setpoint</span><span class='dashboard-value'><span id='TOP7-Value'>--</span> &deg;C</span><span id='TOP7-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Outlet actual</span><span class='dashboard-value'><span id='TOP6-Value'>--</span> &deg;C</span><span id='TOP6-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Inlet actual</span><span class='dashboard-value'><span id='TOP5-Value'>--</span> &deg;C</span><span id='TOP5-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-gauges'>
+          <div class='dashboard-gauge'>Water flow
+            <svg viewBox='0 0 120 68' aria-label='Water flow gauge'><path class='dashboard-gauge-track' d='M10 62 A50 50 0 0 1 110 62'/><path id='TOP1-Gauge' class='dashboard-gauge-fill' pathLength='100' stroke-dasharray='100' stroke-dashoffset='100' d='M10 62 A50 50 0 0 1 110 62'/></svg>
+            <div class='dashboard-gauge-reading'><span id='TOP1-Value'>--</span><span class='dashboard-gauge-unit'>L/min</span></div><span id='TOP1-Description' class='dashboard-hidden'></span>
+            <div class='dashboard-gauge-scale'><span>0</span><span>35</span></div>
+          </div>
+          <div class='dashboard-gauge'>Frequency
+            <svg viewBox='0 0 120 68' aria-label='Compressor frequency gauge'><path class='dashboard-gauge-track' d='M10 62 A50 50 0 0 1 110 62'/><path id='TOP8-Gauge' class='dashboard-gauge-fill' pathLength='100' stroke-dasharray='100' stroke-dashoffset='100' d='M10 62 A50 50 0 0 1 110 62'/></svg>
+            <div class='dashboard-gauge-reading'><span id='TOP8-Value'>--</span><span class='dashboard-gauge-unit'>Hz</span></div><span id='TOP8-Description' class='dashboard-hidden'></span>
+            <div class='dashboard-gauge-scale'><span>0</span><span>120</span></div>
+          </div>
+        </div>
+        <div class='dashboard-row'><span>Pump speed</span><span class='dashboard-value'><span id='TOP65-Value'>--</span> rpm</span><span id='TOP65-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-section-title'></div>
+        <div class='dashboard-row'><span>Operating hours</span><span class='dashboard-value'><span id='TOP11-Value'>--</span> h</span><span id='TOP11-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Fan 1</span><span class='dashboard-value'><span id='TOP62-Value'>--</span> rpm</span><span id='TOP62-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Internal heater</span><span id='TOP60-Description' class='dashboard-value'>--</span><span id='TOP60-Value' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Outside temperature</span><span class='dashboard-value'><span id='TOP14-Value'>--</span> &deg;C</span><span id='TOP14-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Error</span><span id='TOP44-Value' class='dashboard-value'>--</span><span id='TOP44-Description' class='dashboard-hidden'></span></div>
+      </div>
+    </section>
+
+    <section class='dashboard-column'>
+      <h2 class='dashboard-title'>HEAT (zone 1)</h2>
+      <div class='dashboard-section'>
+        <div class='dashboard-row'><span>Zone 1</span><span id='TOP94-Description' class='dashboard-value'>--</span><span id='TOP94-Value' class='dashboard-hidden'></span></div>
+        <div id='TOP27-Semantic-Row' class='dashboard-row' style='display:none'>
+          <span id='TOP27-Semantic-Label'>Zone 1 request</span>
+          <div id='TOP27-Semantic-Control' class='dashboard-control'><button id='TOP27-Semantic-Recover' class='btn btn-ghost' onclick='recoverZone1Heat()' style='display:none'>Set valid</button><button class='dashboard-step' onclick='stepZone1Heat(-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='TOP27-Semantic-Value'>--</span> <span id='TOP27-Semantic-Unit'></span></span><button class='dashboard-step' onclick='stepZone1Heat(1)' aria-label='Increase'>&#8963;</button></div>
+        </div>
+        <div id='HeatingCurveShift-Row' class='dashboard-row' style='display:none'>
+          <span>Heating curve shift</span>
+          <div id='HeatingCurveShift-Control' class='dashboard-control'><button class='dashboard-step' onclick='stepHeatingCurveShift(-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='HeatingCurveShift-Value'>--</span> K</span><button class='dashboard-step' onclick='stepHeatingCurveShift(1)' aria-label='Increase'>&#8963;</button></div>
+        </div>
+        <div class='dashboard-section-title'>Temperatures</div>
+        <div class='dashboard-row'><span>Water target</span><span class='dashboard-value'><span id='TOP42-Value'>--</span> &deg;C</span><span id='TOP42-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Room actual</span><span class='dashboard-value'><span id='TOP56-Value'>--</span> &deg;C</span><span id='TOP56-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Heating mode</span><span id='TOP76-Description' class='dashboard-value'>--</span><span id='TOP76-Value' class='dashboard-hidden'></span></div>
+        <div class='dashboard-section-title'>Heating power</div>
+        <div class='dashboard-row'><span>Production</span><span class='dashboard-value'><span id='TOP15-Value'>--</span> W</span><span id='TOP15-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Consumption</span><span class='dashboard-value'><span id='TOP16-Value'>--</span> W</span><span id='TOP16-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-section-title'>Heating curve</div>
+        <div class='dashboard-row'><span>Curve base high</span><div class='dashboard-control'><button class='dashboard-step' onclick='stepHeatingCurveBase("high",-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='HeatingCurveBaseHigh-Value'>--</span> &deg;C</span><button class='dashboard-step' onclick='stepHeatingCurveBase("high",1)' aria-label='Increase'>&#8963;</button></div></div>
+        <div class='dashboard-row'><span>Curve base low</span><div class='dashboard-control'><button class='dashboard-step' onclick='stepHeatingCurveBase("low",-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='HeatingCurveBaseLow-Value'>--</span> &deg;C</span><button class='dashboard-step' onclick='stepHeatingCurveBase("low",1)' aria-label='Increase'>&#8963;</button></div></div>
+        <div class='dashboard-row'><span>Panasonic effective high</span><span class='dashboard-value'><span id='HeatingCurveEffectiveHigh-Value'>--</span> &deg;C</span></div>
+        <div class='dashboard-row'><span>Panasonic effective low</span><span class='dashboard-value'><span id='HeatingCurveEffectiveLow-Value'>--</span> &deg;C</span></div>
+        <div class='dashboard-row'><span>Outside high</span><span class='dashboard-value'><span id='TOP31-Value'>--</span> &deg;C</span><span id='TOP31-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Outside low</span><span class='dashboard-value'><span id='TOP32-Value'>--</span> &deg;C</span><span id='TOP32-Description' class='dashboard-hidden'></span></div>
+      </div>
+    </section>
+
+    <section class='dashboard-column'>
+      <h2 class='dashboard-title'>DHW</h2>
+      <div class='dashboard-section'>
+        <div class='dashboard-row'>
+          <span>DHW setpoint</span>
+          <div class='dashboard-control'><button class='dashboard-step' onclick="stepDashboardValue('SetDHWTemp','TOP9',-1,40,75)" aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='TOP9-Value'>--</span> &deg;C</span><span id='TOP9-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="stepDashboardValue('SetDHWTemp','TOP9',1,40,75)" aria-label='Increase'>&#8963;</button></div>
+        </div>
+        <div class='dashboard-row'><span>DHW actual</span><span class='dashboard-value'><span id='TOP10-Value'>--</span> &deg;C</span><span id='TOP10-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Sterilization setpoint</span><span class='dashboard-value'><span id='TOP70-Value'>--</span> &deg;C</span><span id='TOP70-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'>
+          <span>Force DHW</span>
+          <div class='dashboard-control'><span id='TOP2-Description' class='dashboard-value'>--</span><span id='TOP2-Value' class='dashboard-hidden'></span><div class='dashboard-workflow-actions'><button id='startDhwButton' class='btn btn-ghost' onclick="startDashboardWorkflow('dhw')">Start</button><button id='cancelDhwButton' class='btn btn-danger' onclick="cancelDashboardWorkflow('dhw')">Cancel</button></div></div>
+        </div>
+        <div class='dashboard-row'>
+          <span>Force sterilization</span>
+          <div class='dashboard-control'><span id='TOP69-Description' class='dashboard-value'>--</span><span id='TOP69-Value' class='dashboard-hidden'></span><div class='dashboard-workflow-actions'><button id='startSterilizationButton' class='btn btn-ghost' onclick="startDashboardWorkflow('sterilization')">Start</button><button id='cancelSterilizationButton' class='btn btn-danger' onclick="cancelDashboardWorkflow('sterilization')">Cancel</button></div></div>
+        </div>
+        <div class='dashboard-section-title'>DHW power</div>
+        <div class='dashboard-row'><span>Production</span><span class='dashboard-value'><span id='TOP40-Value'>--</span> W</span><span id='TOP40-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Consumption</span><span class='dashboard-value'><span id='TOP41-Value'>--</span> W</span><span id='TOP41-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-section-title'>Sterilization</div>
+        <div class='dashboard-row'><span>Maximum duration</span><span class='dashboard-value'><span id='TOP71-Value'>--</span> min</span><span id='TOP71-Description' class='dashboard-hidden'></span></div>
+        <div id='dashboardCommandStatus' class='dashboard-command-status'></div>
+      </div>
+    </section>
+  </div>
+</main>
+<script src='/webui/websocket.js?v=0.1.0'></script>
+<script src='/webui/dashboard.js?v=0.1.0'></script>
+</body>
+</html>

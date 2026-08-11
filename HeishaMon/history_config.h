@@ -22,8 +22,10 @@
 #define HEISHAMON_SD_MOSI_PIN 35
 #endif
 
-#ifndef HEISHAMON_SD_FREQUENCY
-#define HEISHAMON_SD_FREQUENCY 4000000UL
+// Native 1-bit SDMMC transfer clock. The card is initialized at the protocol's
+// required low speed before switching to this frequency.
+#ifndef HEISHAMON_SDMMC_FREQUENCY_KHZ
+#define HEISHAMON_SDMMC_FREQUENCY_KHZ 10000
 #endif
 
 #ifndef HEISHAMON_HISTORY_DEFAULT_INTERVAL_SECONDS

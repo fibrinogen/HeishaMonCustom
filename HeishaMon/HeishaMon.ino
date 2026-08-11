@@ -1063,16 +1063,6 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
           return 0;
         } else if (strcmp_P((char *)dat, PSTR("/")) == 0) {
           client->route = 1;
-        } else if (strcmp_P((char *)dat, PSTR("/dashboard")) == 0) {
-          client->route = 10;
-        } else if (strcmp_P((char *)dat, PSTR("/wpsettings")) == 0) {
-          client->route = 11;
-        } else if (strcmp_P((char *)dat, PSTR("/scheduler")) == 0) {
-          client->route = 12;
-        } else if (strcmp_P((char *)dat, PSTR("/smartdhw")) == 0) {
-          client->route = 13;
-        } else if (strcmp_P((char *)dat, PSTR("/hardware")) == 0) {
-          client->route = 21;
         } else if (strcmp_P((char *)dat, PSTR("/hardwareapi")) == 0) {
           client->route = 22;
         } else if (strcmp_P((char *)dat, PSTR("/json")) == 0) {
@@ -1316,21 +1306,6 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
           case 1: {
               return handleRoot(client, readpercentage, mqttReconnects, &heishamonSettings);
             } break;
-          case 10: {
-              return handleDashboard(client);
-            } break;
-          case 11: {
-              return handleWpSettings(client);
-            } break;
-          case 12: {
-              return handleScheduler(client);
-            } break;
-          case 13: {
-              return handleSmartDhw(client);
-            } break;
-          case 21: {
-              return handleHardware(client);
-            } break;
           case 22: {
               return handleHardwareApi(client, actData, &heishamonSettings);
             } break;
@@ -1493,6 +1468,7 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
       } break;
     case WEBSERVER_CLIENT_CREATE_HEADER: {
         struct header_t *header = (struct header_t *)dat;
+        if (customFeaturesHandleHeader(client, header)) return 0;
         switch (client->route) {
           case 113: {
               header->ptr += sprintf_P((char *)header->buffer, PSTR("Location: /settings"));

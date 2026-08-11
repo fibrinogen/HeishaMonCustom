@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>Heisha Monitor</title>
+<link rel='stylesheet' href='/webui/styles.css?v={{WEBUI_VERSION}}'>
+<script src='/webui/common.js?v={{WEBUI_VERSION}}'></script>
+</head>
+<body>
+<div class='sidemenu-overlay' id='menuOverlay' onclick='closeMenu()'></div>
+<aside class='sidemenu' id='sideMenu'>
+  <div class='sidemenu-header'>
+    <h2>HeishaMon</h2>
+    <p id='sideVersion'>Custom build {{CUSTOM_VERSION}}<br><small>Base: {{BASE_VERSION}}</small></p>
+  </div>
+  <div class='theme-toggle'>
+    <label class='theme-toggle-label'><span class='nav-icon'>☀</span> Dark Mode</label>
+    <label class='theme-switch'><input type='checkbox' id='darkModeToggle' onchange='toggleDarkMode()'><span class='theme-slider'></span></label>
+  </div>
+  <nav class='sidemenu-nav' id='sideNav'></nav>
+  <div class='sidemenu-footer'><a href='https://github.com/heishamon/HeishaMon' target='_blank'>GitHub</a></div>
+</aside>
+<header class='topbar'>
+  <div class='topbar-left'><button class='hamburger' onclick='toggleMenu()'>&#9776;</button><a class='topbar-logo' href='/'>Heisha<span>Mon</span></a></div>
+  <div class='topbar-right'></div>
+</header>
+<script>document.title='Settings - HeishaMon';</script>
+<main class='main-content wp-settings-page'>
+  <div class='wp-settings-columns'>
+    <section class='dashboard-column'>
+      <h2 class='dashboard-title wp-settings-service-title'>SERVICE &amp; ADVANCED</h2>
+      <div class='dashboard-section'>
+        <div class='wp-settings-note'>Changes in this section directly affect heat pump service parameters.</div>
+        <div class='dashboard-row'><span>Reset current error</span><button class='btn btn-danger wp-settings-button' onclick='wpResetError()'>RESET</button></div>
+        <div class='dashboard-section-title'>Water pump</div>
+        <div class='dashboard-row'><input id='wpMaxPumpSlider' class='wp-settings-slider' type='range' min='0' max='100' step='1' oninput="updCell('wpMaxPumpDraft',this.value+' %')"><button class='btn btn-primary wp-settings-button' onclick='wpSetMaxPump()'>SET</button></div>
+        <div class='dashboard-row'><span>Selected max flow</span><span id='wpMaxPumpDraft' class='dashboard-value'>--</span></div>
+        <div class='dashboard-row'><span>Current max flow</span><span id='wpMaxPumpCurrent' class='dashboard-value'>--</span><span id='TOP95-Value' class='dashboard-hidden'></span><span id='TOP95-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Service mode (100%)</span><div class='dashboard-workflow-actions'><button class='btn btn-ghost' onclick='wpSetServicePump(1)'>Start</button><button class='btn btn-danger' onclick='wpSetServicePump(0)'>Stop</button></div></div>
+        <div class='dashboard-section-title'>Defrost</div>
+        <div class='dashboard-row'><span>Force defrost routine</span><button class='btn btn-primary wp-settings-button' onclick='wpForceDefrost()'>DEFROST</button></div>
+        <div class='dashboard-row'><span>Defrosting state</span><span id='TOP26-Description' class='dashboard-value'>--</span><span id='TOP26-Value' class='dashboard-hidden'></span></div>
+        <div class='dashboard-section-title'>Backup heater</div>
+        <div class='dashboard-row'><span>Start delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetHeaterStartDelta','TOP97',-1,-10,-2)">&#8964;</button><span class='dashboard-value'><span id='TOP97-Value'>--</span> &deg;C</span><span id='TOP97-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetHeaterStartDelta','TOP97',1,-10,-2)">&#8963;</button></div></div>
+        <div class='dashboard-row'><span>Stop delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetHeaterStopDelta','TOP98',-1,-8,0)">&#8964;</button><span class='dashboard-value'><span id='TOP98-Value'>--</span> &deg;C</span><span id='TOP98-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetHeaterStopDelta','TOP98',1,-8,0)">&#8963;</button></div></div>
+        <div class='dashboard-row'><span>Delay time</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetHeaterDelayTime','TOP96',-5,0,60)">&#8964;</button><span class='dashboard-value'><span id='TOP96-Value'>--</span> min</span><span id='TOP96-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetHeaterDelayTime','TOP96',5,0,60)">&#8963;</button></div></div>
+      </div>
+    </section>
+
+    <section class='dashboard-column'>
+      <h2 class='dashboard-title'>SYSTEM CONFIGURATION</h2>
+      <div class='dashboard-section'>
+        <div class='dashboard-row'><span>Panasonic main scheduler</span><div class='dashboard-control'><span id='TOP13-Description' class='dashboard-value'>--</span><span id='TOP13-Value' class='dashboard-hidden'></span><label class='dashboard-toggle'><input id='wpScheduleToggle' type='checkbox' onchange="wpToggle(this,'SetMainSchedule')"><span class='dashboard-toggle-slider'></span></label></div></div>
+        <div class='dashboard-row'><label for='wpZones'>Active zones</label><select id='wpZones' class='wp-settings-select' onchange="wpSelectCommand(this,'SetZones')"><option value='0'>Zone 1</option><option value='1'>Zone 2</option><option value='2'>Zone 1 + 2</option></select><span id='TOP94-Value' class='dashboard-hidden'></span><span id='TOP94-Description' class='dashboard-hidden'></span></div>
+      </div>
+    </section>
+
+    <section class='dashboard-column'>
+      <h2 class='dashboard-title'>HEAT</h2>
+      <div class='dashboard-section'>
+        <div class='dashboard-row'><span>Heat delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetFloorHeatDelta','TOP23',-1,1,15)">&#8964;</button><span class='dashboard-value'><span id='TOP23-Value'>--</span> &deg;C</span><span id='TOP23-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetFloorHeatDelta','TOP23',1,1,15)">&#8963;</button></div></div>
+        <div class='dashboard-row' id='wpBufferDeltaRow'><span>Buffer tank delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetBufferDelta','TOP113',-1,0,10)">&#8964;</button><span class='dashboard-value'><span id='TOP113-Value'>--</span> &deg;C</span><span id='TOP113-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetBufferDelta','TOP113',1,0,10)">&#8963;</button></div><span id='TOP99-Value' class='dashboard-hidden'></span><span id='TOP99-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row'><span>Cool delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetFloorCoolDelta','TOP24',-1,1,15)">&#8964;</button><span class='dashboard-value'><span id='TOP24-Value'>--</span> &deg;C</span><span id='TOP24-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetFloorCoolDelta','TOP24',1,1,15)">&#8963;</button></div></div>
+        <div class='dashboard-section-title'>Custom - Heat water temp limits</div>
+        <div class='dashboard-row'><span>Minimum temp.</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpConfigStep('heatMin',-1)">&#8964;</button><span class='dashboard-value'><span id='wpHeatMinValue'>--</span> &deg;C</span><button class='dashboard-step' onclick="wpConfigStep('heatMin',1)">&#8963;</button></div></div>
+        <div class='dashboard-row'><span>Maximum temp.</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpConfigStep('heatMax',-1)">&#8964;</button><span class='dashboard-value'><span id='wpHeatMaxValue'>--</span> &deg;C</span><button class='dashboard-step' onclick="wpConfigStep('heatMax',1)">&#8963;</button></div></div>
+        <div class='wp-settings-note'>These limits constrain direct Zone 1 water-temperature changes on Dashboard.</div>
+      </div>
+    </section>
+
+    <section class='dashboard-column'>
+      <h2 class='dashboard-title'>DHW SETTINGS</h2>
+      <div class='dashboard-section'>
+        <div class='dashboard-row'><span>DHW delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetDHWHeatDelta','TOP22',-1,-12,-2)">&#8964;</button><span class='dashboard-value'><span id='TOP22-Value'>--</span> &deg;C</span><span id='TOP22-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetDHWHeatDelta','TOP22',1,-12,-2)">&#8963;</button></div></div>
+        <div class='dashboard-section-title'>Limits</div>
+        <div class='dashboard-row'><span>Block Force DHW above</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpConfigStep('dhwBlockAbove',-1)">&#8964;</button><span class='dashboard-value'><span id='wpDhwBlockValue'>--</span> &deg;C</span><button class='dashboard-step' onclick="wpConfigStep('dhwBlockAbove',1)">&#8963;</button></div></div>
+        <div class='wp-settings-note'>This limit blocks the Force DHW workflow on Dashboard when the tank is already warm enough.</div>
+        <div id='wpSettingsStatus' class='dashboard-command-status'></div>
+      </div>
+    </section>
+  </div>
+</main>
+<script src='/webui/websocket.js?v={{WEBUI_VERSION}}'></script>
+<script src='/webui/wpsettings.js?v={{WEBUI_VERSION}}'></script>
+</body>
+</html>

@@ -723,8 +723,6 @@ input:checked + .theme-slider:before {
   transform:translateX(20px);
 }
 
-
-
 /* ═══════════════════════════════════════════════════════════════════════
    DARK MODE SPECIFIC OVERRIDES
    ═══════════════════════════════════════════════════════════════════════ */
@@ -760,18 +758,18 @@ static const char webHeader[] FLASHPROG = R"====(
 <meta name='viewport' content='width=device-width, initial-scale=1'>
 <title>Heisha Monitor</title>
 <script>
-(function(){
-  function getCookie(name){
-    var nameEQ=name+"=";
-    var ca=document.cookie.split(';');
-    for(var i=0;i<ca.length;i++){
-      var c=ca[i];
-      while(c.charAt(0)==' ')c=c.substring(1,c.length);
-      if(c.indexOf(nameEQ)==0)return c.substring(nameEQ.length,c.length);
-    }
-    return null;
+function hmGetCookie(name){
+  var prefix=name+'=',cookies=document.cookie.split(';');
+  for(var i=0;i<cookies.length;i++){
+    var value=cookies[i].trim();
+    if(value.indexOf(prefix)===0)return value.substring(prefix.length);
   }
-  var darkMode=getCookie('darkMode');
+  return null;
+}
+function hmEscape(value){return String(value===undefined||value===null?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function hmPad(value){return String(value).padStart(2,'0')}
+(function(){
+  var darkMode=hmGetCookie('darkMode');
   var wantDark = darkMode==='true' || (darkMode===null && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
   if(wantDark){
     document.documentElement.classList.add('dark-mode-loading');
@@ -903,17 +901,6 @@ function setCookie(name, value, days) {
   document.cookie = name + "=" + (value || "") + expires + "; path=/";
 }
 
-function getCookie(name) {
-  var nameEQ = name + "=";
-  var ca = document.cookie.split(';');
-  for(var i = 0; i < ca.length; i++) {
-    var c = ca[i];
-    while (c.charAt(0) == ' ') c = c.substring(1, c.length);
-    if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length, c.length);
-  }
-  return null;
-}
-
 function toggleDarkMode() {
   var toggle = document.getElementById('darkModeToggle');
   var html = document.documentElement;
@@ -928,7 +915,7 @@ function toggleDarkMode() {
 }
 
 function initDarkMode() {
-  var darkMode = getCookie('darkMode');
+  var darkMode = hmGetCookie('darkMode');
   var toggle = document.getElementById('darkModeToggle');
   var html = document.documentElement;
 
@@ -1478,24 +1465,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Side nav links and status bar for root page
 static const char webBodyRoot1[] FLASHPROG = R"====(
-<script>
-document.addEventListener('DOMContentLoaded',function(){
-  var nav=document.getElementById('sideNav');
-  nav.innerHTML=`
-<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
-<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
-<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
-<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
-<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
-<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
-<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
-<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
-<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>
-`;
-});
-</script>
 <div class='main-content'>
 <div class='statusbar' id='statusBar'>
   <div class='status-chip'><span class='status-dot'></span><span class='chip-label'>WiFi</span><span class='chip-value' id='wifi'>—</span><span style='color:var(--text-muted);font-size:11px'>%</span></div>
@@ -1617,963 +1586,6 @@ static const char webBodyRootConsole[] FLASHPROG = R"====(
 )====";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DASHBOARD PAGE
-// ─────────────────────────────────────────────────────────────────────────────
-static const char webBodyDashboard[] FLASHPROG = R"====(
-<script>
-document.addEventListener('DOMContentLoaded',function(){
-  document.title='Dashboard - HeishaMon';
-  document.getElementById('sideNav').innerHTML=`
-<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
-<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
-<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
-<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
-<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
-<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
-<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
-<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
-<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>`;
-});
-</script>
-<main class='main-content dashboard-page'>
-  <div class='dashboard-columns'>
-    <section class='dashboard-column'>
-      <h2 class='dashboard-title'>HEAT PUMP</h2>
-      <div class='dashboard-section'>
-        <div class='dashboard-row'>
-          <span class='dashboard-row-label'>Heat pump power</span>
-          <div class='dashboard-control'>
-            <span id='TOP0-Description' class='dashboard-value'>--</span><span id='TOP0-Value' class='dashboard-hidden'></span>
-            <label class='dashboard-toggle'><input id='heatpumpToggle' type='checkbox' onchange="setDashboardToggle(this,'SetHeatpump')"><span class='dashboard-toggle-slider'></span></label>
-          </div>
-        </div>
-        <div class='dashboard-section-title'>Quick controls</div>
-        <div class='dashboard-row'><label for='dashboardOperationMode'>Operating mode</label><select id='dashboardOperationMode' class='wp-settings-select' onchange="setDashboardSelect(this,'SetOperationMode')"><option value='0'>Heat only</option><option value='1'>Cool only</option><option value='2'>Auto</option><option value='3'>DHW only</option><option value='4'>Heat + DHW</option><option value='5'>Cool + DHW</option><option value='6'>Auto + DHW</option></select><span id='TOP4-Value' class='dashboard-hidden'></span><span id='TOP4-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><label for='dashboardQuietMode'>Quiet mode</label><select id='dashboardQuietMode' class='wp-settings-select' onchange="setDashboardSelect(this,'SetQuietMode')"><option value='0'>Off</option><option value='1'>Level 1</option><option value='2'>Level 2</option><option value='3'>Level 3</option></select><span id='TOP18-Value' class='dashboard-hidden'></span><span id='TOP18-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><label for='dashboardPowerfulMode'>Powerful mode</label><select id='dashboardPowerfulMode' class='wp-settings-select' onchange="setDashboardSelect(this,'SetPowerfulMode')"><option value='0'>Off</option><option value='1'>30 min</option><option value='2'>60 min</option><option value='3'>90 min</option></select><span id='TOP17-Value' class='dashboard-hidden'></span><span id='TOP17-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Valve position</span><span id='TOP20-Description' class='dashboard-value'>--</span><span id='TOP20-Value' class='dashboard-hidden'></span></div>
-        <div class='dashboard-section-title'>Water temperature</div>
-        <div class='dashboard-row'><span>Outlet setpoint</span><span class='dashboard-value'><span id='TOP7-Value'>--</span> &deg;C</span><span id='TOP7-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Outlet actual</span><span class='dashboard-value'><span id='TOP6-Value'>--</span> &deg;C</span><span id='TOP6-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Inlet actual</span><span class='dashboard-value'><span id='TOP5-Value'>--</span> &deg;C</span><span id='TOP5-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-gauges'>
-          <div class='dashboard-gauge'>Water flow
-            <svg viewBox='0 0 120 68' aria-label='Water flow gauge'><path class='dashboard-gauge-track' d='M10 62 A50 50 0 0 1 110 62'/><path id='TOP1-Gauge' class='dashboard-gauge-fill' pathLength='100' stroke-dasharray='100' stroke-dashoffset='100' d='M10 62 A50 50 0 0 1 110 62'/></svg>
-            <div class='dashboard-gauge-reading'><span id='TOP1-Value'>--</span><span class='dashboard-gauge-unit'>L/min</span></div><span id='TOP1-Description' class='dashboard-hidden'></span>
-            <div class='dashboard-gauge-scale'><span>0</span><span>35</span></div>
-          </div>
-          <div class='dashboard-gauge'>Frequency
-            <svg viewBox='0 0 120 68' aria-label='Compressor frequency gauge'><path class='dashboard-gauge-track' d='M10 62 A50 50 0 0 1 110 62'/><path id='TOP8-Gauge' class='dashboard-gauge-fill' pathLength='100' stroke-dasharray='100' stroke-dashoffset='100' d='M10 62 A50 50 0 0 1 110 62'/></svg>
-            <div class='dashboard-gauge-reading'><span id='TOP8-Value'>--</span><span class='dashboard-gauge-unit'>Hz</span></div><span id='TOP8-Description' class='dashboard-hidden'></span>
-            <div class='dashboard-gauge-scale'><span>0</span><span>120</span></div>
-          </div>
-        </div>
-        <div class='dashboard-row'><span>Pump speed</span><span class='dashboard-value'><span id='TOP65-Value'>--</span> rpm</span><span id='TOP65-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-section-title'></div>
-        <div class='dashboard-row'><span>Operating hours</span><span class='dashboard-value'><span id='TOP11-Value'>--</span> h</span><span id='TOP11-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Fan 1</span><span class='dashboard-value'><span id='TOP62-Value'>--</span> rpm</span><span id='TOP62-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Internal heater</span><span id='TOP60-Description' class='dashboard-value'>--</span><span id='TOP60-Value' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Outside temperature</span><span class='dashboard-value'><span id='TOP14-Value'>--</span> &deg;C</span><span id='TOP14-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Error</span><span id='TOP44-Value' class='dashboard-value'>--</span><span id='TOP44-Description' class='dashboard-hidden'></span></div>
-      </div>
-    </section>
-
-    <section class='dashboard-column'>
-      <h2 class='dashboard-title'>HEAT (zone 1)</h2>
-      <div class='dashboard-section'>
-        <div class='dashboard-row'><span>Zone 1</span><span id='TOP94-Description' class='dashboard-value'>--</span><span id='TOP94-Value' class='dashboard-hidden'></span></div>
-        <div id='TOP27-Semantic-Row' class='dashboard-row' style='display:none'>
-          <span id='TOP27-Semantic-Label'>Zone 1 request</span>
-          <div id='TOP27-Semantic-Control' class='dashboard-control'><button id='TOP27-Semantic-Recover' class='btn btn-ghost' onclick='recoverZone1Heat()' style='display:none'>Set valid</button><button class='dashboard-step' onclick='stepZone1Heat(-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='TOP27-Semantic-Value'>--</span> <span id='TOP27-Semantic-Unit'></span></span><button class='dashboard-step' onclick='stepZone1Heat(1)' aria-label='Increase'>&#8963;</button></div>
-        </div>
-        <div id='HeatingCurveShift-Row' class='dashboard-row' style='display:none'>
-          <span>Heating curve shift</span>
-          <div id='HeatingCurveShift-Control' class='dashboard-control'><button class='dashboard-step' onclick='stepHeatingCurveShift(-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='HeatingCurveShift-Value'>--</span> K</span><button class='dashboard-step' onclick='stepHeatingCurveShift(1)' aria-label='Increase'>&#8963;</button></div>
-        </div>
-        <div class='dashboard-section-title'>Temperatures</div>
-        <div class='dashboard-row'><span>Water target</span><span class='dashboard-value'><span id='TOP42-Value'>--</span> &deg;C</span><span id='TOP42-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Room actual</span><span class='dashboard-value'><span id='TOP56-Value'>--</span> &deg;C</span><span id='TOP56-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Heating mode</span><span id='TOP76-Description' class='dashboard-value'>--</span><span id='TOP76-Value' class='dashboard-hidden'></span></div>
-        <div class='dashboard-section-title'>Heating power</div>
-        <div class='dashboard-row'><span>Production</span><span class='dashboard-value'><span id='TOP15-Value'>--</span> W</span><span id='TOP15-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Consumption</span><span class='dashboard-value'><span id='TOP16-Value'>--</span> W</span><span id='TOP16-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-section-title'>Heating curve</div>
-        <div class='dashboard-row'><span>Curve base high</span><div class='dashboard-control'><button class='dashboard-step' onclick='stepHeatingCurveBase("high",-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='HeatingCurveBaseHigh-Value'>--</span> &deg;C</span><button class='dashboard-step' onclick='stepHeatingCurveBase("high",1)' aria-label='Increase'>&#8963;</button></div></div>
-        <div class='dashboard-row'><span>Curve base low</span><div class='dashboard-control'><button class='dashboard-step' onclick='stepHeatingCurveBase("low",-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='HeatingCurveBaseLow-Value'>--</span> &deg;C</span><button class='dashboard-step' onclick='stepHeatingCurveBase("low",1)' aria-label='Increase'>&#8963;</button></div></div>
-        <div class='dashboard-row'><span>Panasonic effective high</span><span class='dashboard-value'><span id='HeatingCurveEffectiveHigh-Value'>--</span> &deg;C</span></div>
-        <div class='dashboard-row'><span>Panasonic effective low</span><span class='dashboard-value'><span id='HeatingCurveEffectiveLow-Value'>--</span> &deg;C</span></div>
-        <div class='dashboard-row'><span>Outside high</span><span class='dashboard-value'><span id='TOP31-Value'>--</span> &deg;C</span><span id='TOP31-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Outside low</span><span class='dashboard-value'><span id='TOP32-Value'>--</span> &deg;C</span><span id='TOP32-Description' class='dashboard-hidden'></span></div>
-      </div>
-    </section>
-
-    <section class='dashboard-column'>
-      <h2 class='dashboard-title'>DHW</h2>
-      <div class='dashboard-section'>
-        <div class='dashboard-row'>
-          <span>DHW setpoint</span>
-          <div class='dashboard-control'><button class='dashboard-step' onclick="stepDashboardValue('SetDHWTemp','TOP9',-1,40,75)" aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='TOP9-Value'>--</span> &deg;C</span><span id='TOP9-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="stepDashboardValue('SetDHWTemp','TOP9',1,40,75)" aria-label='Increase'>&#8963;</button></div>
-        </div>
-        <div class='dashboard-row'><span>DHW actual</span><span class='dashboard-value'><span id='TOP10-Value'>--</span> &deg;C</span><span id='TOP10-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Sterilization setpoint</span><span class='dashboard-value'><span id='TOP70-Value'>--</span> &deg;C</span><span id='TOP70-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'>
-          <span>Force DHW</span>
-          <div class='dashboard-control'><span id='TOP2-Description' class='dashboard-value'>--</span><span id='TOP2-Value' class='dashboard-hidden'></span><div class='dashboard-workflow-actions'><button id='startDhwButton' class='btn btn-ghost' onclick="startDashboardWorkflow('dhw')">Start</button><button id='cancelDhwButton' class='btn btn-danger' onclick="cancelDashboardWorkflow('dhw')">Cancel</button></div></div>
-        </div>
-        <div class='dashboard-row'>
-          <span>Force sterilization</span>
-          <div class='dashboard-control'><span id='TOP69-Description' class='dashboard-value'>--</span><span id='TOP69-Value' class='dashboard-hidden'></span><div class='dashboard-workflow-actions'><button id='startSterilizationButton' class='btn btn-ghost' onclick="startDashboardWorkflow('sterilization')">Start</button><button id='cancelSterilizationButton' class='btn btn-danger' onclick="cancelDashboardWorkflow('sterilization')">Cancel</button></div></div>
-        </div>
-        <div class='dashboard-section-title'>DHW power</div>
-        <div class='dashboard-row'><span>Production</span><span class='dashboard-value'><span id='TOP40-Value'>--</span> W</span><span id='TOP40-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Consumption</span><span class='dashboard-value'><span id='TOP41-Value'>--</span> W</span><span id='TOP41-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-section-title'>Sterilization</div>
-        <div class='dashboard-row'><span>Maximum duration</span><span class='dashboard-value'><span id='TOP71-Value'>--</span> min</span><span id='TOP71-Description' class='dashboard-hidden'></span></div>
-        <div id='dashboardCommandStatus' class='dashboard-command-status'></div>
-      </div>
-    </section>
-  </div>
-</main>
-)====";
-
-static const char dashboardJS[] FLASHPROG = R"====(
-<script>
-var dashboardValues={};
-var dashboardWorkflow={type:'none',stage:'idle',previousMode:-1,message:'Loading workflow status ...'};
-var dashboardWpConfig={heatMin:20,heatMax:65,dhwBlockAbove:75};
-var dashboardRefreshTimer=null;
-var dashboardRefreshPromise=null;
-var dashboardCommandBusy=false;
-var dashboardStepTimers={};
-var dashboardStepDebounceMs=1000;
-var dashboardSemantic=null;
-var dashboardCurveShift=null;
-var dashboardTemperatureTopics={TOP5:1,TOP6:1,TOP7:1,TOP9:1,TOP10:1,TOP14:1,TOP29:1,TOP30:1,TOP31:1,TOP32:1,TOP42:1,TOP56:1,TOP70:1};
-function dashboardDisplayValue(topic,value){
-  if(dashboardTemperatureTopics[topic]){
-    var numeric=Number(value);
-    if(!Number.isFinite(numeric)||numeric < -60||numeric > 150)return 'N/A';
-  }
-  return String(value);
-}
-function renderDashboardHeatRequest(){
-  var row=document.getElementById('TOP27-Semantic-Row');
-  var label=document.getElementById('TOP27-Semantic-Label');
-  var value=document.getElementById('TOP27-Semantic-Value');
-  var unit=document.getElementById('TOP27-Semantic-Unit');
-  var control=document.getElementById('TOP27-Semantic-Control');
-  var recover=document.getElementById('TOP27-Semantic-Recover');
-  if(!row||!label||!value||!unit||!control)return;
-  if(!dashboardSemantic||dashboardSemantic.semantic==='heatCurveShift'){row.style.display='none';return;}
-  row.style.display='flex';
-  label.textContent=dashboardSemantic.label||'Zone 1 request';
-  unit.textContent=dashboardSemantic.unit||'';
-  var raw=Number(dashboardSemantic.rawValue);
-  var rawValid=dashboardSemantic.rawValidForSemantic===true&&Number.isFinite(raw);
-  var semanticKnown=dashboardSemantic.semanticKnown===true||(!!dashboardSemantic.semantic&&dashboardSemantic.semantic!=='unknown');
-  var editable=semanticKnown&&dashboardSemantic.writable===true;
-  value.textContent=rawValid?String(raw):(Number.isFinite(raw)?(semanticKnown?'Invalid (raw: '+String(raw)+')':'Unknown (raw: '+String(raw)+')'):'N/A');
-  control.querySelectorAll('button').forEach(function(button){button.style.display=editable?'inline-flex':'none';});
-  if(recover){recover.textContent=dashboardSemantic.semantic==='heatCurveShift'?'Set 0':'Set valid';recover.style.display=editable&&!rawValid?'inline-flex':'none';}
-}
-function renderDashboardCurveShift(){
-  var row=document.getElementById('HeatingCurveShift-Row');
-  var control=document.getElementById('HeatingCurveShift-Control');
-  var value=document.getElementById('HeatingCurveShift-Value');
-  var endpoint=dashboardCurveShift&&dashboardCurveShift.implementation==='curveEndpoints';
-  var available=!!(dashboardCurveShift&&dashboardCurveShift.available);
-  if(row)row.style.display=available?'flex':'none';
-  if(value)value.textContent=available&&dashboardCurveShift.valueValid!==false?String(dashboardCurveShift.shift):(available&&dashboardCurveShift.rawValue!==null?'Invalid (raw: '+String(dashboardCurveShift.rawValue)+')':'N/A');
-  if(control)control.querySelectorAll('button').forEach(function(button){button.disabled=!available||dashboardCurveShift.writable!==true;});
-  var high=document.getElementById('HeatingCurveBaseHigh-Value'),low=document.getElementById('HeatingCurveBaseLow-Value');
-  var effectiveHigh=document.getElementById('HeatingCurveEffectiveHigh-Value'),effectiveLow=document.getElementById('HeatingCurveEffectiveLow-Value');
-  if(high)high.textContent=endpoint?String(dashboardCurveShift.baseTargetHigh):'N/A';
-  if(low)low.textContent=endpoint?String(dashboardCurveShift.baseTargetLow):'N/A';
-  if(effectiveHigh)effectiveHigh.textContent=endpoint?String(dashboardCurveShift.effectiveTargetHigh):'N/A';
-  if(effectiveLow)effectiveLow.textContent=endpoint?String(dashboardCurveShift.effectiveTargetLow):'N/A';
-  [high,low].forEach(function(span){if(span){var r=span.closest('.dashboard-row');if(r)r.style.display=endpoint?'flex':'none';}});
-  [effectiveHigh,effectiveLow].forEach(function(span){if(span){var r=span.closest('.dashboard-row');if(r)r.style.display=endpoint?'flex':'none';}});
-}
-function dashboardItems(data){
-  return [].concat(data.heatpump||[],data['heatpump extra']||[],data['heatpump optional']||[]);
-}
-function renderDashboard(data){
-  var items=dashboardItems(data);
-  items.forEach(function(item){
-    dashboardValues[item.Topic]=item.Value;
-  });
-  items.forEach(function(item){
-    updCell(item.Topic+'-Value',dashboardDisplayValue(item.Topic,item.Value));
-    updCell(item.Topic+'-Description',String(item.Description));
-  });
-  renderDashboardHeatRequest();
-  syncDashboardControls();
-}
-function refreshDashboard(){
-  if(dashboardRefreshPromise)return dashboardRefreshPromise;
-  dashboardRefreshPromise=fetch('/json',{cache:'no-store'}).then(function(response){
-    if(!response.ok)throw new Error('HTTP '+response.status);
-    return response.json();
-  }).then(renderDashboard).then(function(){return fetch('/zone1heatsemantic',{cache:'no-store'});}).then(function(response){
-    if(!response.ok)throw new Error('HTTP '+response.status);
-    return response.json();
-  }).then(function(data){dashboardSemantic=data;renderDashboardHeatRequest();return fetch('/heatingcurveshift',{cache:'no-store'});}).then(function(response){
-    if(!response.ok)throw new Error('HTTP '+response.status);
-    return response.json();
-  }).then(function(data){dashboardCurveShift=data;renderDashboardCurveShift();return refreshDashboardWorkflow();}).then(function(){return fetch('/wpsettingsconfig',{cache:'no-store'});}).then(function(response){
-    if(!response.ok)throw new Error('HTTP '+response.status);
-    return response.json();
-  }).then(function(data){dashboardWpConfig=data;dashboardRefreshPromise=null;syncDashboardControls();}).catch(function(error){
-    dashboardRefreshPromise=null;
-    setDashboardStatus('Update failed: '+error.message,true);
-  });
-  return dashboardRefreshPromise;
-}
-function refreshDashboardWorkflow(){
-  return fetch('/dashboardworkflow',{cache:'no-store'}).then(function(response){
-    if(!response.ok)throw new Error('HTTP '+response.status);
-    return response.json();
-  }).then(function(data){
-    dashboardWorkflow=data;
-    syncDashboardControls();
-  }).catch(function(error){
-    setDashboardStatus('Workflow status failed: '+error.message,true);
-  });
-}
-function setGauge(topic,max){
-  var path=document.getElementById(topic+'-Gauge');
-  var value=parseFloat(dashboardValues[topic]);
-  if(path&&!isNaN(value)){
-    var percent=Math.max(0,Math.min(100,value/max*100));
-    path.style.strokeDashoffset=String(100-percent);
-  }
-}
-function setToggle(id,topic){
-  var toggle=document.getElementById(id);
-  if(toggle)toggle.checked=Number(dashboardValues[topic])!==0;
-}
-function setDashboardSelectValue(id,value){
-  var select=document.getElementById(id);
-  if(select&&document.activeElement!==select&&!isNaN(Number(value)))select.value=String(value);
-}
-function syncDashboardControls(){
-  if(!dashboardCommandBusy)document.querySelectorAll('.dashboard-page button,.dashboard-page input,.dashboard-page select').forEach(function(control){control.disabled=false;});
-  setToggle('heatpumpToggle','TOP0');
-  var operationMode=Number(dashboardValues.TOP4);if(operationMode===7)operationMode=2;if(operationMode===8)operationMode=6;
-  setDashboardSelectValue('dashboardOperationMode',operationMode);
-  setDashboardSelectValue('dashboardQuietMode',dashboardValues.TOP18);
-  setDashboardSelectValue('dashboardPowerfulMode',dashboardValues.TOP17);
-  var busy=dashboardWorkflow.type!=='none';
-  var startDhw=document.getElementById('startDhwButton');
-  var cancelDhw=document.getElementById('cancelDhwButton');
-  var startSterilization=document.getElementById('startSterilizationButton');
-  var cancelSterilization=document.getElementById('cancelSterilizationButton');
-  if(startDhw)startDhw.disabled=busy||Number(dashboardValues.TOP2)!==0;
-  if(cancelDhw)cancelDhw.disabled=dashboardWorkflow.type!=='dhw';
-  if(startSterilization)startSterilization.disabled=busy||Number(dashboardValues.TOP69)!==0;
-  if(cancelSterilization)cancelSterilization.disabled=dashboardWorkflow.type!=='sterilization';
-  var workflowMessage=dashboardWorkflow.message;
-  if(!busy&&Number(dashboardValues.TOP69)!==0)workflowMessage='Sterilization is active outside the dashboard workflow';
-  else if(!busy&&Number(dashboardValues.TOP2)!==0)workflowMessage='Force DHW is active outside the dashboard workflow';
-  if(workflowMessage)setDashboardStatus(workflowMessage,false);
-  setGauge('TOP1',35);
-  setGauge('TOP8',120);
-  if(dashboardCommandBusy)document.querySelectorAll('.dashboard-page button,.dashboard-page input,.dashboard-page select').forEach(function(control){control.disabled=true;});
-}
-function setDashboardStatus(message,isError){
-  var status=document.getElementById('dashboardCommandStatus');
-  if(status){status.textContent=message||'';status.style.color=isError?'var(--red)':'var(--text-muted)';}
-}
-function sendDashboardCommand(command,value){
-  if(dashboardCommandBusy){setDashboardStatus('Please wait for the current command to finish',false);return Promise.resolve(false);}
-  dashboardCommandBusy=true;
-  syncDashboardControls();
-  setDashboardStatus('Sending '+command+' ...',false);
-  return fetch('/command?'+encodeURIComponent(command)+'='+encodeURIComponent(value),{cache:'no-store'}).then(function(response){
-    if(!response.ok)throw new Error('HTTP '+response.status);
-    return response.text();
-  }).then(function(message){
-    setDashboardStatus(message.trim()||'Command sent',false);
-    return new Promise(function(resolve){window.setTimeout(resolve,1400);});
-  }).then(function(){
-    dashboardCommandBusy=false;
-    syncDashboardControls();
-    refreshDashboard();
-    return true;
-  }).catch(function(error){
-    dashboardCommandBusy=false;
-    syncDashboardControls();
-    setDashboardStatus('Command failed: '+error.message,true);
-    throw error;
-  });
-}
-function setDashboardToggle(toggle,command){
-  toggle.disabled=true;
-  sendDashboardCommand(command,toggle.checked?1:0).catch(function(){toggle.checked=!toggle.checked;}).then(function(){toggle.disabled=false;});
-}
-function setDashboardSelect(select,command){
-  select.disabled=true;
-  sendDashboardCommand(command,select.value).then(function(){select.disabled=false;},function(){select.disabled=false;});
-}
-function sendDashboardWorkflow(action){
-  return sendDashboardCommand('DashboardWorkflow',action);
-}
-function startDashboardWorkflow(type){
-  var label=type==='dhw'?'forced DHW':'forced sterilization';
-  if(!window.confirm('Start '+label+' cycle?'))return;
-  sendDashboardWorkflow(type==='dhw'?'start_dhw':'start_sterilization');
-}
-function cancelDashboardWorkflow(type){
-  var label=type==='dhw'?'forced DHW':'forced sterilization';
-  if(!window.confirm('Cancel '+label+' and restore the previous operating mode?'))return;
-  sendDashboardWorkflow(type==='dhw'?'cancel_dhw':'cancel_sterilization');
-}
-function queueDashboardStep(command,topic,value){
-  if(dashboardStepTimers[topic])window.clearTimeout(dashboardStepTimers[topic]);
-  setDashboardStatus('Waiting to send '+command+' ...',false);
-  dashboardStepTimers[topic]=window.setTimeout(function(){
-    delete dashboardStepTimers[topic];
-    sendDashboardCommand(command,value).catch(function(){});
-  },dashboardStepDebounceMs);
-}
-function stepDashboardValue(command,topic,delta,min,max){
-  var current=parseFloat(dashboardValues[topic]);
-  if(isNaN(current))return;
-  var next=Math.max(min,Math.min(max,Math.round(current+delta)));
-  dashboardValues[topic]=next;
-  if(topic==='TOP27')renderDashboardHeatRequest();
-  else updCell(topic+'-Value',String(next));
-  queueDashboardStep(command,topic,next);
-}
-function stepZone1Heat(delta){
-  if(dashboardSemantic&&dashboardSemantic.semantic==='heatCurveShift'){stepHeatingCurveShift(delta);return;}
-  if(!dashboardSemantic||dashboardSemantic.writable!==true||dashboardSemantic.semanticKnown!==true){
-    setDashboardStatus('Zone 1 request is not writable for the current configuration',true);
-    return;
-  }
-  var current=Number(dashboardSemantic.rawValue);
-  var min=Number(dashboardSemantic.min);
-  var max=Number(dashboardSemantic.max);
-  var rawValid=dashboardSemantic.rawValidForSemantic===true&&Number.isFinite(current);
-  if(!rawValid)current=dashboardSemantic.semantic==='heatCurveShift'?0:min;
-  if(!Number.isFinite(min)||!Number.isFinite(max)){
-    setDashboardStatus('Zone 1 request value is unavailable',true);
-    return;
-  }
-  var next=Math.max(min,Math.min(max,Math.round(current+delta)));
-  var command=dashboardSemantic.semantic==='heatCurveShift'?'SetHeatingCurveShift':
-    dashboardSemantic.semantic==='heatingWaterTarget'?'SetZ1HeatingWaterTarget':
-    dashboardSemantic.semantic==='roomTarget'?'SetZ1RoomTarget':null;
-  if(command===null){setDashboardStatus('Unknown Zone 1 request semantics',true);return;}
-  dashboardSemantic.rawValue=next;
-  dashboardSemantic.rawValidForSemantic=true;
-  renderDashboardHeatRequest();
-  queueDashboardStep(command,'TOP27',next);
-}
-function stepHeatingCurveShift(delta){
-  if(!dashboardCurveShift||dashboardCurveShift.available!==true||dashboardCurveShift.writable!==true){setDashboardStatus('Heating curve shift is not writable for the current configuration',true);return;}
-  var current=Number(dashboardCurveShift.shift),min=Number(dashboardCurveShift.min),max=Number(dashboardCurveShift.max);
-  if(!Number.isFinite(current))current=0;
-  var next=Math.max(min,Math.min(max,Math.round(current+delta)));
-  dashboardCurveShift.shift=next;dashboardCurveShift.valueValid=true;renderDashboardCurveShift();
-  queueDashboardStep('SetHeatingCurveShift','HeatingCurveShift',next);
-}
-function stepHeatingCurveBase(which,delta){
-  if(!dashboardCurveShift||dashboardCurveShift.implementation!=='curveEndpoints'||dashboardCurveShift.writable!==true){setDashboardStatus('Heating curve base is not writable for the current configuration',true);return;}
-  var key=which==='high'?'baseTargetHigh':'baseTargetLow',current=Number(dashboardCurveShift[key]);
-  if(!Number.isFinite(current))return;
-  dashboardCurveShift[key]=Math.round(current+delta);
-  dashboardCurveShift.effectiveTargetHigh=Number(dashboardCurveShift.baseTargetHigh)+Number(dashboardCurveShift.shift);
-  dashboardCurveShift.effectiveTargetLow=Number(dashboardCurveShift.baseTargetLow)+Number(dashboardCurveShift.shift);
-  renderDashboardCurveShift();
-  queueDashboardStep(which==='high'?'SetZ1HeatCurveBaseHigh':'SetZ1HeatCurveBaseLow','HeatingCurveBase'+which, dashboardCurveShift[key]);
-}
-function recoverZone1Heat(){
-  if(!dashboardSemantic||dashboardSemantic.writable!==true||dashboardSemantic.semanticKnown!==true)return;
-  var min=Number(dashboardSemantic.min),max=Number(dashboardSemantic.max);
-  var next=dashboardSemantic.semantic==='heatCurveShift'?0:min;
-  if(!Number.isFinite(next)||next<min||next>max)return;
-  var command=dashboardSemantic.semantic==='heatCurveShift'?'SetHeatingCurveShift':
-    dashboardSemantic.semantic==='heatingWaterTarget'?'SetZ1HeatingWaterTarget':
-    dashboardSemantic.semantic==='roomTarget'?'SetZ1RoomTarget':null;
-  if(command===null)return;
-  dashboardSemantic.rawValue=next;
-  dashboardSemantic.rawValidForSemantic=true;
-  renderDashboardHeatRequest();
-  queueDashboardStep(command,'TOP27',next);
-}
-document.addEventListener('DOMContentLoaded',function(){
-  refreshDashboard();
-  startWebsockets();
-  monitorWebSocket();
-  dashboardRefreshTimer=window.setInterval(refreshDashboard,10000);
-});
-</script>
-)====";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// HEAT PUMP SETTINGS PAGE
-// ─────────────────────────────────────────────────────────────────────────────
-static const char webBodyWpSettings[] FLASHPROG = R"====(
-<script>
-document.addEventListener('DOMContentLoaded',function(){
-  document.title='Settings - HeishaMon';
-  document.getElementById('sideNav').innerHTML=`
-<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
-<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
-<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
-<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
-<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
-<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
-<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
-<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
-<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>`;
-});
-</script>
-<main class='main-content wp-settings-page'>
-  <div class='wp-settings-columns'>
-    <section class='dashboard-column'>
-      <h2 class='dashboard-title wp-settings-service-title'>SERVICE &amp; ADVANCED</h2>
-      <div class='dashboard-section'>
-        <div class='wp-settings-note'>Changes in this section directly affect heat pump service parameters.</div>
-        <div class='dashboard-row'><span>Reset current error</span><button class='btn btn-danger wp-settings-button' onclick='wpResetError()'>RESET</button></div>
-        <div class='dashboard-section-title'>Water pump</div>
-        <div class='dashboard-row'><input id='wpMaxPumpSlider' class='wp-settings-slider' type='range' min='0' max='100' step='1' oninput="updCell('wpMaxPumpDraft',this.value+' %')"><button class='btn btn-primary wp-settings-button' onclick='wpSetMaxPump()'>SET</button></div>
-        <div class='dashboard-row'><span>Selected max flow</span><span id='wpMaxPumpDraft' class='dashboard-value'>--</span></div>
-        <div class='dashboard-row'><span>Current max flow</span><span id='wpMaxPumpCurrent' class='dashboard-value'>--</span><span id='TOP95-Value' class='dashboard-hidden'></span><span id='TOP95-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Service mode (100%)</span><div class='dashboard-workflow-actions'><button class='btn btn-ghost' onclick='wpSetServicePump(1)'>Start</button><button class='btn btn-danger' onclick='wpSetServicePump(0)'>Stop</button></div></div>
-        <div class='dashboard-section-title'>Defrost</div>
-        <div class='dashboard-row'><span>Force defrost routine</span><button class='btn btn-primary wp-settings-button' onclick='wpForceDefrost()'>DEFROST</button></div>
-        <div class='dashboard-row'><span>Defrosting state</span><span id='TOP26-Description' class='dashboard-value'>--</span><span id='TOP26-Value' class='dashboard-hidden'></span></div>
-        <div class='dashboard-section-title'>Backup heater</div>
-        <div class='dashboard-row'><span>Start delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetHeaterStartDelta','TOP97',-1,-10,-2)">&#8964;</button><span class='dashboard-value'><span id='TOP97-Value'>--</span> &deg;C</span><span id='TOP97-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetHeaterStartDelta','TOP97',1,-10,-2)">&#8963;</button></div></div>
-        <div class='dashboard-row'><span>Stop delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetHeaterStopDelta','TOP98',-1,-8,0)">&#8964;</button><span class='dashboard-value'><span id='TOP98-Value'>--</span> &deg;C</span><span id='TOP98-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetHeaterStopDelta','TOP98',1,-8,0)">&#8963;</button></div></div>
-        <div class='dashboard-row'><span>Delay time</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetHeaterDelayTime','TOP96',-5,0,60)">&#8964;</button><span class='dashboard-value'><span id='TOP96-Value'>--</span> min</span><span id='TOP96-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetHeaterDelayTime','TOP96',5,0,60)">&#8963;</button></div></div>
-      </div>
-    </section>
-
-    <section class='dashboard-column'>
-      <h2 class='dashboard-title'>SYSTEM CONFIGURATION</h2>
-      <div class='dashboard-section'>
-        <div class='dashboard-row'><span>Panasonic main scheduler</span><div class='dashboard-control'><span id='TOP13-Description' class='dashboard-value'>--</span><span id='TOP13-Value' class='dashboard-hidden'></span><label class='dashboard-toggle'><input id='wpScheduleToggle' type='checkbox' onchange="wpToggle(this,'SetMainSchedule')"><span class='dashboard-toggle-slider'></span></label></div></div>
-        <div class='dashboard-row'><label for='wpZones'>Active zones</label><select id='wpZones' class='wp-settings-select' onchange="wpSelectCommand(this,'SetZones')"><option value='0'>Zone 1</option><option value='1'>Zone 2</option><option value='2'>Zone 1 + 2</option></select><span id='TOP94-Value' class='dashboard-hidden'></span><span id='TOP94-Description' class='dashboard-hidden'></span></div>
-      </div>
-    </section>
-
-    <section class='dashboard-column'>
-      <h2 class='dashboard-title'>HEAT</h2>
-      <div class='dashboard-section'>
-        <div class='dashboard-row'><span>Heat delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetFloorHeatDelta','TOP23',-1,1,15)">&#8964;</button><span class='dashboard-value'><span id='TOP23-Value'>--</span> &deg;C</span><span id='TOP23-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetFloorHeatDelta','TOP23',1,1,15)">&#8963;</button></div></div>
-        <div class='dashboard-row' id='wpBufferDeltaRow'><span>Buffer tank delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetBufferDelta','TOP113',-1,0,10)">&#8964;</button><span class='dashboard-value'><span id='TOP113-Value'>--</span> &deg;C</span><span id='TOP113-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetBufferDelta','TOP113',1,0,10)">&#8963;</button></div><span id='TOP99-Value' class='dashboard-hidden'></span><span id='TOP99-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Cool delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetFloorCoolDelta','TOP24',-1,1,15)">&#8964;</button><span class='dashboard-value'><span id='TOP24-Value'>--</span> &deg;C</span><span id='TOP24-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetFloorCoolDelta','TOP24',1,1,15)">&#8963;</button></div></div>
-        <div class='dashboard-section-title'>Custom - Heat water temp limits</div>
-        <div class='dashboard-row'><span>Minimum temp.</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpConfigStep('heatMin',-1)">&#8964;</button><span class='dashboard-value'><span id='wpHeatMinValue'>--</span> &deg;C</span><button class='dashboard-step' onclick="wpConfigStep('heatMin',1)">&#8963;</button></div></div>
-        <div class='dashboard-row'><span>Maximum temp.</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpConfigStep('heatMax',-1)">&#8964;</button><span class='dashboard-value'><span id='wpHeatMaxValue'>--</span> &deg;C</span><button class='dashboard-step' onclick="wpConfigStep('heatMax',1)">&#8963;</button></div></div>
-        <div class='wp-settings-note'>These limits constrain direct Zone 1 water-temperature changes on Dashboard.</div>
-      </div>
-    </section>
-
-    <section class='dashboard-column'>
-      <h2 class='dashboard-title'>DHW SETTINGS</h2>
-      <div class='dashboard-section'>
-        <div class='dashboard-row'><span>DHW delta</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStep('SetDHWHeatDelta','TOP22',-1,-12,-2)">&#8964;</button><span class='dashboard-value'><span id='TOP22-Value'>--</span> &deg;C</span><span id='TOP22-Description' class='dashboard-hidden'></span><button class='dashboard-step' onclick="wpStep('SetDHWHeatDelta','TOP22',1,-12,-2)">&#8963;</button></div></div>
-        <div class='dashboard-section-title'>Limits</div>
-        <div class='dashboard-row'><span>Block Force DHW above</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpConfigStep('dhwBlockAbove',-1)">&#8964;</button><span class='dashboard-value'><span id='wpDhwBlockValue'>--</span> &deg;C</span><button class='dashboard-step' onclick="wpConfigStep('dhwBlockAbove',1)">&#8963;</button></div></div>
-        <div class='wp-settings-note'>This limit blocks the Force DHW workflow on Dashboard when the tank is already warm enough.</div>
-        <div id='wpSettingsStatus' class='dashboard-command-status'></div>
-      </div>
-    </section>
-  </div>
-</main>
-)====";
-
-static const char wpSettingsJS[] FLASHPROG = R"====(
-<script>
-var wpValues={};
-var wpConfig={heatMin:20,heatMax:65,dhwBlockAbove:75};
-var wpRefreshPromise=null;
-var wpCommandBusy=false;
-var wpStepTimers={};
-var wpStepDebounceMs=1000;
-function wpItems(data){return [].concat(data.heatpump||[],data['heatpump extra']||[],data['heatpump optional']||[]);}
-function wpStatus(message,isError){var el=document.getElementById('wpSettingsStatus');if(el){el.textContent=message||'';el.style.color=isError?'var(--red)':'var(--text-muted)';}}
-function wpSetSelect(id,topic){var el=document.getElementById(id);if(el&&document.activeElement!==el&&wpValues[topic]!==undefined)el.value=String(wpValues[topic]);}
-function wpPumpPercent(rawValue){return Math.max(0,Math.min(100,Math.round((Number(rawValue)-64)/(254-64)*100)));}
-function wpPumpRaw(percentValue){return Math.round(Number(percentValue)/100*(254-64)+64);}
-function wpSync(){
-  if(!wpCommandBusy)document.querySelectorAll('.wp-settings-page button,.wp-settings-page select,.wp-settings-page input').forEach(function(control){control.disabled=false;});
-  var schedule=document.getElementById('wpScheduleToggle');if(schedule)schedule.checked=Number(wpValues.TOP13)!==0;
-  wpSetSelect('wpZones','TOP94');
-  var slider=document.getElementById('wpMaxPumpSlider');if(slider&&document.activeElement!==slider&&!isNaN(Number(wpValues.TOP95))){var pumpPercent=wpPumpPercent(wpValues.TOP95);slider.value=String(pumpPercent);updCell('wpMaxPumpDraft',String(pumpPercent)+' %');updCell('wpMaxPumpCurrent',String(pumpPercent)+' %');}
-  var buffer=document.getElementById('wpBufferDeltaRow');if(buffer){var bufferDisabled=Number(wpValues.TOP99)===0;buffer.style.opacity=bufferDisabled?'.45':'1';buffer.querySelectorAll('button').forEach(function(button){button.disabled=bufferDisabled;});}
-  updCell('wpHeatMinValue',String(wpConfig.heatMin));updCell('wpHeatMaxValue',String(wpConfig.heatMax));updCell('wpDhwBlockValue',String(wpConfig.dhwBlockAbove));
-  if(wpCommandBusy)document.querySelectorAll('.wp-settings-page button,.wp-settings-page select,.wp-settings-page input').forEach(function(control){control.disabled=true;});
-}
-function wpRefresh(){
-  if(wpRefreshPromise)return wpRefreshPromise;
-  wpRefreshPromise=fetch('/json',{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(data){wpItems(data).forEach(function(item){wpValues[item.Topic]=item.Value;updCell(item.Topic+'-Value',String(item.Value));updCell(item.Topic+'-Description',String(item.Description));});return fetch('/wpsettingsconfig',{cache:'no-store'});}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(data){wpConfig=data;wpRefreshPromise=null;wpSync();}).catch(function(e){wpRefreshPromise=null;wpStatus('Update failed: '+e.message,true);});
-  return wpRefreshPromise;
-}
-function wpSend(command,value){if(wpCommandBusy){wpStatus('Please wait for the current command to finish',false);return Promise.resolve(false);}wpCommandBusy=true;wpSync();wpStatus('Sending '+command+' ...',false);return fetch('/command?'+encodeURIComponent(command)+'='+encodeURIComponent(value),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();}).then(function(message){wpStatus(message.trim()||'Command sent',false);return new Promise(function(resolve){window.setTimeout(resolve,1400);});}).then(function(){wpCommandBusy=false;wpSync();wpRefresh();return true;}).catch(function(e){wpCommandBusy=false;wpSync();wpStatus('Command failed: '+e.message,true);throw e;});}
-function wpQueueStep(key,command,value){if(wpStepTimers[key])window.clearTimeout(wpStepTimers[key]);wpStatus('Waiting to send '+command+' ...',false);wpStepTimers[key]=window.setTimeout(function(){delete wpStepTimers[key];wpSend(command,value).catch(function(){});},wpStepDebounceMs);}
-function wpStep(command,topic,delta,min,max){var current=Number(wpValues[topic]);if(isNaN(current))return;var next=Math.max(min,Math.min(max,Math.round(current+delta)));wpValues[topic]=next;updCell(topic+'-Value',String(next));wpQueueStep('topic:'+topic,command,next);}
-function wpSelectCommand(select,command){select.disabled=true;wpSend(command,select.value).then(function(){select.disabled=false;},function(){select.disabled=false;});}
-function wpToggle(toggle,command){toggle.disabled=true;wpSend(command,toggle.checked?1:0).then(function(){toggle.disabled=false;},function(){toggle.checked=!toggle.checked;toggle.disabled=false;});}
-function wpSetMaxPump(){wpSend('SetMaxPumpDuty',wpPumpRaw(document.getElementById('wpMaxPumpSlider').value));}
-function wpSetServicePump(state){if(state&&!window.confirm('Run the water pump in 100% service mode?'))return;wpSend('SetPump',state);}
-function wpResetError(){if(window.confirm('Reset the current heat pump error?'))wpSend('SetReset',1);}
-function wpForceDefrost(){if(window.confirm('Start the force defrost routine?'))wpSend('SetForceDefrost',1);}
-function wpConfigStep(field,delta){var next=Number(wpConfig[field])+delta;var command='';if(field==='heatMin'){next=Math.max(20,Math.min(wpConfig.heatMax,next));command='WpHeatMin';}else if(field==='heatMax'){next=Math.max(wpConfig.heatMin,Math.min(100,next));command='WpHeatMax';}else{next=Math.max(40,Math.min(100,next));command='WpDhwBlockAbove';}wpConfig[field]=next;wpSync();wpQueueStep('config:'+field,command,next);}
-document.addEventListener('DOMContentLoaded',function(){wpRefresh();startWebsockets();monitorWebSocket();window.setInterval(wpRefresh,10000);});
-</script>
-)====";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// LOCAL SCHEDULER PAGE
-// ─────────────────────────────────────────────────────────────────────────────
-static const char webBodyScheduler[] FLASHPROG = R"====(
-<script>
-document.addEventListener('DOMContentLoaded',function(){
-  document.title='Scheduler - HeishaMon';
-  document.getElementById('sideNav').innerHTML=`
-<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
-<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
-<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
-<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
-<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
-<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
-<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
-<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
-<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>`;
-});
-</script>
-<main class='main-content scheduler-page'>
-  <div class='scheduler-heading'>
-    <div><h1>Local Scheduler</h1><p>Executes heat-pump actions locally using HeishaMon time and live values.</p></div>
-    <button class='btn btn-primary' onclick='schedulerOpenEditor(0)'>+ Add schedule</button>
-  </div>
-  <div class='scheduler-status'>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Current local time</span><span id='schedulerLocalTime' class='scheduler-status-value'>Loading ...</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Time synchronization</span><span id='schedulerTimeStatus' class='scheduler-status-value'>--</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Active schedules</span><span id='schedulerActiveCount' class='scheduler-status-value'>--</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Pending actions</span><span id='schedulerPendingCount' class='scheduler-status-value'>--</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Panasonic main scheduler</span><span id='schedulerPanasonicState' class='scheduler-status-value'>--</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Next scheduled action</span><span id='schedulerNextAction' class='scheduler-status-value'>--</span></div>
-    <div class='scheduler-status-card scheduler-last'><span class='scheduler-status-label'>Last scheduler action</span><span id='schedulerLastAction' class='scheduler-status-value'>No action since boot</span></div>
-  </div>
-  <section class='scheduler-panel'>
-    <div class='scheduler-panel-header'>
-      <h2>Schedules</h2>
-      <div class='dashboard-control'><span id='schedulerGlobalLabel' class='dashboard-muted'>Enabled</span><label class='dashboard-toggle'><input id='schedulerGlobalToggle' type='checkbox' onchange='schedulerSetGlobal(this.checked)'><span class='dashboard-toggle-slider'></span></label></div>
-    </div>
-    <div class='scheduler-table-wrap'>
-      <table class='scheduler-table'>
-        <thead><tr><th>On</th><th>Name</th><th>Days</th><th>Time</th><th>Condition</th><th>Action</th><th></th></tr></thead>
-        <tbody id='schedulerRows'><tr><td colspan='7' class='scheduler-empty'>Loading schedules ...</td></tr></tbody>
-      </table>
-    </div>
-  </section>
-  <div id='schedulerCommandStatus' class='scheduler-command-status'></div>
-  <section class='scheduler-panel'>
-    <div class='scheduler-panel-header'><h2>Recent execution log</h2><span class='dashboard-muted'>RAM only, newest first</span></div>
-    <div class='scheduler-table-wrap'>
-      <table class='scheduler-table'>
-        <thead><tr><th>Time</th><th>Schedule</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody id='schedulerEvents'><tr><td colspan='4' class='scheduler-empty'>No executions since boot.</td></tr></tbody>
-      </table>
-    </div>
-  </section>
-</main>
-
-<div id='schedulerModal' class='scheduler-modal' onclick='if(event.target===this)schedulerCloseEditor()'>
-  <section class='scheduler-editor' role='dialog' aria-modal='true' aria-labelledby='schedulerEditorTitle'>
-    <div class='scheduler-editor-header'><h2 id='schedulerEditorTitle'>Add schedule</h2><button class='btn btn-ghost' onclick='schedulerCloseEditor()'>Close</button></div>
-    <div class='scheduler-editor-body'>
-      <div class='scheduler-form-grid'>
-        <div class='scheduler-field full'><label for='schedulerName'>Name</label><input id='schedulerName' class='scheduler-input' maxlength='32' placeholder='e.g. Morning hot water'></div>
-        <div class='scheduler-field'><label for='schedulerTime'>Execution time</label><input id='schedulerTime' class='scheduler-input' type='time' required></div>
-        <div class='scheduler-field'><label>Schedule state</label><label class='dashboard-control' style='justify-content:flex-start'><input id='schedulerEntryEnabled' type='checkbox' checked> Enabled</label></div>
-        <div class='scheduler-field full'><label>Weekdays</label><div class='scheduler-days'>
-          <label class='scheduler-day'><input type='checkbox' data-day='0'><span>Mon</span></label><label class='scheduler-day'><input type='checkbox' data-day='1'><span>Tue</span></label><label class='scheduler-day'><input type='checkbox' data-day='2'><span>Wed</span></label><label class='scheduler-day'><input type='checkbox' data-day='3'><span>Thu</span></label><label class='scheduler-day'><input type='checkbox' data-day='4'><span>Fri</span></label><label class='scheduler-day'><input type='checkbox' data-day='5'><span>Sat</span></label><label class='scheduler-day'><input type='checkbox' data-day='6'><span>Sun</span></label>
-        </div><div class='scheduler-actions' style='justify-content:flex-start'><button class='btn btn-ghost' onclick='schedulerSelectDays(127)'>Every day</button><button class='btn btn-ghost' onclick='schedulerSelectDays(31)'>Weekdays</button><button class='btn btn-ghost' onclick='schedulerSelectDays(96)'>Weekend</button></div></div>
-        <div class='scheduler-field'><label for='schedulerAction'>Action</label><select id='schedulerAction' class='scheduler-input' onchange='schedulerActionChanged()'><option value='force_dhw'>Force DHW workflow</option><option value='heatpump_on'>Heat pump on</option><option value='heatpump_off'>Heat pump off</option><option value='set_operation_mode'>Set operating mode</option><option value='set_dhw_target'>Set DHW target</option><option id='schedulerActionHeatShift' value='set_heat_curve_shift'>Set heating curve shift</option><option id='schedulerActionWaterTarget' value='set_z1_heating_water_target'>Set heating water target</option><option id='schedulerActionRoomTarget' value='set_z1_room_target'>Set room target</option><option id='schedulerActionLegacy' value='set_z1_request' disabled>Legacy Zone 1 request (review required)</option><option value='set_quiet_mode'>Set quiet mode</option></select></div>
-        <div id='schedulerActionValueField' class='scheduler-field'><label for='schedulerActionValue'>Action value</label><div id='schedulerActionValueContainer'></div></div>
-        <div class='scheduler-field full'><label>Conditions (all must be true)</label><div id='schedulerConditions'></div><button type='button' class='btn btn-ghost' onclick='schedulerAddCondition()'>+ Add condition</button></div>
-        <div class='scheduler-field full'><div class='scheduler-form-note'>Force DHW uses the same protected workflow as Dashboard. Conditions are evaluated from the latest Panasonic values at the scheduled minute. If time or a required value is unavailable, nothing is sent.</div></div>
-      </div>
-    </div>
-    <div class='scheduler-editor-footer'><button class='btn btn-ghost' onclick='schedulerCloseEditor()'>Cancel</button><button id='schedulerSaveButton' class='btn btn-primary' onclick='schedulerSaveEditor()'>Save schedule</button></div>
-  </section>
-</div>
-)====";
-
-static const char schedulerJS[] FLASHPROG = R"====(
-<script>
-var schedulerData={entries:[],events:[]};
-var schedulerEditingId=0;
-var schedulerBusy=false;
-var schedulerRefreshPromise=null;
-var schedulerDays=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-var schedulerActionLabels={force_dhw:'Force DHW workflow',heatpump_on:'Heat pump on',heatpump_off:'Heat pump off',set_operation_mode:'Set operating mode',set_dhw_target:'Set DHW target',set_heat_curve_shift:'Set heating curve shift',set_z1_heating_water_target:'Set heating water target',set_z1_room_target:'Set room target',set_z1_request:'Legacy Zone 1 request',set_quiet_mode:'Set quiet mode'};
-var schedulerSemantic=null;
-var schedulerCurveShift=null;
-var schedulerConditionLabels={none:'No condition',dhw_temperature:'DHW temperature',outside_temperature:'Outside temperature',room_temperature:'Zone 1 room temperature',main_inlet_temperature:'Main inlet temperature',main_outlet_temperature:'Main outlet temperature'};
-function schedulerEscape(value){return String(value===undefined?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
-function schedulerDayText(mask){var result=[];for(var i=0;i<7;i++)if(mask&(1<<i))result.push(schedulerDays[i]);return result.join(', ');}
-function schedulerPad(value){return String(value).padStart(2,'0');}
-function schedulerSemanticMatches(action){return (action==='set_heat_curve_shift'&&schedulerCurveShift&&schedulerCurveShift.available===true&&schedulerCurveShift.writable===true)||(action==='set_z1_heating_water_target'&&schedulerSemantic&&schedulerSemantic.semantic==='heatingWaterTarget')||(action==='set_z1_room_target'&&schedulerSemantic&&schedulerSemantic.semantic==='roomTarget');}
-function schedulerActionText(entry){var label=schedulerActionLabels[entry.action]||entry.action;if(entry.action==='set_operation_mode'){var modes=['Heat only','Cool only','Auto','DHW only','Heat + DHW','Cool + DHW','Auto + DHW'];return label+': '+(modes[entry.actionValue]||entry.actionValue);}if(entry.action==='set_quiet_mode')return label+': '+(Number(entry.actionValue)===0?'Off':'Level '+entry.actionValue);if(entry.action==='set_dhw_target')return label+': '+entry.actionValue+' °C';if(entry.action==='set_heat_curve_shift')return label+': '+entry.actionValue+' K'+(schedulerSemanticMatches(entry.action)?'':' [INCOMPATIBLE]');if(entry.action==='set_z1_heating_water_target'||entry.action==='set_z1_room_target')return label+': '+entry.actionValue+' °C'+(schedulerSemanticMatches(entry.action)?'':' [INCOMPATIBLE]');if(entry.action==='set_z1_request')return label+': '+entry.actionValue+' [REVIEW REQUIRED]';return label;}
-function schedulerConditionText(entry){var c=entry.conditions||[];if(!c.length&&entry.conditionField&&entry.conditionField!=='none')c=[{source:'local',field:entry.conditionField,operator:entry.conditionOperator,value:entry.conditionValue}];if(!c.length)return 'Always';return c.map(function(x){var label=x.source==='mqtt'?'MQTT sensor '+x.sensorId:(schedulerConditionLabels[x.field]||x.field);return label+' '+x.operator+' '+x.value;}).join(' AND ');}
-function schedulerSetStatus(message,isError){var el=document.getElementById('schedulerCommandStatus');if(el){el.textContent=message||'';el.style.color=isError?'var(--red)':'var(--text-muted)';}}
-function schedulerSelectDays(mask){document.querySelectorAll('.scheduler-day input').forEach(function(input){input.checked=!!(mask&(1<<Number(input.dataset.day)));});}
-function schedulerExternalSensors(){return (schedulerData.externalSensors||[]).filter(function(s){return s.enabled;});}
-function schedulerConditionRow(condition){condition=condition||{source:'local',field:'dhw_temperature',operator:'<',value:42};var row=document.createElement('div');row.className='scheduler-condition-row';var source=document.createElement('select');source.className='scheduler-input scheduler-condition-source';source.innerHTML='<option value="local">Panasonic</option><option value="mqtt">External MQTT</option>';source.value=condition.source||'local';var field=document.createElement('select');field.className='scheduler-input scheduler-condition-field';var op=document.createElement('select');op.className='scheduler-input scheduler-condition-operator';op.innerHTML='<option value="<">&lt;</option><option value="<=">&le;</option><option value="==">=</option><option value=">=">&ge;</option><option value=">">&gt;</option>';op.value=condition.operator||'<';var value=document.createElement('input');value.className='scheduler-input scheduler-condition-value';value.type='number';value.min='-100';value.max='200';value.step='0.5';value.value=condition.value===undefined?0:condition.value;var remove=document.createElement('button');remove.type='button';remove.className='btn btn-danger';remove.textContent='×';remove.onclick=function(){row.remove();};function fill(){if(source.value==='local'){field.innerHTML='<option value="dhw_temperature">DHW temperature</option><option value="outside_temperature">Outside temperature</option><option value="room_temperature">Zone 1 room temperature</option><option value="main_inlet_temperature">Main inlet temperature</option><option value="main_outlet_temperature">Main outlet temperature</option>';field.value=condition.field||'dhw_temperature';}else{field.innerHTML=schedulerExternalSensors().map(function(s){return '<option value="'+s.id+'">'+schedulerEscape(s.name)+' ('+schedulerEscape(s.unit||'')+')</option>';}).join('');field.value=String(condition.sensorId||((schedulerExternalSensors()[0]||{}).id||''));} }source.onchange=fill;row.appendChild(source);row.appendChild(field);row.appendChild(op);row.appendChild(value);row.appendChild(remove);fill();return row;}
-function schedulerSetConditions(conditions){var box=document.getElementById('schedulerConditions');box.innerHTML='';(conditions||[]).slice(0,4).forEach(function(c){box.appendChild(schedulerConditionRow(c));});}
-function schedulerAddCondition(){var box=document.getElementById('schedulerConditions');if(box.children.length>=4){schedulerSetStatus('At most four conditions are supported.',true);return;}box.appendChild(schedulerConditionRow());}
-function schedulerReadConditions(){return Array.prototype.slice.call(document.querySelectorAll('.scheduler-condition-row')).map(function(row){var source=row.querySelector('.scheduler-condition-source').value,field=row.querySelector('.scheduler-condition-field'),condition={source:source,operator:row.querySelector('.scheduler-condition-operator').value,value:Number(row.querySelector('.scheduler-condition-value').value)};if(source==='local')condition.field=field.value;else condition.sensorId=Number(field.value);return condition;});}
-function schedulerRender(data){
-  schedulerData=data;
-  schedulerSemantic=data.zone1HeatRequest||null;
-  schedulerCurveShift=data.heatingCurveShift||null;
-  var semanticOptions={set_heat_curve_shift:'schedulerActionHeatShift',set_z1_heating_water_target:'schedulerActionWaterTarget',set_z1_room_target:'schedulerActionRoomTarget'};
-  Object.keys(semanticOptions).forEach(function(action){var option=document.getElementById(semanticOptions[action]);if(option)option.disabled=!schedulerSemanticMatches(action);});
-  document.getElementById('schedulerLocalTime').textContent=data.localTime||'Time unavailable';
-  var timeStatus=document.getElementById('schedulerTimeStatus');timeStatus.textContent=data.ntpSynchronized?'Last NTP sync: '+(data.lastNtpSync||''):(data.timeValid?'Clock valid · NTP pending':'Unavailable - paused');timeStatus.className='scheduler-status-value '+(data.timeValid?'scheduler-sync-good':'scheduler-sync-bad');
-  document.getElementById('schedulerActiveCount').textContent=String(data.enabledCount)+' / '+String(data.count)+' ('+String(data.maxEntries)+' max)';
-  document.getElementById('schedulerPendingCount').textContent=String(data.pendingActions);
-  var ps=document.getElementById('schedulerPanasonicState');ps.textContent=data.panasonicSchedulerKnown?(data.panasonicSchedulerEnabled?'Enabled - possible conflict':'Disabled'):'Unavailable';ps.className='scheduler-status-value '+(data.panasonicSchedulerEnabled?'scheduler-sync-bad':'scheduler-sync-good');
-  document.getElementById('schedulerNextAction').textContent=data.nextScheduledAction||'None configured';
-  var last=(data.events&&data.events.length)?data.events[0]:null;document.getElementById('schedulerLastAction').textContent=last?(last.time+' · '+last.name+' -> '+last.result+' · '+last.detail):'No action since boot';
-  var globalToggle=document.getElementById('schedulerGlobalToggle');globalToggle.checked=!!data.enabled;globalToggle.disabled=schedulerBusy;document.getElementById('schedulerGlobalLabel').textContent=data.enabled?'Enabled':'Paused';
-  var rows=document.getElementById('schedulerRows');
-  if(!data.entries||!data.entries.length){rows.innerHTML="<tr><td colspan='7' class='scheduler-empty'>No schedules configured. Add the first one above.</td></tr>";}else{rows.innerHTML=data.entries.map(function(entry){return '<tr><td><label class="dashboard-toggle"><input type="checkbox" '+(entry.enabled?'checked ':'')+'onchange="schedulerToggleEntry('+entry.id+',this.checked)"><span class="dashboard-toggle-slider"></span></label></td><td class="scheduler-name">'+schedulerEscape(entry.name)+'</td><td>'+schedulerEscape(schedulerDayText(entry.days))+'</td><td class="scheduler-mono">'+schedulerPad(entry.hour)+':'+schedulerPad(entry.minute)+'</td><td>'+schedulerEscape(schedulerConditionText(entry))+'</td><td>'+schedulerEscape(schedulerActionText(entry))+'</td><td><div class="scheduler-actions"><button class="btn btn-ghost" onclick="schedulerRun('+entry.id+')">Run</button><button class="btn btn-ghost" onclick="schedulerOpenEditor('+entry.id+')">Edit</button><button class="btn btn-danger" onclick="schedulerDelete('+entry.id+')">Delete</button></div></td></tr>';}).join('');}
-  var events=document.getElementById('schedulerEvents');
-  if(!data.events||!data.events.length){events.innerHTML="<tr><td colspan='4' class='scheduler-empty'>No executions since boot.</td></tr>";}else{events.innerHTML=data.events.map(function(event){var resultClass=String(event.result).replace(/\s+/g,'-');return '<tr><td class="scheduler-mono">'+schedulerEscape(event.time)+'</td><td>'+schedulerEscape(event.name||('#'+event.id))+'</td><td class="scheduler-event-result '+schedulerEscape(resultClass)+'">'+schedulerEscape(event.result)+'</td><td>'+schedulerEscape(event.detail)+'</td></tr>';}).join('');}
-}
-function schedulerRefresh(){if(schedulerRefreshPromise)return schedulerRefreshPromise;schedulerRefreshPromise=fetch('/schedulerapi',{cache:'no-store'}).then(function(response){if(!response.ok)throw new Error('HTTP '+response.status);return response.json();}).then(function(data){schedulerRefreshPromise=null;schedulerRender(data);return data;}).catch(function(error){schedulerRefreshPromise=null;schedulerSetStatus('Refresh failed: '+error.message,true);throw error;});return schedulerRefreshPromise;}
-function schedulerCommand(name,value){if(schedulerBusy){schedulerSetStatus('Please wait for the current scheduler command.',false);return Promise.reject(new Error('busy'));}schedulerBusy=true;schedulerSetStatus('Saving ...',false);return fetch('/schedulercommand?'+encodeURIComponent(name)+'='+encodeURIComponent(value),{cache:'no-store'}).then(function(response){if(!response.ok)throw new Error('HTTP '+response.status);return response.text();}).then(function(message){if(/^ERROR:/m.test(message))throw new Error(message.replace(/^ERROR:\s*/,'').trim());schedulerSetStatus(message.replace(/^OK:\s*/,'').trim()||'Done',false);return schedulerRefresh();}).then(function(data){schedulerBusy=false;schedulerRender(data);return data;}).catch(function(error){schedulerBusy=false;if(error.message!=='busy')schedulerSetStatus('Command failed: '+error.message,true);throw error;});}
-function schedulerSetGlobal(enabled){schedulerCommand('enabled',enabled?1:0);}
-function schedulerFind(id){return (schedulerData.entries||[]).find(function(entry){return Number(entry.id)===Number(id);});}
-function schedulerToggleEntry(id,enabled){var entry=schedulerFind(id);if(!entry)return;var copy=Object.assign({},entry,{enabled:enabled});schedulerCommand('save',JSON.stringify(copy)).catch(function(){schedulerRefresh();});}
-function schedulerRun(id){schedulerCommand('run',id);}
-function schedulerDelete(id){var entry=schedulerFind(id);if(entry&&window.confirm('Delete schedule "'+entry.name+'"?'))schedulerCommand('delete',id);}
-function schedulerOpenEditor(id){
-  var entry=id?schedulerFind(id):null;schedulerEditingId=entry?entry.id:0;
-  document.getElementById('schedulerEditorTitle').textContent=entry?'Edit schedule':'Add schedule';
-  document.getElementById('schedulerName').value=entry?entry.name:'';document.getElementById('schedulerTime').value=entry?schedulerPad(entry.hour)+':'+schedulerPad(entry.minute):'06:00';document.getElementById('schedulerEntryEnabled').checked=entry?!!entry.enabled:true;
-  var mask=entry?Number(entry.days):31;document.querySelectorAll('.scheduler-day input').forEach(function(input){input.checked=!!(mask&(1<<Number(input.dataset.day)));});
-  document.getElementById('schedulerAction').value=entry?entry.action:'force_dhw';schedulerActionChanged(entry?entry.actionValue:0);
-  var conditions=entry&&entry.conditions?entry.conditions:entry&&entry.conditionField&&entry.conditionField!=='none'?[{source:'local',field:entry.conditionField,operator:entry.conditionOperator,value:entry.conditionValue}]:[];schedulerSetConditions(conditions);
-  document.getElementById('schedulerModal').classList.add('open');document.getElementById('schedulerName').focus();
-}
-function schedulerCloseEditor(){document.getElementById('schedulerModal').classList.remove('open');}
-function schedulerActionChanged(selectedValue){var action=document.getElementById('schedulerAction').value;var container=document.getElementById('schedulerActionValueContainer');var field=document.getElementById('schedulerActionValueField');field.style.visibility='visible';if(action==='set_operation_mode'){container.innerHTML='<select id="schedulerActionValue" class="scheduler-input"><option value="0">Heat only</option><option value="1">Cool only</option><option value="2">Auto</option><option value="3">DHW only</option><option value="4">Heat + DHW</option><option value="5">Cool + DHW</option><option value="6">Auto + DHW</option></select>';}else if(action==='set_quiet_mode'){container.innerHTML='<select id="schedulerActionValue" class="scheduler-input"><option value="0">Off</option><option value="1">Level 1</option><option value="2">Level 2</option><option value="3">Level 3</option></select>';}else if(action==='set_dhw_target'){container.innerHTML='<input id="schedulerActionValue" class="scheduler-input" type="number" min="40" max="75" step="1" value="45">';}else if(action==='set_heat_curve_shift'){container.innerHTML='<input id="schedulerActionValue" class="scheduler-input" type="number" min="-5" max="5" step="1" value="0">';}else if(action==='set_z1_heating_water_target'){var min=schedulerSemantic&&Number.isFinite(Number(schedulerSemantic.min))?schedulerSemantic.min:20;var max=schedulerSemantic&&Number.isFinite(Number(schedulerSemantic.max))?schedulerSemantic.max:65;container.innerHTML='<input id="schedulerActionValue" class="scheduler-input" type="number" min="'+min+'" max="'+max+'" step="1" value="'+min+'">';}else if(action==='set_z1_room_target'){container.innerHTML='<input id="schedulerActionValue" class="scheduler-input" type="number" min="10" max="35" step="1" value="20">';}else{container.innerHTML='<input id="schedulerActionValue" type="hidden" value="0"><span class="dashboard-muted">No value required</span>';field.style.visibility='visible';}if(selectedValue!==undefined&&document.getElementById('schedulerActionValue'))document.getElementById('schedulerActionValue').value=String(selectedValue);}
-function schedulerSaveEditor(){
-  var name=document.getElementById('schedulerName').value.trim();var time=document.getElementById('schedulerTime').value;if(!name){schedulerSetStatus('A schedule name is required.',true);return;}if(!time||time.indexOf(':')<0){schedulerSetStatus('A valid execution time is required.',true);return;}
-  var days=0;document.querySelectorAll('.scheduler-day input').forEach(function(input){if(input.checked)days|=(1<<Number(input.dataset.day));});if(!days){schedulerSetStatus('Select at least one weekday.',true);return;}
-  var parts=time.split(':');var hour=Number(parts[0]);var minute=Number(parts[1]);if(!Number.isInteger(hour)||hour<0||hour>23||!Number.isInteger(minute)||minute<0||minute>59){schedulerSetStatus('Time must be between 00:00 and 23:59.',true);return;}
-  var action=document.getElementById('schedulerAction').value;var actionValue=Number(document.getElementById('schedulerActionValue').value);var validActions=['force_dhw','heatpump_on','heatpump_off','set_operation_mode','set_dhw_target','set_heat_curve_shift','set_z1_heating_water_target','set_z1_room_target','set_quiet_mode'];if(validActions.indexOf(action)<0||!Number.isFinite(actionValue)){schedulerSetStatus('Select a valid action.',true);return;}if((action==='set_heat_curve_shift'&&(actionValue<-5||actionValue>5))||(action==='set_z1_heating_water_target'&&(actionValue<Number(schedulerSemantic?schedulerSemantic.min:20)||actionValue>Number(schedulerSemantic?schedulerSemantic.max:65)))||(action==='set_z1_room_target'&&(actionValue<10||actionValue>35))||(action==='set_operation_mode'&&(actionValue<0||actionValue>6))||(action==='set_dhw_target'&&(actionValue<40||actionValue>75))||(action==='set_quiet_mode'&&(actionValue<0||actionValue>3))){schedulerSetStatus('Action value is outside its supported range.',true);return;}if((action==='set_heat_curve_shift'||action==='set_z1_heating_water_target'||action==='set_z1_room_target')&&!schedulerSemanticMatches(action)){schedulerSetStatus('This action does not match the current Zone 1 control configuration.',true);return;}
-  var conditions=schedulerReadConditions();if(conditions.length>4){schedulerSetStatus('At most four conditions are supported.',true);return;}for(var ci=0;ci<conditions.length;ci++){if(!Number.isFinite(conditions[ci].value)||conditions[ci].value<-100||conditions[ci].value>200||(conditions[ci].source==='mqtt'&&!conditions[ci].sensorId)){schedulerSetStatus('Condition is outside its supported range.',true);return;}}
-  var payload={id:schedulerEditingId,enabled:document.getElementById('schedulerEntryEnabled').checked,name:name,days:days,hour:hour,minute:minute,action:action,actionValue:actionValue,conditions:conditions};
-  schedulerCommand('save',JSON.stringify(payload)).then(function(){schedulerCloseEditor();});
-}
-document.addEventListener('keydown',function(event){if(event.key==='Escape')schedulerCloseEditor();});
-document.addEventListener('DOMContentLoaded',function(){schedulerRefresh();window.setInterval(schedulerRefresh,10000);});
-</script>
-)====";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// EXTERNAL MQTT SENSORS PAGE
-// ─────────────────────────────────────────────────────────────────────────────
-static const char webBodyExternalSensors[] FLASHPROG = R"====(
-<script>
-document.addEventListener('DOMContentLoaded',function(){document.title='External Sensors - HeishaMon';document.getElementById('sideNav').innerHTML=`
-<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
-<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
-<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
-<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
-<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
-<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
-<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
-<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
-<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>`;});
-</script>
-<main class='main-content scheduler-page'>
-  <div class='scheduler-heading'><div><h1>External Sensors</h1><p>Optional numeric MQTT values for scheduler conditions. Local schedules do not depend on MQTT.</p></div><button class='btn btn-primary' onclick='externalOpenEditor(0)'>+ Add MQTT sensor</button></div>
-  <div class='scheduler-status'><div class='scheduler-status-card'><span class='scheduler-status-label'>MQTT connection</span><span id='externalMqttState' class='scheduler-status-value'>--</span></div><div class='scheduler-status-card'><span class='scheduler-status-label'>Configured sensors</span><span id='externalCount' class='scheduler-status-value'>--</span></div><div class='scheduler-status-card scheduler-last'><span class='scheduler-status-label'>Safety</span><span class='scheduler-status-value'>Stale, invalid or missing values never make a condition true.</span></div></div>
-  <section class='scheduler-panel'><div class='scheduler-panel-header'><h2>Configured sensors</h2><span class='dashboard-muted'>Exact relative MQTT topics, numeric payloads only</span></div><div class='scheduler-table-wrap'><table class='scheduler-table'><thead><tr><th>On</th><th>Name</th><th>Topic</th><th>Value</th><th>Age</th><th>State</th><th></th></tr></thead><tbody id='externalRows'><tr><td colspan='7' class='scheduler-empty'>Loading sensors ...</td></tr></tbody></table></div></section>
-  <div id='externalCommandStatus' class='scheduler-command-status'></div>
-</main>
-<div id='externalModal' class='scheduler-modal' onclick='if(event.target===this)externalCloseEditor()'><section class='scheduler-editor' role='dialog' aria-modal='true'><div class='scheduler-editor-header'><h2 id='externalEditorTitle'>Add MQTT sensor</h2><button class='btn btn-ghost' onclick='externalCloseEditor()'>Close</button></div><div class='scheduler-editor-body'><div class='scheduler-form-grid'><div class='scheduler-field full'><label for='externalName'>Name</label><input id='externalName' class='scheduler-input' maxlength='32' placeholder='Solar collector'></div><div class='scheduler-field full'><label for='externalTopic'>MQTT topic</label><input id='externalTopic' class='scheduler-input' maxlength='96' placeholder='solar/collector/temp'><span class='dashboard-muted'>Relative to the configured HeishaMon MQTT base topic.</span></div><div class='scheduler-field'><label for='externalUnit'>Unit</label><input id='externalUnit' class='scheduler-input' maxlength='12' placeholder='°C'></div><div class='scheduler-field'><label for='externalTimeout'>Stale after</label><div class='smart-dhw-unit'><input id='externalTimeout' class='scheduler-input' type='number' min='5' max='86400' step='1' value='120'><span>seconds</span></div></div><div class='scheduler-field'><label>Sensor state</label><label class='dashboard-control' style='justify-content:flex-start'><input id='externalEnabled' type='checkbox' checked> Enabled</label></div></div></div><div class='scheduler-editor-footer'><button class='btn btn-ghost' onclick='externalCloseEditor()'>Cancel</button><button class='btn btn-primary' onclick='externalSaveEditor()'>Save sensor</button></div></section></div>
-)====";
-
-static const char externalSensorsJS[] FLASHPROG = R"====(
-<script>
-var externalData={sensors:[]};var externalEditingId=0;var externalBusy=false;var externalRefreshPromise=null;
-function externalEscape(v){return String(v===undefined?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
-function externalStatus(m,e){var x=document.getElementById('externalCommandStatus');x.textContent=m||'';x.style.color=e?'var(--red)':'var(--text-muted)';}
-function externalRender(d){externalData=d;var state=document.getElementById('externalMqttState');state.textContent=d.mqttConnected?'Connected':'Disconnected';state.className='scheduler-status-value '+(d.mqttConnected?'scheduler-sync-good':'scheduler-sync-bad');document.getElementById('externalCount').textContent=String(d.count)+' / '+String(d.maxSensors);var rows=document.getElementById('externalRows');if(!d.sensors||!d.sensors.length){rows.innerHTML="<tr><td colspan='7' class='scheduler-empty'>No MQTT sensors configured.</td></tr>";return;}rows.innerHTML=d.sensors.map(function(s){var val=s.valid?externalEscape(s.value)+' '+externalEscape(s.unit):'--';var age=s.ageSeconds===null?'--':externalEscape(s.ageSeconds)+' s';return '<tr><td><label class="dashboard-toggle"><input type="checkbox" '+(s.enabled?'checked ':'')+'onchange="externalToggle('+s.id+',this.checked)"><span class="dashboard-toggle-slider"></span></label></td><td class="scheduler-name">'+externalEscape(s.name)+'</td><td class="scheduler-mono">'+externalEscape(s.mqttTopic)+'</td><td>'+val+'</td><td>'+age+'</td><td>'+externalEscape(s.state)+'</td><td><div class="scheduler-actions"><button class="btn btn-ghost" onclick="externalOpenEditor('+s.id+')">Edit</button><button class="btn btn-danger" onclick="externalDelete('+s.id+')">Delete</button></div></td></tr>';}).join('');}
-function externalRefresh(){if(externalRefreshPromise)return externalRefreshPromise;externalRefreshPromise=fetch('/externalsensorsapi',{cache:'no-store'}).then(function(r){if(!r.ok)throw Error('HTTP '+r.status);return r.json();}).then(function(d){externalRefreshPromise=null;externalRender(d);return d;}).catch(function(e){externalRefreshPromise=null;externalStatus('Refresh failed: '+e.message,true);});return externalRefreshPromise;}
-function externalCommand(n,v){if(externalBusy)return Promise.reject(Error('busy'));externalBusy=true;externalStatus('Saving ...',false);return fetch('/externalsensorscommand?'+encodeURIComponent(n)+'='+encodeURIComponent(v),{cache:'no-store'}).then(function(r){return r.text();}).then(function(m){if(/^ERROR:/.test(m))throw Error(m.replace(/^ERROR:\s*/,''));externalBusy=false;externalStatus(m.replace(/^OK:\s*/,''),false);return externalRefresh();}).catch(function(e){externalBusy=false;externalStatus('Command failed: '+e.message,true);throw e;});}
-function externalFind(id){return (externalData.sensors||[]).find(function(s){return Number(s.id)===Number(id);});}
-function externalEnsureHistoryFields(){if(document.getElementById('externalHistoryEnabled'))return;var host=document.getElementById('externalEnabled').closest('.scheduler-field').parentElement;var field=document.createElement('div');field.className='scheduler-field';field.innerHTML='<label>History / role</label><label class="dashboard-control" style="justify-content:flex-start"><input id="externalHistoryEnabled" type="checkbox" checked> Store in history</label><select id="externalRole" class="scheduler-input"><option value="0">Normal sensor</option><option value="1">Electrical power (W)</option></select>';host.appendChild(field);}
-function externalOpenEditor(id){externalEnsureHistoryFields();var s=id?externalFind(id):null;externalEditingId=s?s.id:0;document.getElementById('externalEditorTitle').textContent=s?'Edit MQTT sensor':'Add MQTT sensor';document.getElementById('externalName').value=s?s.name:'';document.getElementById('externalTopic').value=s?s.mqttTopic:'';document.getElementById('externalUnit').value=s?s.unit:'';document.getElementById('externalTimeout').value=s?s.staleTimeoutSeconds:120;document.getElementById('externalEnabled').checked=s?!!s.enabled:true;document.getElementById('externalHistoryEnabled').checked=s?s.historyEnabled!==false:true;document.getElementById('externalRole').value=String(s?s.role||0:0);document.getElementById('externalModal').classList.add('open');document.getElementById('externalName').focus();}
-function externalCloseEditor(){document.getElementById('externalModal').classList.remove('open');}
-function externalSaveEditor(){var name=document.getElementById('externalName').value.trim(),topic=document.getElementById('externalTopic').value.trim(),unit=document.getElementById('externalUnit').value.trim(),timeout=Number(document.getElementById('externalTimeout').value);if(!name||!topic||!Number.isInteger(timeout)||timeout<5||timeout>86400){externalStatus('Please enter valid sensor fields.',true);return;}externalCommand('save',JSON.stringify({id:externalEditingId,enabled:document.getElementById('externalEnabled').checked,historyEnabled:document.getElementById('externalHistoryEnabled').checked,role:Number(document.getElementById('externalRole').value),name:name,mqttTopic:topic,unit:unit,staleTimeoutSeconds:timeout})).then(externalCloseEditor);}
-function externalToggle(id,on){var s=externalFind(id);if(s)externalCommand('save',JSON.stringify(Object.assign({},s,{enabled:on})));}
-function externalDelete(id){var s=externalFind(id);if(s&&confirm('Delete sensor "'+s.name+'"?'))externalCommand('delete',id);}
-document.addEventListener('keydown',function(e){if(e.key==='Escape')externalCloseEditor();});document.addEventListener('DOMContentLoaded',function(){externalRefresh();window.setInterval(externalRefresh,10000);});
-</script>
-)====";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SMART DHW PAGE
-// ─────────────────────────────────────────────────────────────────────────────
-static const char webBodySmartDhw[] FLASHPROG = R"====(
-<script>
-document.addEventListener('DOMContentLoaded',function(){
-  document.title='Smart DHW - HeishaMon';
-  document.getElementById('sideNav').innerHTML=`
-<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
-<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
-<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
-<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
-<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
-<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
-<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
-<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
-<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>`;
-});
-</script>
-<main class='main-content smart-dhw-page'>
-  <div class='scheduler-heading'><div><h1>Smart DHW</h1><p>Local solar-friendly hot-water reserves without MQTT or external automation.</p></div></div>
-  <div class='smart-dhw-status'>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Smart DHW state</span><span id='smartDhwState' class='scheduler-status-value'>Loading ...</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>DHW temperature</span><span id='smartDhwTemperature' class='scheduler-status-value'>--</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Panasonic target</span><span id='smartDhwTarget' class='scheduler-status-value'>--</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>DHW operation</span><span id='smartDhwOperation' class='scheduler-status-value'>--</span></div>
-    <div class='scheduler-status-card smart-dhw-wide'><span class='scheduler-status-label'>Next check</span><span id='smartDhwNextCheck' class='scheduler-status-value'>--</span></div>
-    <div class='scheduler-status-card smart-dhw-wide'><span class='scheduler-status-label'>Last successful Smart DHW start</span><span id='smartDhwLastStart' class='scheduler-status-value'>Never</span></div>
-    <div class='scheduler-status-card scheduler-last'><span class='scheduler-status-label'>Last decision</span><span id='smartDhwLastDecision' class='scheduler-status-value'>No decision since boot</span></div>
-  </div>
-
-  <section class='scheduler-panel'>
-    <div class='scheduler-panel-header'><h2>Configuration</h2><span class='dashboard-muted'>Charges to the Panasonic DHW target shown above</span></div>
-    <div class='smart-dhw-config'>
-      <section class='smart-dhw-card full'>
-        <h3>General</h3>
-        <div class='smart-dhw-row'><label for='smartDhwEnabled'>Enable Smart DHW</label><label class='dashboard-toggle'><input id='smartDhwEnabled' type='checkbox' onchange='smartDhwMarkDirty()'><span class='dashboard-toggle-slider'></span></label></div>
-      </section>
-      <section class='smart-dhw-card'>
-        <h3>Evening reserve</h3>
-        <div class='smart-dhw-row'><label for='smartDhwEveningEnabled'>Enable evening reserve</label><label class='dashboard-toggle'><input id='smartDhwEveningEnabled' type='checkbox' onchange='smartDhwMarkDirty()'><span class='dashboard-toggle-slider'></span></label></div>
-        <div class='smart-dhw-row'><label for='smartDhwEveningTime'>Check time</label><input id='smartDhwEveningTime' class='scheduler-input' type='time' onchange='smartDhwMarkDirty()'></div>
-        <div class='smart-dhw-row'><label for='smartDhwEveningTemp'>Charge if tank below</label><div class='smart-dhw-unit'><input id='smartDhwEveningTemp' class='scheduler-input' type='number' min='20' max='75' step='0.5' oninput='smartDhwMarkDirty()'><span>&deg;C</span></div></div>
-        <div class='smart-dhw-row'><span class='dashboard-muted'>Safe simulation</span><button class='btn btn-ghost' onclick="smartDhwTest('evening')">Test evening decision</button></div>
-      </section>
-      <section class='smart-dhw-card'>
-        <h3>Morning safety reserve</h3>
-        <div class='smart-dhw-row'><label for='smartDhwMorningEnabled'>Enable morning reserve</label><label class='dashboard-toggle'><input id='smartDhwMorningEnabled' type='checkbox' onchange='smartDhwMarkDirty()'><span class='dashboard-toggle-slider'></span></label></div>
-        <div class='smart-dhw-row'><label for='smartDhwMorningTime'>Check time</label><input id='smartDhwMorningTime' class='scheduler-input' type='time' onchange='smartDhwMarkDirty()'></div>
-        <div class='smart-dhw-row'><label for='smartDhwMorningTemp'>Charge if tank below</label><div class='smart-dhw-unit'><input id='smartDhwMorningTemp' class='scheduler-input' type='number' min='20' max='75' step='0.5' oninput='smartDhwMarkDirty()'><span>&deg;C</span></div></div>
-        <div class='smart-dhw-row'><span class='dashboard-muted'>Safe simulation</span><button class='btn btn-ghost' onclick="smartDhwTest('morning')">Test morning decision</button></div>
-      </section>
-      <section class='smart-dhw-card full'>
-        <h3>Advanced protection</h3>
-        <div class='smart-dhw-row'><label for='smartDhwMinimumInterval'>Minimum time between Smart DHW starts</label><div class='smart-dhw-unit'><input id='smartDhwMinimumInterval' class='scheduler-input' type='number' min='15' max='1440' step='1' oninput='smartDhwMarkDirty()'><span>minutes</span></div></div>
-      </section>
-    </div>
-    <div class='smart-dhw-footer'><span class='smart-dhw-note'>Test decision never sends a Panasonic command. Save pending edits before testing them.</span><button class='btn btn-ghost' onclick='smartDhwCancel()'>Cancel</button><button class='btn btn-primary' onclick='smartDhwSave()'>Save</button></div>
-  </section>
-  <div id='smartDhwCommandStatus' class='scheduler-command-status'></div>
-
-  <section class='scheduler-panel'>
-    <div class='scheduler-panel-header'><h2>Decision history</h2><span class='dashboard-muted'>RAM only, newest first</span></div>
-    <div class='scheduler-table-wrap'><table class='scheduler-table'><thead><tr><th>Time</th><th>Reserve</th><th>Result</th><th>Detail</th></tr></thead><tbody id='smartDhwEvents'><tr><td colspan='4' class='scheduler-empty'>No Smart DHW decisions since boot.</td></tr></tbody></table></div>
-  </section>
-</main>
-)====";
-
-static const char smartDhwJS[] FLASHPROG = R"====(
-<script>
-var smartDhwData=null;
-var smartDhwBusy=false;
-var smartDhwDirty=false;
-var smartDhwRefreshPromise=null;
-function smartDhwEscape(value){return String(value===undefined?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
-function smartDhwPad(value){return String(value).padStart(2,'0');}
-function smartDhwValue(value,unit){return value===null||value===undefined?'Unavailable':Number(value).toFixed(1)+(unit||'');}
-function smartDhwStatus(message,isError){var el=document.getElementById('smartDhwCommandStatus');el.textContent=message||'';el.style.color=isError?'var(--red)':'var(--text-muted)';}
-function smartDhwMarkDirty(){smartDhwDirty=true;smartDhwStatus('Unsaved changes',false);}
-function smartDhwSetControls(disabled){document.querySelectorAll('.smart-dhw-page button,.smart-dhw-page input').forEach(function(control){control.disabled=disabled;});}
-function smartDhwFillConfig(config){document.getElementById('smartDhwEnabled').checked=!!config.enabled;document.getElementById('smartDhwEveningEnabled').checked=!!config.eveningEnabled;document.getElementById('smartDhwEveningTime').value=smartDhwPad(config.eveningHour)+':'+smartDhwPad(config.eveningMinute);document.getElementById('smartDhwEveningTemp').value=String(config.eveningTriggerTemp);document.getElementById('smartDhwMorningEnabled').checked=!!config.morningEnabled;document.getElementById('smartDhwMorningTime').value=smartDhwPad(config.morningHour)+':'+smartDhwPad(config.morningMinute);document.getElementById('smartDhwMorningTemp').value=String(config.morningTriggerTemp);document.getElementById('smartDhwMinimumInterval').value=String(config.minimumIntervalMinutes);}
-function smartDhwRender(data){
-  smartDhwData=data;var status=data.status||{};var state=document.getElementById('smartDhwState');state.textContent=(data.config.enabled?'Enabled · ':'Disabled · ')+(status.state||'Unknown');state.className='scheduler-status-value '+(status.state==='Error'?'smart-dhw-state-error':data.config.enabled?'smart-dhw-state-active':'');
-  document.getElementById('smartDhwTemperature').textContent=smartDhwValue(status.dhwTemperature,' °C');document.getElementById('smartDhwTarget').textContent=smartDhwValue(status.dhwTarget,' °C');document.getElementById('smartDhwOperation').textContent=status.dhwOperationActive===null?'Unavailable':status.forceDhwActive?'Force DHW active':status.dhwOperationActive?'DHW active':'Idle';document.getElementById('smartDhwNextCheck').textContent=data.nextCheck&&data.nextCheck.available?(data.nextCheck.time+' · '+data.nextCheck.reserve):'No enabled check';document.getElementById('smartDhwLastStart').textContent=status.lastSuccessfulStart||'Never';
-  var last=data.events&&data.events.length?data.events[0]:null;document.getElementById('smartDhwLastDecision').textContent=last?(last.time+' · '+last.reserve+' -> '+last.result+' · '+last.detail):'No decision since boot';
-  if(!smartDhwDirty)smartDhwFillConfig(data.config);
-  var events=document.getElementById('smartDhwEvents');if(!data.events||!data.events.length){events.innerHTML="<tr><td colspan='4' class='scheduler-empty'>No Smart DHW decisions since boot.</td></tr>";}else{events.innerHTML=data.events.map(function(event){return '<tr><td class="scheduler-mono">'+smartDhwEscape(event.time)+'</td><td>'+smartDhwEscape(event.reserve)+'</td><td class="scheduler-event-result">'+smartDhwEscape(event.result)+'</td><td>'+smartDhwEscape(event.detail)+'</td></tr>';}).join('');}
-  smartDhwSetControls(smartDhwBusy);
-}
-function smartDhwRefresh(){if(smartDhwRefreshPromise)return smartDhwRefreshPromise;smartDhwRefreshPromise=fetch('/smartdhwapi',{cache:'no-store'}).then(function(response){if(!response.ok)throw new Error('HTTP '+response.status);return response.json();}).then(function(data){smartDhwRefreshPromise=null;smartDhwRender(data);return data;}).catch(function(error){smartDhwRefreshPromise=null;smartDhwStatus('Refresh failed: '+error.message,true);throw error;});return smartDhwRefreshPromise;}
-function smartDhwCommand(name,value){if(smartDhwBusy){smartDhwStatus('Please wait for the current command.',false);return Promise.reject(new Error('busy'));}smartDhwBusy=true;smartDhwSetControls(true);return fetch('/smartdhwcommand?'+encodeURIComponent(name)+'='+encodeURIComponent(value),{cache:'no-store'}).then(function(response){if(!response.ok)throw new Error('HTTP '+response.status);return response.text();}).then(function(message){if(/^ERROR:/m.test(message))throw new Error(message.replace(/^ERROR:\s*/,'').trim());smartDhwStatus(message.replace(/^OK:\s*/,'').trim()||'Done',false);return smartDhwRefresh();}).then(function(data){smartDhwBusy=false;smartDhwRender(data);return data;}).catch(function(error){smartDhwBusy=false;smartDhwSetControls(false);if(error.message!=='busy')smartDhwStatus('Command failed: '+error.message,true);throw error;});}
-function smartDhwReadTime(id){var value=document.getElementById(id).value;if(!/^\d{2}:\d{2}$/.test(value))return null;var parts=value.split(':');var hour=Number(parts[0]);var minute=Number(parts[1]);return Number.isInteger(hour)&&hour>=0&&hour<=23&&Number.isInteger(minute)&&minute>=0&&minute<=59?{hour:hour,minute:minute}:null;}
-function smartDhwSave(){var evening=smartDhwReadTime('smartDhwEveningTime');var morning=smartDhwReadTime('smartDhwMorningTime');var eveningTemp=Number(document.getElementById('smartDhwEveningTemp').value);var morningTemp=Number(document.getElementById('smartDhwMorningTemp').value);var interval=Number(document.getElementById('smartDhwMinimumInterval').value);if(!evening||!morning){smartDhwStatus('Both check times must be valid.',true);return;}if(!Number.isFinite(eveningTemp)||eveningTemp<20||eveningTemp>75||!Number.isFinite(morningTemp)||morningTemp<20||morningTemp>75){smartDhwStatus('Trigger temperatures must be between 20 and 75 °C.',true);return;}if(!Number.isInteger(interval)||interval<15||interval>1440){smartDhwStatus('Minimum interval must be 15 to 1440 minutes.',true);return;}var config={enabled:document.getElementById('smartDhwEnabled').checked,eveningEnabled:document.getElementById('smartDhwEveningEnabled').checked,eveningHour:evening.hour,eveningMinute:evening.minute,eveningTriggerTemp:eveningTemp,morningEnabled:document.getElementById('smartDhwMorningEnabled').checked,morningHour:morning.hour,morningMinute:morning.minute,morningTriggerTemp:morningTemp,minimumIntervalMinutes:interval};smartDhwCommand('save',JSON.stringify(config)).then(function(){smartDhwDirty=false;smartDhwFillConfig(smartDhwData.config);});}
-function smartDhwCancel(){if(smartDhwData){smartDhwDirty=false;smartDhwFillConfig(smartDhwData.config);smartDhwStatus('Changes discarded',false);}}
-function smartDhwTest(slot){if(smartDhwDirty){smartDhwStatus('Save or cancel pending edits before testing.',true);return;}smartDhwCommand('test',slot);}
-document.addEventListener('DOMContentLoaded',function(){smartDhwRefresh();window.setInterval(smartDhwRefresh,10000);});
-</script>
-)====";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// HARDWARE PAGE
-// ─────────────────────────────────────────────────────────────────────────────
-static const char webBodyHardware[] FLASHPROG = R"===(<script>
-document.addEventListener('DOMContentLoaded',function(){
-  document.title='Hardware - HeishaMon';
-  document.getElementById('sideNav').innerHTML=`
-<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
-<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
-<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
-<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
-<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
-<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
-<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
-<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
-<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>`;
-});
-</script>
-<main class='main-content hardware-page'>
-  <div class='scheduler-heading'><div><h1>Hardware</h1><p>Heat pump hardware information and configuration.</p></div></div>
-  <div class='hardware-top-grid'>
-    <section class='hardware-card'>
-      <div class='hardware-card-title'>Hardware information</div>
-      <div class='hardware-row'><span>Model</span><span id='hardwareModel' class='hardware-value'>Loading ...</span></div>
-      <div class='hardware-row'><span>Type</span><span id='hardwareType' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Heat capacity</span><span id='hardwareCapacity' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Power connection</span><span id='hardwarePower' class='hardware-value'>--</span></div>
-      <div class='hardware-note'>Note:<br>If the model information is unknown, this means the HeishaMon firmware does not recognize the model yet. It has no impact on functionality.</div>
-    </section>
-    <section class='hardware-card'>
-      <div class='hardware-card-title'>Operation information</div>
-      <div class='hardware-row'><span>Operation hours</span><span id='operationHours' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Operation counter</span><span id='operationCounter' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Backup heater hours (DHW)</span><span id='backupDhwHours' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Backup heater hours (HEAT)</span><span id='backupHeatHours' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Water pressure (bar)</span><span id='waterPressure' class='hardware-value'>--</span></div>
-    </section>
-  </div>
-
-  <section class='hardware-card hardware-config-card'>
-    <div class='hardware-card-title'>Hardware configuration</div>
-    <div class='hardware-config-list'>
-      <div class='hardware-row'><span>Heating mode</span><span id='heatingMode' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Zone 1 control method / sensor</span><span id='zone1Sensor' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Zone 2 control method / sensor</span><span id='zone2Sensor' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Room heater state</span><span id='roomHeaterState' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Buffer installed</span><span id='bufferInstalled' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Buffer tank delta</span><span id='bufferTankDelta' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>DHW installed</span><span id='dhwInstalled' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>DHW heater state</span><span id='dhwHeaterState' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Cooling mode</span><span id='coolingMode' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Solar mode</span><span id='solarMode' class='hardware-value'>--</span></div>
-    </div>
-  </section>
-
-  <section class='hardware-card hardware-extra'>
-    <div class='hardware-card-title'>Additional decoded information</div>
-    <div class='hardware-top-grid'>
-      <div>
-        <div class='hardware-row'><span>Pump flowrate mode</span><span id='pumpFlowMode' class='hardware-value'>--</span></div>
-        <div class='hardware-row'><span>Liquid type</span><span id='liquidType' class='hardware-value'>--</span></div>
-      </div>
-      <div>
-        <div class='hardware-row'><span>Alternative external sensor</span><span id='externalSensor' class='hardware-value'>--</span></div>
-        <div class='hardware-row'><span>Anti-freeze mode</span><span id='antiFreezeMode' class='hardware-value'>--</span></div>
-      </div>
-    </div>
-  </section>
-</main>
-)===";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// HARDWARE PAGE JAVASCRIPT
-// ─────────────────────────────────────────────────────────────────────────────
-static const char hardwareJS[] FLASHPROG = R"===(<script>
-var hardwareRefreshPromise = null;
-
-function hardwareDisplay(value) {
-  return value === undefined || value === null || value === '' ? '--' : String(value);
-}
-
-function hardwareRender(data) {
-  document.getElementById('hardwareModel').textContent = hardwareDisplay(data.model);
-  document.getElementById('hardwareType').textContent = hardwareDisplay(data.type);
-  document.getElementById('hardwareCapacity').textContent = hardwareDisplay(data.capacity);
-  document.getElementById('hardwarePower').textContent = hardwareDisplay(data.power);
-  document.getElementById('operationHours').textContent = hardwareDisplay(data.operationHours);
-  document.getElementById('operationCounter').textContent = hardwareDisplay(data.operationCounter);
-  document.getElementById('backupDhwHours').textContent = hardwareDisplay(data.backupDhwHours);
-  document.getElementById('backupHeatHours').textContent = hardwareDisplay(data.backupHeatHours);
-  document.getElementById('waterPressure').textContent = hardwareDisplay(data.waterPressure);
-  document.getElementById('heatingMode').textContent = hardwareDisplay(data.heatingMode);
-  document.getElementById('zone1Sensor').textContent = hardwareDisplay(data.zone1Sensor);
-  document.getElementById('zone2Sensor').textContent = hardwareDisplay(data.zone2Sensor);
-  document.getElementById('roomHeaterState').textContent = hardwareDisplay(data.roomHeaterState);
-  document.getElementById('bufferInstalled').textContent = hardwareDisplay(data.bufferInstalled);
-  document.getElementById('bufferTankDelta').textContent = hardwareDisplay(data.bufferTankDelta);
-  document.getElementById('dhwInstalled').textContent = hardwareDisplay(data.dhwInstalled);
-  document.getElementById('dhwHeaterState').textContent = hardwareDisplay(data.dhwHeaterState);
-  document.getElementById('coolingMode').textContent = hardwareDisplay(data.coolingMode);
-  document.getElementById('solarMode').textContent = hardwareDisplay(data.solarMode);
-  document.getElementById('pumpFlowMode').textContent = hardwareDisplay(data.pumpFlowMode);
-  document.getElementById('liquidType').textContent = hardwareDisplay(data.liquidType);
-  document.getElementById('externalSensor').textContent = hardwareDisplay(data.externalSensor);
-  document.getElementById('antiFreezeMode').textContent = hardwareDisplay(data.antiFreezeMode);
-  
-}
-
-function hardwareRefresh() {
-  if (hardwareRefreshPromise) return hardwareRefreshPromise;
-  
-  hardwareRefreshPromise = fetch('/hardwareapi', {cache: 'no-store'})
-    .then(function(response) {
-      if (!response.ok) throw new Error('HTTP ' + response.status);
-      return response.json();
-    })
-    .then(function(data) {
-      hardwareRefreshPromise = null;
-      hardwareRender(data);
-      return data;
-    })
-    .catch(function(error) {
-      hardwareRefreshPromise = null;
-      console.error('Hardware refresh failed: ' + error.message);
-      throw error;
-  });
-  return hardwareRefreshPromise;
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-  hardwareRefresh();
-  window.setInterval(hardwareRefresh, 30000); // Refresh every 30 seconds
-});
-</script>
-)===";
-
-// ─────────────────────────────────────────────────────────────────────────────
 // SETTINGS PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 static const char settingsJS[] FLASHPROG = R"====(
@@ -2624,26 +1636,7 @@ static const char caUploadJS[] PROGMEM = R"====(
 )====";
 #endif
 
-static const char webBodySettings1[] FLASHPROG = R"====(
-<script>
-document.addEventListener('DOMContentLoaded',function(){
-  var nav=document.getElementById('sideNav');
-  nav.innerHTML=`
-<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
-<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
-<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
-<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
-<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
-<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
-<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
-<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
-<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>
-`;
-});
-</script>
-)====";
+static const char webBodySettings1[] FLASHPROG = "";
 
 static const char settingsForm1[] FLASHPROG = R"====(
 <div class='main-content' style='max-width:780px;margin:0 auto'>
@@ -3050,24 +2043,6 @@ setTimeout(refreshWifiScan,500);
 // RULES PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 static const char showRulesPage1[] FLASHPROG = R"====(
-<script>
-document.addEventListener('DOMContentLoaded',function(){
-  var nav=document.getElementById('sideNav');
-  nav.innerHTML=`
-<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
-<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
-<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
-<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
-<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
-<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
-<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
-<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
-<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>
-`;
-});
-</script>
   <div style='display:flex;'>
     <div id='line-numbers' class='line-numbers'></div>
     <div id='rules' contenteditable='true' spellcheck='false' class='rules-editor'>)====";
@@ -3226,9 +2201,7 @@ function highlightRules() {
   restoreCursorPosition(editor, cursorPos);
 }
 
-function escapeHtml(text) {
-  return text.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));
-}
+var escapeHtml=hmEscape;
 
 function saveCursorPosition(el) {
   const sel = window.getSelection();
@@ -3517,24 +2490,6 @@ function getCursorPosition() {
 // ─────────────────────────────────────────────────────────────────────────────
 static const char showFirmwarePage[] FLASHPROG = R"====(
 <script>
-document.addEventListener('DOMContentLoaded',function(){
-  var nav=document.getElementById('sideNav');
-  nav.innerHTML=`
-<a href="/"><span class="nav-icon">&#8634;</span> Home</a>
-<a href="/dashboard"><span class="nav-icon">&#9635;</span> Dashboard</a>
-<a href="/wpsettings"><span class="nav-icon">&#9881;</span> Settings</a>
-<a href="/scheduler"><span class="nav-icon">&#9201;</span> Scheduler</a>
-<a href="/externalsensors"><span class="nav-icon">&#9673;</span> External Sensors</a>
-<a href="/smartdhw"><span class="nav-icon">&#9832;</span> Smart DHW</a>
-<a href="/hardware"><span class="nav-icon">&#9881;</span> Hardware</a>
-<a href="/reboot" onclick="return confirm('Reboot the device?')"><span class="nav-icon">&#8635;</span> Reboot</a>
-<a href="/rules"><span class="nav-icon">&#8881;</span> Rules</a>
-<a href="/firmware"><span class="nav-icon">&#8679;</span> Firmware</a>
-<a href="/settings"><span class="nav-icon">&#9881;</span> Settings</a>
-`;
-});
-</script>
-<script>
 function getMD5(){
   var fn=document.getElementById('firmware').value;
   var sp=fn.split('-')[2];
@@ -3560,6 +2515,31 @@ function uploadFile(){
   req.open('POST','/firmware');
   req.send(fd);
 }
+function loadWebUiStatus(){
+  fetch('/webui/status',{cache:'no-store'}).then(function(response){
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    return response.json();
+  }).then(function(data){
+    var state=document.getElementById('webuiState');
+    if(!data.sdReady)state.textContent='SD card unavailable';
+    else if(!data.active)state.textContent='No valid Web UI package active';
+    else state.textContent='Active: version '+data.version+' · slot '+data.slot;
+  }).catch(function(error){document.getElementById('webuiState').textContent='Status unavailable: '+error.message;});
+}
+function uploadWebUi(){
+  var file=document.getElementById('webuiPackage').files[0];
+  var button=document.getElementById('webuiUpdateButton');
+  var status=document.getElementById('webuiUploadStatus');
+  var progress=document.getElementById('webuiProgress');
+  if(!file){status.textContent='Select heishamon-webui.tar first.';return;}
+  button.disabled=true;status.textContent='Uploading to inactive SD slot ...';progress.value=0;
+  var form=new FormData();form.append('webui',file,file.name);
+  var request=new XMLHttpRequest();
+  request.upload.addEventListener('progress',function(event){if(event.lengthComputable)progress.value=Math.round(event.loaded/event.total*100);});
+  request.onreadystatechange=function(){if(request.readyState===4){status.textContent=request.responseText||('HTTP '+request.status);button.disabled=false;if(request.status===200){loadWebUiStatus();}}};
+  request.open('POST','/webui/upload');request.send(form);
+}
+document.addEventListener('DOMContentLoaded',loadWebUiStatus);
 </script>
 <div class='firmware-container'>
   <div class='firmware-info'>
@@ -3600,6 +2580,17 @@ R"====(  </div>
       </div>
       <progress id='progressBar' value='0' max='100'></progress>
       <p id='status'></p>
+    </div>
+  </div>
+  <div class='panel' style='margin-top:16px'>
+    <div class='panel-header'><h3>Web UI Update (microSD)</h3></div>
+    <div style='padding:24px'>
+      <p id='webuiState' style='font-size:12px;color:var(--text-muted)'>Loading Web UI status ...</p>
+      <div class='file-input-wrap'><input type='file' accept='.tar,application/x-tar' id='webuiPackage' name='webui'></div>
+      <div class='firmware-info' style='margin-top:16px'>The package is written to the inactive A/B slot and verified before activation. A failed upload leaves the current Web UI active.</div>
+      <button id='webuiUpdateButton' class='btn btn-primary' onclick='uploadWebUi()'>Upload &amp; Activate Web UI</button>
+      <progress id='webuiProgress' value='0' max='100'></progress>
+      <p id='webuiUploadStatus'></p>
     </div>
   </div>
 </div>

@@ -15,6 +15,7 @@ bool customFeaturesHandleArgs(struct webserver_t *client, struct arguments_t *ar
 bool customFeaturesHandleCommandArgument(struct webserver_t *client,
   struct arguments_t *args);
 bool customFeaturesHandleWrite(struct webserver_t *client);
+bool customFeaturesHandleHeader(struct webserver_t *client, struct header_t *header);
 bool customFeaturesHandleClose(struct webserver_t *client);
 void customFeaturesAppendExternalSensorDiagnostics(JsonArray array);
 void customFeaturesReadExternalSensorHistory(float *values, bool *valid,

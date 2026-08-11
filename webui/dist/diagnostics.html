@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>Heisha Monitor</title>
+<link rel='stylesheet' href='/webui/styles.css?v=0.1.0'>
+<script src='/webui/common.js?v=0.1.0'></script>
+</head>
+<body>
+<div class='sidemenu-overlay' id='menuOverlay' onclick='closeMenu()'></div>
+<aside class='sidemenu' id='sideMenu'>
+  <div class='sidemenu-header'>
+    <h2>HeishaMon</h2>
+    <p id='sideVersion'>Custom build 0.1.0<br><small>Base: v4.2.1</small></p>
+  </div>
+  <div class='theme-toggle'>
+    <label class='theme-toggle-label'><span class='nav-icon'>☀</span> Dark Mode</label>
+    <label class='theme-switch'><input type='checkbox' id='darkModeToggle' onchange='toggleDarkMode()'><span class='theme-slider'></span></label>
+  </div>
+  <nav class='sidemenu-nav' id='sideNav'></nav>
+  <div class='sidemenu-footer'><a href='https://github.com/heishamon/HeishaMon' target='_blank'>GitHub</a></div>
+</aside>
+<header class='topbar'>
+  <div class='topbar-left'><button class='hamburger' onclick='toggleMenu()'>&#9776;</button><a class='topbar-logo' href='/'>Heisha<span>Mon</span></a></div>
+  <div class='topbar-right'></div>
+</header>
+<main class='main-content diagnostics-page'>
+<div class='diagnostics-heading'><h1>Diagnostics</h1><div id='status' class='diagnostics-status'>Loading…</div></div>
+<div id='cards' class='diagnostics-grid'></div><details class='panel diagnostics-raw'><summary>Raw Panasonic values</summary><pre id='raw'>Loading…</pre></details>
+</main>
+<script>
+var esc=hmEscape;
+function val(v,unit){return v===null||v===undefined?'N/A':esc(v)+(unit||'')}
+function row(k,v){return '<div class="diagnostics-row"><span>'+esc(k)+'</span><span class="diagnostics-value">'+v+'</span></div>'}
+function card(title,rows){return '<section class="panel diagnostics-card"><div class="panel-header"><h3>'+title+'</h3></div><div class="diagnostics-rows">'+rows.join('')+'</div></section>'}
+function render(d){var s=d.system||{},o=d.operation||{},h=d.hydraulics||{},c=d.control||{},z1=c.zone1HeatRequest||{},cs=c.heatingCurveShift||{},w=d.dhw||{},n=d.counters||{},sd=d.sd||{};
+ document.getElementById('status').innerHTML='Panasonic: <b class="'+(s.panasonic&&s.panasonic.fresh?'diagnostics-ok':'diagnostics-bad')+'">'+esc(s.panasonic?s.panasonic.status:'NO DATA')+'</b> · Last frame: '+val(s.panasonic&&s.panasonic.ageSeconds,' s');
+ document.getElementById('cards').innerHTML=card('SYSTEM STATUS',[row('WiFi',s.wifi?'Connected':'Offline'),row('Ethernet',s.ethernet?'Connected':'Offline'),row('MQTT',s.mqtt?'Connected':'Offline'),row('NTP',s.ntp?'Synchronized':'Unavailable'),row('Uptime',val(s.uptimeSeconds,' s')),row('Free heap',val(s.freeHeap,' B')),row('PSRAM',s.psramFound?val(s.freePsram,' B free'):'Not available'),row('Firmware',val(s.firmware))])+card('CURRENT OPERATION',[row('Interpreted state',val(o.state)),row('Operating mode',val(o.mode)),row('Compressor',o.compressorRunning?'Running':'Stopped'),row('Compressor frequency',val(o.compressorFrequency,' Hz')),row('Current runtime',val(o.currentRuntimeSeconds,' s')),row('Flow',val(o.flow,' l/min')),row('Pump speed',val(o.pumpSpeed,' rpm')),row('Fan 1',val(o.fan1,' rpm')),row('3-way valve',val(o.valve))])+card('HYDRAULICS',[row('Inlet',val(h.inlet,' °C')),row('Outlet',val(h.outlet,' °C')),row('Target',val(h.target,' °C')),row('Delta T',val(h.deltaT,' K')),row('Target error',val(h.targetError,' K')),row('Delta-T error',val(h.deltaTError,' K')),row('Calculated thermal power',val(h.calculatedThermalPowerKw,' kW'))])+card('CONTROL / DHW',[row('Zone 1 raw TOP27',val(z1.rawValue)),row(z1.label||'Zone 1 request',val(z1.value,z1.unit?' '+z1.unit:'')),row('Heating mode',val(z1.heatingModeLabel||c.heatingMode)),row('Zone 1 sensor setting',val(z1.sensorSettingLabel||z1.sensorSetting)),row('Heating-off outdoor temp',val(c.heatingOffOutside,' °C')),row('Room temperature',val(c.roomTemperature,' °C')),row('DHW actual',val(w.actual,' °C')),row('DHW target',val(w.target,' °C')),row('DHW active',w.active?'Yes':'No'),row('Force DHW',val(w.forceState)),row('Smart DHW','See Smart DHW page')])+card('COUNTERS',[row('Panasonic operation hours',val(n.panasonicOperationHours)),row('Panasonic operation counter',val(n.panasonicOperationCounter)),row('Compressor starts since boot',val(n.compressorStartsSinceBoot)),row('Current cycle',val(n.currentCycleSeconds,' s')),row('Previous cycle',val(n.previousCycleSeconds,' s')),row('Average cycle',val(n.averageCycleSeconds,' s'))])+card('PERSISTENT HISTORY',[row('RAM samples',val((d.history||{}).sampleCount)+' / '+val((d.history||{}).capacity)),row('Sample interval',val((d.history||{}).intervalSeconds,' s')),row('RAM memory',val((d.history||{}).sampleMemoryBytes,' B')),row('SD support',sd.support?'Enabled':'Disabled'),row('SD card',sd.present?'Present':'Not present'),row('History logging',sd.active?'Active':'RAM only'),row('Retention',sd.retentionDays===0?'Unlimited':val(sd.retentionDays,' days')),row('SD error',val(sd.lastError))]);
+ document.getElementById('cards').insertAdjacentHTML('beforeend',card('HEATING CURVE SHIFT',[row('Requested shift',val(cs.shift,' K')),row('Implementation',val(cs.implementationLabel)),row('Base high',val(cs.baseTargetHigh,' °C')),row('Base low',val(cs.baseTargetLow,' °C')),row('Effective high',val(cs.effectiveTargetHigh,' °C')),row('Effective low',val(cs.effectiveTargetLow,' °C')),row('External mismatch',cs.externalMismatch?'Yes':'No')]));
+ document.getElementById('raw').textContent=JSON.stringify(d,null,2);
+}
+function refresh(){fetch('/diagnosticsapi',{cache:'no-store'}).then(function(r){if(!r.ok)throw Error(r.status);return r.json()}).then(render).catch(function(e){document.getElementById('status').textContent='Diagnostics unavailable: '+e.message})}document.title='Diagnostics - HeishaMon';refresh();setInterval(refresh,5000);
+</script>
+</body>
+</html>
