@@ -4,8 +4,8 @@
 <meta charset='utf-8'>
 <meta name='viewport' content='width=device-width, initial-scale=1'>
 <title>Heisha Monitor</title>
-<link rel='stylesheet' href='/webui/styles.css?v=0.1.7'>
-<script src='/webui/common.js?v=0.1.7'></script>
+<link rel='stylesheet' href='/webui/styles.css?v=0.1.8'>
+<script src='/webui/common.js?v=0.1.8'></script>
 </head>
 <body>
 <div class='sidemenu-overlay' id='menuOverlay' onclick='closeMenu()'></div>
@@ -33,6 +33,6 @@
   <div id='externalCommandStatus' class='scheduler-command-status'></div>
 </main>
 <div id='externalModal' class='scheduler-modal' onclick='if(event.target===this)externalCloseEditor()'><section class='scheduler-editor' role='dialog' aria-modal='true'><div class='scheduler-editor-header'><h2 id='externalEditorTitle'>Add MQTT sensor</h2><button class='btn btn-ghost' onclick='externalCloseEditor()'>Close</button></div><div class='scheduler-editor-body'><div class='scheduler-form-grid'><div class='scheduler-field full'><label for='externalName'>Name</label><input id='externalName' class='scheduler-input' maxlength='32' placeholder='Solar collector'></div><div class='scheduler-field full'><label for='externalTopic'>MQTT topic</label><input id='externalTopic' class='scheduler-input' maxlength='96' placeholder='solar/collector/temp'><span class='dashboard-muted'>Relative to the configured HeishaMon MQTT base topic.</span></div><div class='scheduler-field'><label for='externalUnit'>Unit</label><input id='externalUnit' class='scheduler-input' maxlength='12' placeholder='°C'></div><div class='scheduler-field'><label for='externalTimeout'>Stale after</label><div class='smart-dhw-unit'><input id='externalTimeout' class='scheduler-input' type='number' min='5' max='86400' step='1' value='120'><span>seconds</span></div></div><div class='scheduler-field'><label>Sensor state</label><label class='dashboard-control' style='justify-content:flex-start'><input id='externalEnabled' type='checkbox' checked> Enabled</label></div></div></div><div class='scheduler-editor-footer'><button class='btn btn-ghost' onclick='externalCloseEditor()'>Cancel</button><button class='btn btn-primary' onclick='externalSaveEditor()'>Save sensor</button></div></section></div>
-<script src='/webui/externalsensors.js?v=0.1.7'></script>
+<script src='/webui/externalsensors.js?v=0.1.8'></script>
 </body>
 </html>

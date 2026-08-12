@@ -90,7 +90,7 @@ function markActiveNav() {
   });
   var group = nav.querySelector('[data-custom-nav]');
   if (group) {
-    var customPaths = ['/dashboard','/wpsettings','/scheduler','/externalsensors','/smartdhw','/hardware','/diagnostics','/history'];
+    var customPaths = ['/dashboard','/wpsettings','/scheduler','/externalsensors','/smartdhw','/diagnostics','/history'];
     var customActive = customPaths.indexOf(current) >= 0;
     var toggle = group.querySelector('.sidemenu-group-toggle');
     group.classList.toggle('open', customActive || group.classList.contains('user-open'));
