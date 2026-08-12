@@ -8,6 +8,8 @@ function hmGetCookie(name){
 }
 function hmEscape(value){return String(value===undefined||value===null?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function hmPad(value){return String(value).padStart(2,'0')}
+function hmFormatTime24(value){return new Date(value).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',hourCycle:'h23'})}
+function hmFormatDateTime24(value){return new Date(value).toLocaleString('de-DE',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'})}
 (function(){
   var darkMode=hmGetCookie('darkMode');
   var wantDark = darkMode==='true' || (darkMode===null && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
