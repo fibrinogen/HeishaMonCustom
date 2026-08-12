@@ -142,8 +142,12 @@ struct SdState {
   char lastError[80] = "None";
 };
 
-static HistorySample samples[HEISHAMON_HISTORY_MAX_SAMPLES];
-static HistoryEvent events[HEISHAMON_HISTORY_MAX_EVENTS];
+// History is a sizeable, non-time-critical cache. Keep it out of the small
+// internal heap so web requests, Wi-Fi and Panasonic serial handling retain
+// headroom. The ESP32-S3 target has PSRAM; no internal-RAM fallback is used.
+static HistorySample *samples = nullptr;
+static HistoryEvent *events = nullptr;
+static bool historyBuffersReady = false;
 #if defined(ESP32)
 static portMUX_TYPE historyDataMux = portMUX_INITIALIZER_UNLOCKED;
 #endif
@@ -300,6 +304,7 @@ static void logHistoryEvent(HistoryEventType type, const char *message) {
 }
 
 static void addEvent(HistoryEventType type, const char *message, int32_t value = 0) {
+  if (!historyBuffersReady) return;
   bool timestampValid = false;
   uint32_t timestamp = currentTimestamp(&timestampValid);
   uint32_t uptimeSeconds = (uint32_t)(millis() / 1000UL);
@@ -575,6 +580,7 @@ static bool makeSample(HistorySample &sample) {
 }
 
 static void storeSample(const HistorySample &sample) {
+  if (!historyBuffersReady) return;
 #if defined(ESP32)
   portENTER_CRITICAL(&historyDataMux);
 #endif
@@ -1602,10 +1608,24 @@ static bool aggregateStoredHistorySample(const HistorySample &sample, void *cont
 static void handleStoredHistoryApi(struct webserver_t *client, uint32_t lowerTimestamp,
     uint32_t upperTimestamp, uint16_t maxPoints) {
   constexpr uint32_t MAX_STORED_HISTORY_RANGE_SECONDS = 90UL * 86400UL;
-  if (!sdState.active || !validClock() || lowerTimestamp == 0 ||
-      upperTimestamp <= lowerTimestamp ||
-      upperTimestamp - lowerTimestamp > MAX_STORED_HISTORY_RANGE_SECONDS ||
-      sdFilesystemMutex == nullptr) {
+  if (!sdState.active) {
+    webserver_send(client, 503, (char *)"application/json", 0);
+    appendFmt(client, "{\"error\":\"Persistent SD history is inactive: %s\"}",
+      sdState.lastError);
+    return;
+  }
+  if (!validClock()) {
+    webserver_send(client, 503, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"Controller clock is not synchronized\"}");
+    return;
+  }
+  if (sdFilesystemMutex == nullptr) {
+    webserver_send(client, 503, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"SD history reader is not initialized\"}");
+    return;
+  }
+  if (lowerTimestamp == 0 || upperTimestamp <= lowerTimestamp ||
+      upperTimestamp - lowerTimestamp > MAX_STORED_HISTORY_RANGE_SECONDS) {
     webserver_send(client, 400, (char *)"application/json", 0);
     appendText(client, "{\"error\":\"Select a valid SD period of up to 90 days\"}");
     return;
@@ -2259,6 +2279,10 @@ static void sdWriterTask(void *) {
 
 static void startSdWriter() {
   if (!sdState.active || sdWorkQueue != nullptr) return;
+  if (!historyBuffersReady) {
+    setSdError("PSRAM history buffers unavailable");
+    return;
+  }
   sdFilesystemMutex = xSemaphoreCreateMutex();
   if (sdFilesystemMutex == nullptr) {
     setSdError("Could not create SD filesystem lock");
@@ -2641,8 +2665,31 @@ static void handleEventsApi(struct webserver_t *client) {
 } // namespace
 
 void diagnosticsHistoryBegin() {
-  memset(samples, 0, sizeof(samples));
-  memset(events, 0, sizeof(events));
+  free(samples);
+  free(events);
+  samples = nullptr;
+  events = nullptr;
+  historyBuffersReady = false;
+#if defined(ESP32)
+  if (psramFound()) {
+    samples = (HistorySample *)ps_malloc(sizeof(HistorySample) * HEISHAMON_HISTORY_MAX_SAMPLES);
+    events = (HistoryEvent *)ps_malloc(sizeof(HistoryEvent) * HEISHAMON_HISTORY_MAX_EVENTS);
+  }
+#else
+  samples = (HistorySample *)malloc(sizeof(HistorySample) * HEISHAMON_HISTORY_MAX_SAMPLES);
+  events = (HistoryEvent *)malloc(sizeof(HistoryEvent) * HEISHAMON_HISTORY_MAX_EVENTS);
+#endif
+  if (samples == nullptr || events == nullptr) {
+    free(samples);
+    free(events);
+    samples = nullptr;
+    events = nullptr;
+    log_message((char *)"[HISTORY] PSRAM allocation failed; history logging disabled");
+  } else {
+    memset(samples, 0, sizeof(HistorySample) * HEISHAMON_HISTORY_MAX_SAMPLES);
+    memset(events, 0, sizeof(HistoryEvent) * HEISHAMON_HISTORY_MAX_EVENTS);
+    historyBuffersReady = true;
+  }
   sampleStart = 0;
   sampleCount = 0;
   eventStart = 0;
@@ -2671,7 +2718,12 @@ void diagnosticsHistoryBegin() {
   sdInitializationPending = true;
   char message[128];
   snprintf(message, sizeof(message),
-    "[HISTORY] RAM history ready: %u samples, %u bytes samples, %u bytes events, interval %u s",
+    "[HISTORY] %s history ready: %u samples, %u bytes samples, %u bytes events, interval %u s",
+#if defined(ESP32)
+    historyBuffersReady ? "PSRAM" : "disabled",
+#else
+    historyBuffersReady ? "heap" : "disabled",
+#endif
     HEISHAMON_HISTORY_MAX_SAMPLES, (unsigned)diagnosticsHistorySampleMemoryBytes(),
     (unsigned)diagnosticsHistoryEventMemoryBytes(), sampleIntervalSeconds);
   log_message(message);
@@ -2702,7 +2754,8 @@ void diagnosticsHistoryLoop() {
   }
   updateCycleState();
   unsigned long intervalMillis = (unsigned long)sampleIntervalSeconds * 1000UL;
-  if (dataFresh() && (lastSampleAt == 0 || (unsigned long)(millis() - lastSampleAt) >= intervalMillis)) {
+  if (historyBuffersReady && dataFresh() &&
+      (lastSampleAt == 0 || (unsigned long)(millis() - lastSampleAt) >= intervalMillis)) {
     HistorySample sample;
     if (makeSample(sample)) {
       sample.sequence = ++sampleSequence;
@@ -2953,9 +3006,9 @@ void diagnosticsHistoryRecordEvent(HistoryEventType type, const char *message,
 }
 
 size_t diagnosticsHistorySampleMemoryBytes() {
-  return sizeof(samples);
+  return historyBuffersReady ? sizeof(HistorySample) * HEISHAMON_HISTORY_MAX_SAMPLES : 0;
 }
 
 size_t diagnosticsHistoryEventMemoryBytes() {
-  return sizeof(events);
+  return historyBuffersReady ? sizeof(HistoryEvent) * HEISHAMON_HISTORY_MAX_EVENTS : 0;
 }
