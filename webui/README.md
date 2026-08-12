@@ -22,12 +22,13 @@ firmware sources to keep future upstream merges small.
 Versions are maintained centrally in `HeishaMon/custom_version.h`:
 
 - `CUSTOM_FIRMWARE_VERSION` is the custom firmware release (`X.Y.Z`).
-- `CUSTOM_WEBUI_REVISION` is incremented for a Web-UI-only update.
+- `CUSTOM_WEBUI_BUILD` is incremented for every Web UI package and is never
+  reset, so every package has a unique version.
 - The generated package version is always `X.Y.Z-web.N`.
 
-For a firmware release, increment `CUSTOM_FIRMWARE_VERSION` and reset the Web
-UI revision to `1`. For a Web-UI-only update, increment only
-`CUSTOM_WEBUI_REVISION`. The firmware page displays the installed firmware,
+For a firmware release, increment `CUSTOM_FIRMWARE_VERSION`. For a Web-UI-only
+update, increment only `CUSTOM_WEBUI_BUILD`; the build number is never reset.
+The firmware page displays the installed firmware,
 the expected Web UI version, and whether the active SD package matches.
 
 The package manifest also contains the latest 50 Git commit messages. The

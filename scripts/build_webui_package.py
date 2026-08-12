@@ -61,8 +61,8 @@ def version_history() -> list[dict[str, str]]:
 def main() -> None:
     custom_version = macro_value("CUSTOM_FIRMWARE_VERSION")
     base_version = macro_value("HEISHAMON_BASE_VERSION")
-    webui_revision = macro_value("CUSTOM_WEBUI_REVISION")
-    webui_version = f"{custom_version}-web.{webui_revision}"
+    webui_build = macro_value("CUSTOM_WEBUI_BUILD")
+    webui_version = f"{custom_version}-web.{webui_build}"
     if not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z._-]{0,30}", webui_version):
         raise RuntimeError("Derived Web UI version is invalid")
     replacements = {
