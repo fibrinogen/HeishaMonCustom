@@ -140,11 +140,10 @@ function groupCustomNav() {
   var submenu = document.createElement('div');
   submenu.className = 'sidemenu-submenu';
   submenu.appendChild(createNavLink('/dashboard', 'Dashboard', '▣'));
-  submenu.appendChild(createNavLink('/wpsettings', 'Settings', '⚙'));
+  submenu.appendChild(createNavLink('/wpsettings', 'WP Configuration', '⚙'));
   submenu.appendChild(createNavLink('/scheduler', 'Scheduler', '◷'));
   submenu.appendChild(createNavLink('/externalsensors', 'External Sensors', '◉'));
   submenu.appendChild(createNavLink('/smartdhw', 'Smart DHW', '♨'));
-  submenu.appendChild(createNavLink('/hardware', 'Hardware', '⚙'));
   submenu.appendChild(createNavLink('/diagnostics', 'Diagnostics', '◌'));
   submenu.appendChild(createNavLink('/history', 'History', '▥'));
   group.appendChild(submenu);
@@ -154,7 +153,7 @@ function groupCustomNav() {
   nav.appendChild(createNavLink('/firmware', 'Firmware', '⇧'));
   nav.appendChild(createNavLink('/reboot', 'Reboot', '↻', 'danger'));
   nav.appendChild(createNavLink('/rules', 'Rules', '⌘'));
-  nav.appendChild(createNavLink('/settings', 'Settings', '⚙'));
+  nav.appendChild(createNavLink('/settings', 'Network & System', '⚙'));
   markActiveNav();
 }
 

@@ -59,11 +59,6 @@
             <div class='dashboard-gauge-scale'><span>0</span><span>120</span></div>
           </div>
         </div>
-        <div class='dashboard-row'><span>Pump speed</span><span class='dashboard-value'><span id='TOP65-Value'>--</span> rpm</span><span id='TOP65-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-section-title'></div>
-        <div class='dashboard-row'><span>Operating hours</span><span class='dashboard-value'><span id='TOP11-Value'>--</span> h</span><span id='TOP11-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Fan 1</span><span class='dashboard-value'><span id='TOP62-Value'>--</span> rpm</span><span id='TOP62-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Internal heater</span><span id='TOP60-Description' class='dashboard-value'>--</span><span id='TOP60-Value' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Outside temperature</span><span class='dashboard-value'><span id='TOP14-Value'>--</span> &deg;C</span><span id='TOP14-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Error</span><span id='TOP44-Value' class='dashboard-value'>--</span><span id='TOP44-Description' class='dashboard-hidden'></span></div>
       </div>
@@ -88,13 +83,7 @@
         <div class='dashboard-section-title'>Heating power</div>
         <div class='dashboard-row'><span>Production</span><span class='dashboard-value'><span id='TOP15-Value'>--</span> W</span><span id='TOP15-Description' class='dashboard-hidden'></span></div>
         <div class='dashboard-row'><span>Consumption</span><span class='dashboard-value'><span id='TOP16-Value'>--</span> W</span><span id='TOP16-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-section-title'>Heating curve</div>
-        <div class='dashboard-row'><span>Curve base high</span><div class='dashboard-control'><button class='dashboard-step' onclick='stepHeatingCurveBase("high",-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='HeatingCurveBaseHigh-Value'>--</span> &deg;C</span><button class='dashboard-step' onclick='stepHeatingCurveBase("high",1)' aria-label='Increase'>&#8963;</button></div></div>
-        <div class='dashboard-row'><span>Curve base low</span><div class='dashboard-control'><button class='dashboard-step' onclick='stepHeatingCurveBase("low",-1)' aria-label='Decrease'>&#8964;</button><span class='dashboard-value'><span id='HeatingCurveBaseLow-Value'>--</span> &deg;C</span><button class='dashboard-step' onclick='stepHeatingCurveBase("low",1)' aria-label='Increase'>&#8963;</button></div></div>
-        <div class='dashboard-row'><span>Panasonic effective high</span><span class='dashboard-value'><span id='HeatingCurveEffectiveHigh-Value'>--</span> &deg;C</span></div>
-        <div class='dashboard-row'><span>Panasonic effective low</span><span class='dashboard-value'><span id='HeatingCurveEffectiveLow-Value'>--</span> &deg;C</span></div>
-        <div class='dashboard-row'><span>Outside high</span><span class='dashboard-value'><span id='TOP31-Value'>--</span> &deg;C</span><span id='TOP31-Description' class='dashboard-hidden'></span></div>
-        <div class='dashboard-row'><span>Outside low</span><span class='dashboard-value'><span id='TOP32-Value'>--</span> &deg;C</span><span id='TOP32-Description' class='dashboard-hidden'></span></div>
+        <div class='dashboard-row dashboard-link-row'><span>Heating curve configuration</span><a href='/wpsettings'>Open WP Configuration</a></div>
       </div>
     </section>
 

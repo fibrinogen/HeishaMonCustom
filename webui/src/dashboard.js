@@ -40,19 +40,10 @@ function renderDashboardCurveShift(){
   var row=document.getElementById('HeatingCurveShift-Row');
   var control=document.getElementById('HeatingCurveShift-Control');
   var value=document.getElementById('HeatingCurveShift-Value');
-  var endpoint=dashboardCurveShift&&dashboardCurveShift.implementation==='curveEndpoints';
   var available=!!(dashboardCurveShift&&dashboardCurveShift.available);
   if(row)row.style.display=available?'flex':'none';
   if(value)value.textContent=available&&dashboardCurveShift.valueValid!==false?String(dashboardCurveShift.shift):(available&&dashboardCurveShift.rawValue!==null?'Invalid (raw: '+String(dashboardCurveShift.rawValue)+')':'N/A');
   if(control)control.querySelectorAll('button').forEach(function(button){button.disabled=!available||dashboardCurveShift.writable!==true;});
-  var high=document.getElementById('HeatingCurveBaseHigh-Value'),low=document.getElementById('HeatingCurveBaseLow-Value');
-  var effectiveHigh=document.getElementById('HeatingCurveEffectiveHigh-Value'),effectiveLow=document.getElementById('HeatingCurveEffectiveLow-Value');
-  if(high)high.textContent=endpoint?String(dashboardCurveShift.baseTargetHigh):'N/A';
-  if(low)low.textContent=endpoint?String(dashboardCurveShift.baseTargetLow):'N/A';
-  if(effectiveHigh)effectiveHigh.textContent=endpoint?String(dashboardCurveShift.effectiveTargetHigh):'N/A';
-  if(effectiveLow)effectiveLow.textContent=endpoint?String(dashboardCurveShift.effectiveTargetLow):'N/A';
-  [high,low].forEach(function(span){if(span){var r=span.closest('.dashboard-row');if(r)r.style.display=endpoint?'flex':'none';}});
-  [effectiveHigh,effectiveLow].forEach(function(span){if(span){var r=span.closest('.dashboard-row');if(r)r.style.display=endpoint?'flex':'none';}});
 }
 function dashboardItems(data){
   return [].concat(data.heatpump||[],data['heatpump extra']||[],data['heatpump optional']||[]);
@@ -237,16 +228,6 @@ function stepHeatingCurveShift(delta){
   var next=Math.max(min,Math.min(max,Math.round(current+delta)));
   dashboardCurveShift.shift=next;dashboardCurveShift.valueValid=true;renderDashboardCurveShift();
   queueDashboardStep('SetHeatingCurveShift','HeatingCurveShift',next);
-}
-function stepHeatingCurveBase(which,delta){
-  if(!dashboardCurveShift||dashboardCurveShift.implementation!=='curveEndpoints'||dashboardCurveShift.writable!==true){setDashboardStatus('Heating curve base is not writable for the current configuration',true);return;}
-  var key=which==='high'?'baseTargetHigh':'baseTargetLow',current=Number(dashboardCurveShift[key]);
-  if(!Number.isFinite(current))return;
-  dashboardCurveShift[key]=Math.round(current+delta);
-  dashboardCurveShift.effectiveTargetHigh=Number(dashboardCurveShift.baseTargetHigh)+Number(dashboardCurveShift.shift);
-  dashboardCurveShift.effectiveTargetLow=Number(dashboardCurveShift.baseTargetLow)+Number(dashboardCurveShift.shift);
-  renderDashboardCurveShift();
-  queueDashboardStep(which==='high'?'SetZ1HeatCurveBaseHigh':'SetZ1HeatCurveBaseLow','HeatingCurveBase'+which, dashboardCurveShift[key]);
 }
 function recoverZone1Heat(){
   if(!dashboardSemantic||dashboardSemantic.writable!==true||dashboardSemantic.semanticKnown!==true)return;

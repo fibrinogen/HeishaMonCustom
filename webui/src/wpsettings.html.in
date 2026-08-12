@@ -25,7 +25,7 @@
   <div class='topbar-left'><button class='hamburger' onclick='toggleMenu()'>&#9776;</button><a class='topbar-logo' href='/'>Heisha<span>Mon</span></a></div>
   <div class='topbar-right'></div>
 </header>
-<script>document.title='Settings - HeishaMon';</script>
+<script>document.title='WP Configuration - HeishaMon';</script>
 <main class='main-content wp-settings-page'>
   <div class='wp-settings-columns'>
     <section class='dashboard-column'>
@@ -66,6 +66,12 @@
         <div class='dashboard-row'><span>Minimum temp.</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpConfigStep('heatMin',-1)">&#8964;</button><span class='dashboard-value'><span id='wpHeatMinValue'>--</span> &deg;C</span><button class='dashboard-step' onclick="wpConfigStep('heatMin',1)">&#8963;</button></div></div>
         <div class='dashboard-row'><span>Maximum temp.</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpConfigStep('heatMax',-1)">&#8964;</button><span class='dashboard-value'><span id='wpHeatMaxValue'>--</span> &deg;C</span><button class='dashboard-step' onclick="wpConfigStep('heatMax',1)">&#8963;</button></div></div>
         <div class='wp-settings-note'>These limits constrain direct Zone 1 water-temperature changes on Dashboard.</div>
+        <div class='dashboard-section-title' id='wpCurveTitle'>Heating curve endpoints</div>
+        <div id='wpCurveUnavailable' class='wp-settings-note'>Loading heating-curve configuration…</div>
+        <div class='dashboard-row wp-curve-row'><span>Curve base high</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStepCurveBase('high',-1)">&#8964;</button><span class='dashboard-value'><span id='wpCurveBaseHigh'>--</span> &deg;C</span><button class='dashboard-step' onclick="wpStepCurveBase('high',1)">&#8963;</button></div></div>
+        <div class='dashboard-row wp-curve-row'><span>Curve base low</span><div class='dashboard-control'><button class='dashboard-step' onclick="wpStepCurveBase('low',-1)">&#8964;</button><span class='dashboard-value'><span id='wpCurveBaseLow'>--</span> &deg;C</span><button class='dashboard-step' onclick="wpStepCurveBase('low',1)">&#8963;</button></div></div>
+        <div class='dashboard-row wp-curve-row'><span>Effective high</span><span class='dashboard-value'><span id='wpCurveEffectiveHigh'>--</span> &deg;C</span></div>
+        <div class='dashboard-row wp-curve-row'><span>Effective low</span><span class='dashboard-value'><span id='wpCurveEffectiveLow'>--</span> &deg;C</span></div>
       </div>
     </section>
 

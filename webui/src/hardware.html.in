@@ -29,8 +29,8 @@
 document.title='Hardware - HeishaMon';
 </script>
 <main class='main-content hardware-page'>
-  <div class='scheduler-heading'><div><h1>Hardware</h1><p>Heat pump hardware information and configuration.</p></div></div>
-  <div class='hardware-top-grid'>
+  <div class='scheduler-heading'><div><h1>Hardware</h1><p>Read-only heat-pump identification and installed configuration.</p></div></div>
+  <div class='hardware-top-grid hardware-identification-grid'>
     <section class='hardware-card'>
       <div class='hardware-card-title'>Hardware information</div>
       <div class='hardware-row'><span>Model</span><span id='hardwareModel' class='hardware-value'>Loading ...</span></div>
@@ -39,18 +39,10 @@ document.title='Hardware - HeishaMon';
       <div class='hardware-row'><span>Power connection</span><span id='hardwarePower' class='hardware-value'>--</span></div>
       <div class='hardware-note'>Note:<br>If the model information is unknown, this means the HeishaMon firmware does not recognize the model yet. It has no impact on functionality.</div>
     </section>
-    <section class='hardware-card'>
-      <div class='hardware-card-title'>Operation information</div>
-      <div class='hardware-row'><span>Operation hours</span><span id='operationHours' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Operation counter</span><span id='operationCounter' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Backup heater hours (DHW)</span><span id='backupDhwHours' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Backup heater hours (HEAT)</span><span id='backupHeatHours' class='hardware-value'>--</span></div>
-      <div class='hardware-row'><span>Water pressure (bar)</span><span id='waterPressure' class='hardware-value'>--</span></div>
-    </section>
   </div>
 
   <section class='hardware-card hardware-config-card'>
-    <div class='hardware-card-title'>Hardware configuration</div>
+    <div class='hardware-card-title'>Installed configuration</div>
     <div class='hardware-config-list'>
       <div class='hardware-row'><span>Heating mode</span><span id='heatingMode' class='hardware-value'>--</span></div>
       <div class='hardware-row'><span>Zone 1 control method / sensor</span><span id='zone1Sensor' class='hardware-value'>--</span></div>
@@ -63,6 +55,7 @@ document.title='Hardware - HeishaMon';
       <div class='hardware-row'><span>Cooling mode</span><span id='coolingMode' class='hardware-value'>--</span></div>
       <div class='hardware-row'><span>Solar mode</span><span id='solarMode' class='hardware-value'>--</span></div>
     </div>
+    <div class='hardware-note'>Live operation values, lifetime counters and fault details are available in <a href='/diagnostics'>WP Diagnostics</a>. Adjustable heat-pump parameters are on <a href='/wpsettings'>WP Configuration</a>.</div>
   </section>
 
   <section class='hardware-card hardware-extra'>

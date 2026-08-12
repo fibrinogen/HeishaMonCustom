@@ -9,11 +9,6 @@ function hardwareRender(data) {
   document.getElementById('hardwareType').textContent = hardwareDisplay(data.type);
   document.getElementById('hardwareCapacity').textContent = hardwareDisplay(data.capacity);
   document.getElementById('hardwarePower').textContent = hardwareDisplay(data.power);
-  document.getElementById('operationHours').textContent = hardwareDisplay(data.operationHours);
-  document.getElementById('operationCounter').textContent = hardwareDisplay(data.operationCounter);
-  document.getElementById('backupDhwHours').textContent = hardwareDisplay(data.backupDhwHours);
-  document.getElementById('backupHeatHours').textContent = hardwareDisplay(data.backupHeatHours);
-  document.getElementById('waterPressure').textContent = hardwareDisplay(data.waterPressure);
   document.getElementById('heatingMode').textContent = hardwareDisplay(data.heatingMode);
   document.getElementById('zone1Sensor').textContent = hardwareDisplay(data.zone1Sensor);
   document.getElementById('zone2Sensor').textContent = hardwareDisplay(data.zone2Sensor);
@@ -54,5 +49,4 @@ function hardwareRefresh() {
 
 document.addEventListener('DOMContentLoaded', function() {
   hardwareRefresh();
-  window.setInterval(hardwareRefresh, 30000); // Refresh every 30 seconds
 });

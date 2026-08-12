@@ -6,6 +6,16 @@
 <title>Heisha Monitor</title>
 <link rel='stylesheet' href='/webui/styles.css?v={{WEBUI_VERSION}}'>
 <script src='/webui/common.js?v={{WEBUI_VERSION}}'></script>
+<style>
+/* Keep the editor usable if a browser still has an older shared stylesheet. */
+.scheduler-modal{display:none;position:fixed;z-index:1200;inset:0;padding:20px;background:rgba(4,7,12,.7);align-items:center;justify-content:center}
+.scheduler-modal.open{display:flex}
+.scheduler-editor{width:min(720px,100%);max-height:calc(100vh - 40px);overflow:auto;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:0 20px 70px rgba(0,0,0,.45)}
+.scheduler-editor-header,.scheduler-editor-footer{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:15px 18px;border-bottom:1px solid var(--border)}
+.scheduler-editor-footer{justify-content:flex-end;border-top:1px solid var(--border);border-bottom:0}
+.scheduler-editor-body{padding:18px}.scheduler-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.scheduler-field{display:flex;flex-direction:column;gap:6px}.scheduler-field.full{grid-column:1/-1}
+@media(max-width:680px){.scheduler-modal{padding:8px}.scheduler-editor{max-height:calc(100vh - 16px)}.scheduler-form-grid{grid-template-columns:1fr}.scheduler-field.full{grid-column:auto}}
+</style>
 </head>
 <body>
 <div class='sidemenu-overlay' id='menuOverlay' onclick='closeMenu()'></div>

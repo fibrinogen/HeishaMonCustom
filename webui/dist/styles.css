@@ -242,7 +242,7 @@ tbody td:first-child{color:var(--text-primary);font-family:'JetBrains Mono',mono
 }
 @keyframes flash-update {
   0% {color: var(--accent);text-shadow: 0 0 10px var(--accent-glow), 0 0 24px var(--accent-glow);transform: scale(1.08);}
-  50% {transform: scale(1);}:
+  50% {transform: scale(1);}
   100% {color: var(--text-secondary);text-shadow: none;}
 }
 #cli{
@@ -425,6 +425,7 @@ input:disabled + .theme-slider-compact {
 .smart-dhw-page{max-width:1180px;margin:0 auto}
 .hardware-page{max-width:1280px;margin:0 auto}
 .hardware-top-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+.hardware-identification-grid{grid-template-columns:minmax(0,640px)}
 .hardware-card{padding:0 14px 12px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg)}
 .hardware-card-title{padding:13px 0 10px;border-bottom:1px solid var(--border);color:#25bdf1;font-size:15px;font-weight:600}
 .hardware-row{display:flex;justify-content:space-between;align-items:center;gap:16px;min-height:39px;padding:7px 6px;color:var(--text-secondary);font-size:12px}
@@ -715,7 +716,9 @@ input:checked + .theme-slider:before {
 .diagnostics-page,.history-page{max-width:1500px;margin:0 auto}
 .diagnostics-heading,.history-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
 .diagnostics-heading h1,.history-heading h1{font-size:20px;font-weight:500;color:var(--text-primary)}
+.diagnostics-heading p{margin-top:5px;font-size:12px}
 .diagnostics-status{font-size:12px;color:var(--text-muted)}
+.diagnostics-tabs{margin-bottom:14px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-surface)}
 .diagnostics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
 .diagnostics-card{min-width:0}
 .diagnostics-rows{padding:8px 20px 12px}
