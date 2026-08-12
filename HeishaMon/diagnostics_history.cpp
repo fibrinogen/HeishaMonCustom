@@ -1503,30 +1503,6 @@ static bool visitStoredHistory(uint32_t lowerTimestamp, uint32_t upperTimestamp,
   return true;
 }
 
-struct StoredHistoryStats {
-  uint32_t lowerTimestamp;
-  uint32_t upperTimestamp;
-  uint32_t sampleCount = 0;
-  EnergyTotals heating;
-  EnergyTotals dhw;
-  HistorySample previous = {};
-  bool previousValid = false;
-};
-
-static bool countStoredHistorySample(const HistorySample &sample, void *context) {
-  StoredHistoryStats &stats = *(StoredHistoryStats *)context;
-  if (stats.previousValid) {
-    addEnergyPair(stats.previous, sample, 1, stats.lowerTimestamp,
-      stats.upperTimestamp, stats.heating);
-    addEnergyPair(stats.previous, sample, 2, stats.lowerTimestamp,
-      stats.upperTimestamp, stats.dhw);
-  }
-  stats.previous = sample;
-  stats.previousValid = true;
-  stats.sampleCount++;
-  return true;
-}
-
 static void appendStoredSampleJson(struct webserver_t *client,
     const HistorySample &sample, float aggregatedCop) {
   char outside[12], inlet[12], outlet[12], target[12], dhw[12], dhwTarget[12];
@@ -1558,36 +1534,68 @@ static void appendStoredSampleJson(struct webserver_t *client,
     dhwTarget, flow, hz, power, electrical, cop, request, semantic, shift);
 }
 
+// A History response is intentionally built in one SD pass. The old approach
+// counted all matching CSV rows and then scanned them a second time to choose
+// every nth sample. Time buckets preserve chronological display while keeping
+// the shared SD lock for roughly half as long.
+constexpr uint16_t MAX_STORED_HISTORY_DISPLAY_POINTS = 72;
 struct StoredHistoryOutput {
-  struct webserver_t *client;
-  uint16_t step;
-  uint32_t matched = 0;
-  uint32_t emitted = 0;
-  bool first = true;
-  SampleAggregate aggregate = {};
+  uint32_t lowerTimestamp;
+  uint32_t upperTimestamp;
+  uint16_t maxPoints;
+  uint32_t sampleCount;
+  EnergyTotals heating;
+  EnergyTotals dhw;
   HistorySample previous = {};
   bool previousValid = false;
+  uint16_t activeBucket = UINT16_MAX;
+  SampleAggregate aggregate = {};
+  HistorySample bucketPrevious = {};
+  bool bucketPreviousValid = false;
+  HistorySample *samples;
+  float *cops;
+  uint16_t emitted;
 };
 
-static bool appendStoredHistorySample(const HistorySample &sample, void *context) {
-  StoredHistoryOutput &output = *(StoredHistoryOutput *)context;
-  addAggregate(output.aggregate, sample);
-  if (output.previousValid) {
-    addEnergyPair(output.previous, sample, 0, 0, UINT32_MAX,
-      output.aggregate.energy);
-  }
-  output.previous = sample;
-  output.previousValid = true;
-  output.matched++;
-  if (output.aggregate.count < output.step) return true;
+static void finishStoredHistoryBucket(StoredHistoryOutput &output) {
+  if (output.aggregate.count == 0 || output.emitted >= output.maxPoints) return;
   finishAggregate(output.aggregate);
   float cop = NAN;
   totalsCop(output.aggregate.energy, cop);
-  if (!output.first) appendText(output.client, ",");
-  output.first = false;
-  appendStoredSampleJson(output.client, output.aggregate.sample, cop);
-  resetAggregate(output.aggregate);
+  output.samples[output.emitted] = output.aggregate.sample;
+  output.cops[output.emitted] = cop;
   output.emitted++;
+  resetAggregate(output.aggregate);
+  output.bucketPreviousValid = false;
+}
+
+static bool aggregateStoredHistorySample(const HistorySample &sample, void *context) {
+  StoredHistoryOutput &output = *(StoredHistoryOutput *)context;
+  if (output.previousValid) {
+    addEnergyPair(output.previous, sample, 1, output.lowerTimestamp,
+      output.upperTimestamp, output.heating);
+    addEnergyPair(output.previous, sample, 2, output.lowerTimestamp,
+      output.upperTimestamp, output.dhw);
+  }
+  output.previous = sample;
+  output.previousValid = true;
+  output.sampleCount++;
+
+  uint16_t bucket = (uint16_t)(((uint64_t)(sample.timestamp - output.lowerTimestamp) *
+    output.maxPoints) / (output.upperTimestamp - output.lowerTimestamp));
+  if (bucket >= output.maxPoints) bucket = output.maxPoints - 1;
+  if (output.activeBucket != UINT16_MAX && bucket != output.activeBucket) {
+    finishStoredHistoryBucket(output);
+  }
+  if (output.activeBucket != bucket) output.activeBucket = bucket;
+  addAggregate(output.aggregate, sample);
+  if (output.bucketPreviousValid) {
+    addEnergyPair(output.bucketPrevious, sample, 0, output.lowerTimestamp,
+      output.upperTimestamp,
+      output.aggregate.energy);
+  }
+  output.bucketPrevious = sample;
+  output.bucketPreviousValid = true;
   return true;
 }
 
@@ -1602,57 +1610,77 @@ static void handleStoredHistoryApi(struct webserver_t *client, uint32_t lowerTim
     appendText(client, "{\"error\":\"Select a valid SD period of up to 90 days\"}");
     return;
   }
-  if (xSemaphoreTake(sdFilesystemMutex, pdMS_TO_TICKS(250)) != pdTRUE) {
-    webserver_send(client, 503, (char *)"application/json", 0);
-    appendText(client, "{\"error\":\"SD card is busy writing history\"}");
+  if (sdHistoryReaderBusy || xSemaphoreTake(sdFilesystemMutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+    webserver_send(client, 429, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"SD history is busy; retry shortly\"}");
     return;
   }
   sdHistoryReaderBusy = true;
+  unsigned long readStartedAt = millis();
   uint32_t rangeSeconds = upperTimestamp - lowerTimestamp;
-  StoredHistoryStats stats;
-  stats.lowerTimestamp = lowerTimestamp;
-  stats.upperTimestamp = upperTimestamp;
-  bool counted = visitStoredHistory(lowerTimestamp, upperTimestamp,
-    countStoredHistorySample, &stats);
-  if (!counted) {
+  // The response buffer is temporary but too large for the Arduino loop-task
+  // stack. Keep it in PSRAM so queued HTTP chunks still have sufficient
+  // internal heap. The ESP32-S3 target has PSRAM; fail safely if unavailable.
+  HistorySample *displaySamples = psramFound() ? (HistorySample *)ps_malloc(
+    sizeof(HistorySample) * MAX_STORED_HISTORY_DISPLAY_POINTS) : nullptr;
+  float *displayCops = psramFound() ? (float *)ps_malloc(
+    sizeof(float) * MAX_STORED_HISTORY_DISPLAY_POINTS) : nullptr;
+  if (displaySamples == nullptr || displayCops == nullptr) {
+    free(displaySamples);
+    free(displayCops);
+    sdHistoryReaderBusy = false;
+    xSemaphoreGive(sdFilesystemMutex);
+    webserver_send(client, 503, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"Insufficient PSRAM for SD history response\"}");
+    return;
+  }
+  StoredHistoryOutput output = {};
+  memset(&output, 0, sizeof(output));
+  output.lowerTimestamp = lowerTimestamp;
+  output.upperTimestamp = upperTimestamp;
+  output.maxPoints = min<uint16_t>(maxPoints, MAX_STORED_HISTORY_DISPLAY_POINTS);
+  output.samples = displaySamples;
+  output.cops = displayCops;
+  bool read = visitStoredHistory(lowerTimestamp, upperTimestamp,
+    aggregateStoredHistorySample, &output);
+  finishStoredHistoryBucket(output);
+  if (!read) {
+    free(displayCops);
+    free(displaySamples);
     sdHistoryReaderBusy = false;
     xSemaphoreGive(sdFilesystemMutex);
     webserver_send(client, 500, (char *)"application/json", 0);
     appendText(client, "{\"error\":\"Could not read persistent history\"}");
     return;
   }
-  uint16_t effectiveMaxPoints = min<uint16_t>(maxPoints, 72);
-  uint16_t step = stats.sampleCount > effectiveMaxPoints ?
-    (uint16_t)((stats.sampleCount + effectiveMaxPoints - 1) / effectiveMaxPoints) : 1;
   float heatingCop = NAN, dhwCop = NAN;
-  totalsCop(stats.heating, heatingCop);
-  totalsCop(stats.dhw, dhwCop);
+  totalsCop(output.heating, heatingCop);
+  totalsCop(output.dhw, dhwCop);
   webserver_send(client, 200, (char *)"application/json", 0);
   appendFmt(client,
     "{\"source\":\"sd\",\"intervalSeconds\":%u,\"storedSampleCount\":%lu,\"rangeSeconds\":%lu,\"efficiency\":{\"heatingThermalKWh\":%.4f,\"heatingElectricalKWh\":%.4f,\"heatingCop\":",
-    sampleIntervalSeconds, (unsigned long)stats.sampleCount, (unsigned long)rangeSeconds,
-    stats.heating.thermalKWh, stats.heating.electricalKWh);
+    sampleIntervalSeconds, (unsigned long)output.sampleCount, (unsigned long)rangeSeconds,
+    output.heating.thermalKWh, output.heating.electricalKWh);
   appendJsonFloat(client, isfinite(heatingCop), heatingCop);
   appendFmt(client, ",\"dhwThermalKWh\":%.4f,\"dhwElectricalKWh\":%.4f,\"dhwCop\":",
-    stats.dhw.thermalKWh, stats.dhw.electricalKWh);
+    output.dhw.thermalKWh, output.dhw.electricalKWh);
   appendJsonFloat(client, isfinite(dhwCop), dhwCop);
   appendText(client, "},\"samples\":[");
-  StoredHistoryOutput output = {};
-  output.client = client;
-  output.step = step;
-  bool written = visitStoredHistory(lowerTimestamp, upperTimestamp,
-    appendStoredHistorySample, &output);
-  if (output.aggregate.count > 0) {
-    finishAggregate(output.aggregate);
-    float cop = NAN;
-    totalsCop(output.aggregate.energy, cop);
-    if (!output.first) appendText(client, ",");
-    appendStoredSampleJson(client, output.aggregate.sample, cop);
+  for (uint16_t index = 0; index < output.emitted; index++) {
+    if (index > 0) appendText(client, ",");
+    appendStoredSampleJson(client, output.samples[index], output.cops[index]);
   }
   appendText(client, "]}");
+  free(displayCops);
+  free(displaySamples);
   sdHistoryReaderBusy = false;
   xSemaphoreGive(sdFilesystemMutex);
-  if (!written) log_message((char *)"[SD] Persistent history read stopped early");
+  char timingMessage[128];
+  snprintf(timingMessage, sizeof(timingMessage),
+    "[HISTORY] SD read: %lu samples, %u display points in %lu ms",
+    (unsigned long)output.sampleCount, output.emitted,
+    (unsigned long)(millis() - readStartedAt));
+  log_message(timingMessage);
 }
 
 struct PersistentEventLine {

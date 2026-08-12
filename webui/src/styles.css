@@ -743,6 +743,14 @@ input:checked + .theme-slider:before {
 .history-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
 .history-toolbar label{display:flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:12px}
 .history-toolbar select,.history-toolbar input{padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-elevated);color:var(--text-primary);font:12px 'JetBrains Mono',monospace}
+.history-tabs{margin-bottom:14px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-surface)}
+.history-storage-card{max-width:900px}
+.history-storage-body{padding:4px 20px 12px}
+.history-storage-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:16px 0;border-bottom:1px solid var(--border);color:var(--text-secondary);font-size:12px}
+.history-storage-row:last-child{border-bottom:0}
+.history-storage-row strong{display:block;color:var(--text-primary);font-size:13px;font-weight:600}
+.history-storage-row p{margin:5px 0 0;max-width:560px;color:var(--text-muted);line-height:1.45}
+.history-storage-row select{min-width:110px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-elevated);color:var(--text-primary);font:12px 'JetBrains Mono',monospace}
 .history-status{color:var(--text-muted);font-size:12px;margin-left:auto}
 .history-card{margin-bottom:14px}
 .history-card-body{padding:14px 20px 16px}
@@ -754,7 +762,7 @@ input:checked + .theme-slider:before {
 .history-events{max-height:250px;overflow:auto}
 .history-event{padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-secondary)}
 .history-event:last-child{border-bottom:0}
-@media(max-width:680px){.diagnostics-heading,.history-heading{align-items:flex-start;flex-direction:column}.diagnostics-grid{grid-template-columns:1fr}.diagnostics-rows,.history-card-body{padding-left:14px;padding-right:14px}.history-status{margin-left:0}}
+@media(max-width:680px){.diagnostics-heading,.history-heading{align-items:flex-start;flex-direction:column}.diagnostics-grid{grid-template-columns:1fr}.diagnostics-rows,.history-card-body,.history-storage-body{padding-left:14px;padding-right:14px}.history-status{margin-left:0}.history-storage-row{align-items:flex-start;flex-direction:column;gap:10px}.history-storage-row p{max-width:none}}
 
 
 
