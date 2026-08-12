@@ -1326,7 +1326,9 @@ constexpr uint8_t MAX_STORED_HISTORY_FILES = 96;
 // These buffers are intentionally static rather than local to the HTTP
 // handler. The Arduino loop task has a small stack and VFS::open() itself
 // needs substantial stack space. Access is serialized by sdFilesystemMutex.
-static char storedArchivePaths[MAX_STORED_HISTORY_FILES][72];
+// Archive paths are only used by SD history reads. Keep this 6.9 KB list in
+// PSRAM alongside the history cache, not in permanently reserved internal RAM.
+static char (*storedArchivePaths)[72] = nullptr;
 static char storedArchiveCsvLine[512];
 
 typedef bool (*StoredHistoryVisitor)(const HistorySample &sample, void *context);
@@ -1438,6 +1440,7 @@ static bool parseStoredHistorySample(char *line, HistorySample &sample) {
 
 static uint8_t collectStoredArchiveFiles(const char *directory,
     const char *posixDirectory, uint32_t lowerTimestamp) {
+  if (storedArchivePaths == nullptr) return 0;
   File root = SD_MMC.open(directory);
   if (!root) return 0;
   time_t lowerTime = (time_t)lowerTimestamp;
@@ -2667,17 +2670,22 @@ static void handleEventsApi(struct webserver_t *client) {
 void diagnosticsHistoryBegin() {
   free(samples);
   free(events);
+  free(storedArchivePaths);
   samples = nullptr;
   events = nullptr;
+  storedArchivePaths = nullptr;
   historyBuffersReady = false;
 #if defined(ESP32)
   if (psramFound()) {
     samples = (HistorySample *)ps_malloc(sizeof(HistorySample) * HEISHAMON_HISTORY_MAX_SAMPLES);
     events = (HistoryEvent *)ps_malloc(sizeof(HistoryEvent) * HEISHAMON_HISTORY_MAX_EVENTS);
+    storedArchivePaths = (char (*)[72])ps_malloc(sizeof(char) *
+      MAX_STORED_HISTORY_FILES * 72);
   }
 #else
   samples = (HistorySample *)malloc(sizeof(HistorySample) * HEISHAMON_HISTORY_MAX_SAMPLES);
   events = (HistoryEvent *)malloc(sizeof(HistoryEvent) * HEISHAMON_HISTORY_MAX_EVENTS);
+  storedArchivePaths = (char (*)[72])malloc(sizeof(char) * MAX_STORED_HISTORY_FILES * 72);
 #endif
   if (samples == nullptr || events == nullptr) {
     free(samples);
@@ -2689,6 +2697,9 @@ void diagnosticsHistoryBegin() {
     memset(samples, 0, sizeof(HistorySample) * HEISHAMON_HISTORY_MAX_SAMPLES);
     memset(events, 0, sizeof(HistoryEvent) * HEISHAMON_HISTORY_MAX_EVENTS);
     historyBuffersReady = true;
+  }
+  if (storedArchivePaths == nullptr) {
+    log_message((char *)"[HISTORY] PSRAM allocation failed; SD archive reads unavailable");
   }
   sampleStart = 0;
   sampleCount = 0;

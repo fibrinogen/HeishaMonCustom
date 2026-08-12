@@ -5,7 +5,7 @@
 //   Web UI:   X.Y.Z-web.N
 // Keep the shared X.Y.Z in sync for a release. Increment only N for a Web UI
 // fix that does not require a firmware flash.
-#define CUSTOM_FIRMWARE_VERSION "0.2.5"
+#define CUSTOM_FIRMWARE_VERSION "0.2.6"
 #define CUSTOM_WEBUI_REVISION "1"
 #define CUSTOM_WEBUI_VERSION CUSTOM_FIRMWARE_VERSION "-web." CUSTOM_WEBUI_REVISION
 
