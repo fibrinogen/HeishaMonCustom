@@ -1,4 +1,5 @@
 #include "sd_webui.h"
+#include "custom_version.h"
 
 #if defined(ESP32)
 
@@ -70,6 +71,8 @@ struct SdWebUiRequest {
 
 char activeSlot = '\0';
 char activeVersion[32] = {0};
+char activeCustomVersion[32] = {0};
+char activeBaseVersion[32] = {0};
 bool activeChecked = false;
 bool cardPreviouslyReady = false;
 
@@ -353,7 +356,9 @@ bool sha256File(const char *path, char output[65], size_t *sizeOut) {
   return true;
 }
 
-bool validateSlot(char slot, char *version, size_t versionSize, char *error, size_t errorSize) {
+bool validateSlot(char slot, char *version, size_t versionSize,
+    char *customVersion, size_t customVersionSize, char *baseVersion,
+    size_t baseVersionSize, char *error, size_t errorSize) {
   char manifestPath[128];
   slotPath(slot, "manifest.json", manifestPath, sizeof(manifestPath));
   FILE *file = fopen(manifestPath, "rb");
@@ -386,11 +391,17 @@ bool validateSlot(char slot, char *version, size_t versionSize, char *error, siz
   DeserializationError jsonError = deserializeJson(document, buffer, (size_t)fileSize);
   free(buffer);
   if (!readOk || jsonError || document["format"].as<int>() != 1 ||
-      !document["version"].is<const char *>() || !document["files"].is<JsonArray>()) {
+      !document["version"].is<const char *>() ||
+      !document["customVersion"].is<const char *>() ||
+      !document["baseVersion"].is<const char *>() ||
+      !document["files"].is<JsonArray>()) {
     snprintf(error, errorSize, "Manifest content is invalid");
     return false;
   }
   snprintf(version, versionSize, "%s", document["version"].as<const char *>());
+  snprintf(customVersion, customVersionSize, "%s",
+    document["customVersion"].as<const char *>());
+  snprintf(baseVersion, baseVersionSize, "%s", document["baseVersion"].as<const char *>());
   bool requiredFound[sizeof(REQUIRED_FILES) / sizeof(REQUIRED_FILES[0])] = {false};
   JsonArray files = document["files"].as<JsonArray>();
   if (files.size() == 0 || files.size() > MAX_WEBUI_FILES) {
@@ -457,6 +468,8 @@ void loadActiveSlot() {
   activeChecked = true;
   activeSlot = '\0';
   activeVersion[0] = '\0';
+  activeCustomVersion[0] = '\0';
+  activeBaseVersion[0] = '\0';
   if (!cardReady() || !ensureWebUiDirectories()) return;
   FILE *file = fopen(WEBUI_ACTIVE_FILE, "rb");
   if (file == nullptr) {
@@ -468,7 +481,9 @@ void loadActiveSlot() {
   fclose(file);
   if (value != 'a' && value != 'b') return;
   char error[96] = {0};
-  if (!validateSlot((char)value, activeVersion, sizeof(activeVersion), error, sizeof(error))) {
+  if (!validateSlot((char)value, activeVersion, sizeof(activeVersion),
+      activeCustomVersion, sizeof(activeCustomVersion), activeBaseVersion,
+      sizeof(activeBaseVersion), error, sizeof(error))) {
     logLine("[WEBUI] Active slot %c invalid: %s", (char)value, error);
     return;
   }
@@ -561,6 +576,16 @@ void sendStatus(struct webserver_t *client, SdWebUiRequest *request) {
   else document["slot"] = nullptr;
   if (activeVersion[0]) document["version"] = activeVersion;
   else document["version"] = nullptr;
+  if (activeCustomVersion[0]) document["customVersion"] = activeCustomVersion;
+  else document["customVersion"] = nullptr;
+  if (activeBaseVersion[0]) document["baseVersion"] = activeBaseVersion;
+  else document["baseVersion"] = nullptr;
+  document["firmwareVersion"] = CUSTOM_FIRMWARE_VERSION;
+  document["expectedWebUiVersion"] = CUSTOM_WEBUI_VERSION;
+  document["releaseMatchesFirmware"] = activeCustomVersion[0] != '\0' &&
+    strcmp(activeCustomVersion, CUSTOM_FIRMWARE_VERSION) == 0;
+  document["exactVersionMatchesFirmware"] = activeVersion[0] != '\0' &&
+    strcmp(activeVersion, CUSTOM_WEBUI_VERSION) == 0;
   document["uploadPath"] = "/webui/upload";
   size_t length = measureJson(document);
   char *response = (char *)malloc(length + 1);
@@ -589,15 +614,20 @@ void finishUpload(struct webserver_t *client, SdWebUiRequest *request) {
     snprintf(message, sizeof(message), "ERROR: incomplete Web UI package");
   } else {
     char version[32] = {0};
+    char customVersion[32] = {0};
+    char baseVersion[32] = {0};
     char validationError[128] = {0};
-    if (!validateSlot(request->targetSlot, version, sizeof(version), validationError,
-        sizeof(validationError))) {
+    if (!validateSlot(request->targetSlot, version, sizeof(version),
+        customVersion, sizeof(customVersion), baseVersion, sizeof(baseVersion),
+        validationError, sizeof(validationError))) {
       snprintf(message, sizeof(message), "ERROR: %s", validationError);
     } else if (!writeActiveSlot(request->targetSlot)) {
       snprintf(message, sizeof(message), "ERROR: could not activate Web UI slot");
     } else {
       activeSlot = request->targetSlot;
       snprintf(activeVersion, sizeof(activeVersion), "%s", version);
+      snprintf(activeCustomVersion, sizeof(activeCustomVersion), "%s", customVersion);
+      snprintf(activeBaseVersion, sizeof(activeBaseVersion), "%s", baseVersion);
       activeChecked = true;
       success = true;
       snprintf(message, sizeof(message), "OK: Web UI %s activated in slot %c",
@@ -631,6 +661,8 @@ SdWebUiRequest *createRequest(RequestKind kind) {
 void sdWebUiBegin() {
   activeSlot = '\0';
   activeVersion[0] = '\0';
+  activeCustomVersion[0] = '\0';
+  activeBaseVersion[0] = '\0';
   activeChecked = false;
   cardPreviouslyReady = false;
 }
@@ -641,6 +673,8 @@ void sdWebUiLoop() {
   if (!ready && cardPreviouslyReady) {
     activeSlot = '\0';
     activeVersion[0] = '\0';
+    activeCustomVersion[0] = '\0';
+    activeBaseVersion[0] = '\0';
     activeChecked = false;
   }
   cardPreviouslyReady = ready;

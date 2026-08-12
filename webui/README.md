@@ -19,6 +19,17 @@ UI untouched.
 The source files in `webui/src` are independent of the upstream HeishaMon
 firmware sources to keep future upstream merges small.
 
-Increment `webui/version.txt` whenever browser-visible files change. Its value
-is used for the manifest and cache-busting asset URLs independently of the
-firmware/custom-feature version.
+Versions are maintained centrally in `HeishaMon/custom_version.h`:
+
+- `CUSTOM_FIRMWARE_VERSION` is the custom firmware release (`X.Y.Z`).
+- `CUSTOM_WEBUI_REVISION` is incremented for a Web-UI-only update.
+- The generated package version is always `X.Y.Z-web.N`.
+
+For a firmware release, increment `CUSTOM_FIRMWARE_VERSION` and reset the Web
+UI revision to `1`. For a Web-UI-only update, increment only
+`CUSTOM_WEBUI_REVISION`. The firmware page displays the installed firmware,
+the expected Web UI version, and whether the active SD package matches.
+
+The package manifest also contains the latest 50 Git commit messages. The
+firmware page reads this history from the active SD Web UI package, so it does
+not add the commit history to the firmware image.

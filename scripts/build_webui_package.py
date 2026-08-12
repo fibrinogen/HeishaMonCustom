@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tarfile
 
 
@@ -40,12 +41,30 @@ def render(source: Path, replacements: dict[str, str]) -> bytes:
     return text.encode("utf-8")
 
 
+def version_history() -> list[dict[str, str]]:
+    try:
+        result = subprocess.run(
+            ["git", "log", "-50", "--date=short",
+             "--pretty=format:%h%x1f%cs%x1f%s%x1e"],
+            cwd=ROOT, check=True, capture_output=True, text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    entries = []
+    for record in result.stdout.split("\x1e"):
+        fields = [field.strip() for field in record.split("\x1f", 2)]
+        if len(fields) == 3 and all(fields):
+            entries.append({"hash": fields[0], "date": fields[1], "subject": fields[2]})
+    return entries
+
+
 def main() -> None:
-    custom_version = macro_value("CUSTOM_FEATURES_VERSION")
+    custom_version = macro_value("CUSTOM_FIRMWARE_VERSION")
     base_version = macro_value("HEISHAMON_BASE_VERSION")
-    webui_version = (ROOT / "webui" / "version.txt").read_text(encoding="utf-8").strip()
+    webui_revision = macro_value("CUSTOM_WEBUI_REVISION")
+    webui_version = f"{custom_version}-web.{webui_revision}"
     if not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z._-]{0,30}", webui_version):
-        raise RuntimeError("webui/version.txt contains an invalid version")
+        raise RuntimeError("Derived Web UI version is invalid")
     replacements = {
         "CUSTOM_VERSION": custom_version,
         "BASE_VERSION": base_version,
@@ -75,6 +94,7 @@ def main() -> None:
         "version": webui_version,
         "customVersion": custom_version,
         "baseVersion": base_version,
+        "versionHistory": version_history(),
         "files": manifest_files,
     }
     payloads["manifest.json"] = (json.dumps(manifest, separators=(",", ":"), sort_keys=True) + "\n").encode("utf-8")

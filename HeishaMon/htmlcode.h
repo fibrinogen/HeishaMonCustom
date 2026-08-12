@@ -4,6 +4,7 @@
   #define FLASHPROG  // ESP32 ignores FLASHPROG, makes sure compiler uses the .rodata instead of .data for consts when confusing for PROGMEM
 #endif
 
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SHARED CSS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2521,9 +2522,18 @@ function loadWebUiStatus(){
   }).then(function(data){
     var state=document.getElementById('webuiState');
     if(!data.sdReady)state.textContent='SD card unavailable';
-    else if(!data.active)state.textContent='No valid Web UI package active';
-    else state.textContent='Active: version '+data.version+' · slot '+data.slot;
+    else if(!data.active)state.textContent='No valid Web UI package active · expected '+data.expectedWebUiVersion;
+    else {var match=data.exactVersionMatchesFirmware?'exact version match':data.releaseMatchesFirmware?'same firmware release, different Web UI revision':'version does not match this firmware release';state.textContent='Active: '+data.version+' · slot '+data.slot+' · '+match+' · expected '+data.expectedWebUiVersion;}
   }).catch(function(error){document.getElementById('webuiState').textContent='Status unavailable: '+error.message;});
+}
+function escapeHistory(value){return String(value===undefined||value===null?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function loadVersionHistory(){
+  var target=document.getElementById('versionHistory');
+  fetch('/webui/manifest.json',{cache:'no-store'}).then(function(response){if(!response.ok)throw new Error('HTTP '+response.status);return response.json();}).then(function(data){
+    var entries=Array.isArray(data.versionHistory)?data.versionHistory:[];
+    if(!entries.length){target.textContent='No version history is available in the active Web UI package.';return;}
+    target.innerHTML='<p>Latest '+entries.length+' commits included when this Web UI package was built. Uncommitted changes appear after they are committed and rebuilt.</p><ol class="version-history-list">'+entries.map(function(entry){return '<li><code>'+escapeHistory(entry.hash)+'</code> <time>'+escapeHistory(entry.date)+'</time> '+escapeHistory(entry.subject)+'</li>';}).join('')+'</ol>';
+  }).catch(function(){target.textContent='Version history is unavailable because no active SD Web UI package could be read.';});
 }
 function uploadWebUi(){
   var file=document.getElementById('webuiPackage').files[0];
@@ -2538,7 +2548,7 @@ function uploadWebUi(){
   request.onreadystatechange=function(){if(request.readyState===4){status.textContent=request.responseText||('HTTP '+request.status);button.disabled=false;if(request.status===200){loadWebUiStatus();}}};
   request.open('POST','/webui/upload');request.send(form);
 }
-document.addEventListener('DOMContentLoaded',loadWebUiStatus);
+document.addEventListener('DOMContentLoaded',function(){loadWebUiStatus();loadVersionHistory();});
 </script>
 <div class='firmware-container'>
   <div class='firmware-info'>
@@ -2557,10 +2567,15 @@ R"====(    <strong>Board:</strong> HeishaMon Small (ESP8266)<br>
 R"====(  </div>
   <div class='firmware-info'>
     <strong>Installed firmware versions</strong><br>
-    <strong>Custom build:</strong> )====" CUSTOM_FEATURES_VERSION R"====(<br>
+    <strong>Custom firmware:</strong> )====" CUSTOM_FIRMWARE_VERSION R"====(<br>
+    <strong>Expected Web UI:</strong> )====" CUSTOM_WEBUI_VERSION R"====(<br>
     <strong>HeishaMon base:</strong> )====" HEISHAMON_BASE_VERSION R"====(<br>
-    Custom functionality is maintained separately from the upstream HeishaMon protocol implementation.
+    Web UI packages use the same custom release version and add a separate Web UI revision. Custom functionality is maintained separately from the upstream HeishaMon protocol implementation.
   </div>
+  <details class='firmware-info' style='margin-top:16px'>
+    <summary style='cursor:pointer;color:var(--text-primary);font-weight:600'>Version history (last 50 commits)</summary>
+    <div id='versionHistory' style='margin-top:12px;font-size:12px;color:var(--text-muted)'>Loading history from the active Web UI package ...</div>
+  </details>
   <div class='panel'>
     <div class='panel-header'><h3>Firmware Update</h3></div>
     <div style='padding:24px'>
