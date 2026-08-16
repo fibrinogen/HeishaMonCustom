@@ -1,99 +1,409 @@
 <!DOCTYPE html>
-<html lang='en'>
-<head>
-<meta charset='utf-8'>
-<meta name='viewport' content='width=device-width, initial-scale=1'>
-<title>Heisha Monitor</title>
-<link rel='stylesheet' href='/webui/styles.css?v=0.2.7-web.14'>
-<script src='/webui/common.js?v=0.2.7-web.14'></script>
-<style>
-/* Keep the editor usable if a browser still has an older shared stylesheet. */
-.scheduler-modal{display:none;position:fixed;z-index:1200;inset:0;padding:20px;background:rgba(4,7,12,.7);align-items:center;justify-content:center}
-.scheduler-modal.open{display:flex}
-.scheduler-editor{width:min(720px,100%);max-height:calc(100vh - 40px);overflow:auto;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:0 20px 70px rgba(0,0,0,.45)}
-.scheduler-editor-header,.scheduler-editor-footer{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:15px 18px;border-bottom:1px solid var(--border)}
-.scheduler-editor-footer{justify-content:flex-end;border-top:1px solid var(--border);border-bottom:0}
-.scheduler-editor-body{padding:18px}.scheduler-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.scheduler-field{display:flex;flex-direction:column;gap:6px}.scheduler-field.full{grid-column:1/-1}
-@media(max-width:680px){.scheduler-modal{padding:8px}.scheduler-editor{max-height:calc(100vh - 16px)}.scheduler-form-grid{grid-template-columns:1fr}.scheduler-field.full{grid-column:auto}}
-</style>
-</head>
-<body>
-<div class='sidemenu-overlay' id='menuOverlay' onclick='closeMenu()'></div>
-<aside class='sidemenu' id='sideMenu'>
-  <div class='sidemenu-header'>
-    <h2>HeishaMon</h2>
-    <p id='sideVersion'>Custom build 0.2.7<br><small>Base: v4.2.1</small></p>
-  </div>
-  <div class='theme-toggle'>
-    <label class='theme-toggle-label'><span class='nav-icon'>☀</span> Dark Mode</label>
-    <label class='theme-switch'><input type='checkbox' id='darkModeToggle' onchange='toggleDarkMode()'><span class='theme-slider'></span></label>
-  </div>
-  <nav class='sidemenu-nav' id='sideNav'></nav>
-  <div class='sidemenu-footer'><a href='https://github.com/heishamon/HeishaMon' target='_blank'>GitHub</a></div>
-</aside>
-<header class='topbar'>
-  <div class='topbar-left'><button class='hamburger' onclick='toggleMenu()'>&#9776;</button><a class='topbar-logo' href='/'>Heisha<span>Mon</span></a></div>
-  <div class='topbar-right'></div>
-</header>
-<script>document.title='Scheduler - HeishaMon';</script>
-<main class='main-content scheduler-page'>
-  <div class='scheduler-heading'>
-    <div><h1>Local Scheduler</h1><p>Executes heat-pump actions locally using HeishaMon time and live values.</p></div>
-    <button class='btn btn-primary' onclick='schedulerOpenEditor(0)'>+ Add schedule</button>
-  </div>
-  <div class='scheduler-status'>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Current local time</span><span id='schedulerLocalTime' class='scheduler-status-value'>Loading ...</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Time synchronization</span><span id='schedulerTimeStatus' class='scheduler-status-value'>--</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Active schedules</span><span id='schedulerActiveCount' class='scheduler-status-value'>--</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Pending actions</span><span id='schedulerPendingCount' class='scheduler-status-value'>--</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Panasonic main scheduler</span><span id='schedulerPanasonicState' class='scheduler-status-value'>--</span></div>
-    <div class='scheduler-status-card'><span class='scheduler-status-label'>Next scheduled action</span><span id='schedulerNextAction' class='scheduler-status-value'>--</span></div>
-    <div class='scheduler-status-card scheduler-last'><span class='scheduler-status-label'>Last scheduler action</span><span id='schedulerLastAction' class='scheduler-status-value'>No action since boot</span></div>
-  </div>
-  <section class='scheduler-panel'>
-    <div class='scheduler-panel-header'>
-      <h2>Schedules</h2>
-      <div class='dashboard-control'><span id='schedulerGlobalLabel' class='dashboard-muted'>Enabled</span><label class='dashboard-toggle'><input id='schedulerGlobalToggle' type='checkbox' onchange='schedulerSetGlobal(this.checked)'><span class='dashboard-toggle-slider'></span></label></div>
-    </div>
-    <div class='scheduler-table-wrap'>
-      <table class='scheduler-table'>
-        <thead><tr><th>On</th><th>Name</th><th>Days</th><th>Time</th><th>Condition</th><th>Action</th><th></th></tr></thead>
-        <tbody id='schedulerRows'><tr><td colspan='7' class='scheduler-empty'>Loading schedules ...</td></tr></tbody>
-      </table>
-    </div>
-  </section>
-  <div id='schedulerCommandStatus' class='scheduler-command-status'></div>
-  <section class='scheduler-panel'>
-    <div class='scheduler-panel-header'><h2>Recent execution log</h2><span class='dashboard-muted'>RAM only, newest first</span></div>
-    <div class='scheduler-table-wrap'>
-      <table class='scheduler-table'>
-        <thead><tr><th>Time</th><th>Schedule</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody id='schedulerEvents'><tr><td colspan='4' class='scheduler-empty'>No executions since boot.</td></tr></tbody>
-      </table>
-    </div>
-  </section>
-</main>
-
-<div id='schedulerModal' class='scheduler-modal' onclick='if(event.target===this)schedulerCloseEditor()'>
-  <section class='scheduler-editor' role='dialog' aria-modal='true' aria-labelledby='schedulerEditorTitle'>
-    <div class='scheduler-editor-header'><h2 id='schedulerEditorTitle'>Add schedule</h2><button class='btn btn-ghost' onclick='schedulerCloseEditor()'>Close</button></div>
-    <div class='scheduler-editor-body'>
-      <div class='scheduler-form-grid'>
-        <div class='scheduler-field full'><label for='schedulerName'>Name</label><input id='schedulerName' class='scheduler-input' maxlength='32' placeholder='e.g. Morning hot water'></div>
-        <div class='scheduler-field'><label for='schedulerTime'>Execution time</label><input id='schedulerTime' class='scheduler-input' type='time' required></div>
-        <div class='scheduler-field'><label>Schedule state</label><label class='dashboard-control' style='justify-content:flex-start'><input id='schedulerEntryEnabled' type='checkbox' checked> Enabled</label></div>
-        <div class='scheduler-field full'><label>Weekdays</label><div class='scheduler-days'>
-          <label class='scheduler-day'><input type='checkbox' data-day='0'><span>Mon</span></label><label class='scheduler-day'><input type='checkbox' data-day='1'><span>Tue</span></label><label class='scheduler-day'><input type='checkbox' data-day='2'><span>Wed</span></label><label class='scheduler-day'><input type='checkbox' data-day='3'><span>Thu</span></label><label class='scheduler-day'><input type='checkbox' data-day='4'><span>Fri</span></label><label class='scheduler-day'><input type='checkbox' data-day='5'><span>Sat</span></label><label class='scheduler-day'><input type='checkbox' data-day='6'><span>Sun</span></label>
-        </div><div class='scheduler-actions' style='justify-content:flex-start'><button class='btn btn-ghost' onclick='schedulerSelectDays(127)'>Every day</button><button class='btn btn-ghost' onclick='schedulerSelectDays(31)'>Weekdays</button><button class='btn btn-ghost' onclick='schedulerSelectDays(96)'>Weekend</button></div></div>
-        <div class='scheduler-field'><label for='schedulerAction'>Action</label><select id='schedulerAction' class='scheduler-input' onchange='schedulerActionChanged()'><option value='force_dhw'>Force DHW workflow</option><option value='heatpump_on'>Heat pump on</option><option value='heatpump_off'>Heat pump off</option><option value='set_operation_mode'>Set operating mode</option><option value='set_dhw_target'>Set DHW target</option><option id='schedulerActionHeatShift' value='set_heat_curve_shift'>Set heating curve shift</option><option id='schedulerActionWaterTarget' value='set_z1_heating_water_target'>Set heating water target</option><option id='schedulerActionRoomTarget' value='set_z1_room_target'>Set room target</option><option id='schedulerActionLegacy' value='set_z1_request' disabled>Legacy Zone 1 request (review required)</option><option value='set_quiet_mode'>Set quiet mode</option></select></div>
-        <div id='schedulerActionValueField' class='scheduler-field'><label for='schedulerActionValue'>Action value</label><div id='schedulerActionValueContainer'></div></div>
-        <div class='scheduler-field full'><label>Conditions (all must be true)</label><div id='schedulerConditions'></div><button type='button' class='btn btn-ghost' onclick='schedulerAddCondition()'>+ Add condition</button></div>
-        <div class='scheduler-field full'><div class='scheduler-form-note'>Force DHW uses the same protected workflow as Dashboard. Conditions are evaluated from the latest Panasonic values at the scheduled minute. If time or a required value is unavailable, nothing is sent.</div></div>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Heisha Monitor</title>
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.15" />
+    <script src="/webui/common.js?v=0.2.7-web.15"></script>
+    <style>
+      /* Keep the editor usable if a browser still has an older shared stylesheet. */
+      .scheduler-modal {
+        display: none;
+        position: fixed;
+        z-index: 1200;
+        inset: 0;
+        padding: 20px;
+        background: rgba(4, 7, 12, 0.7);
+        align-items: center;
+        justify-content: center;
+      }
+      .scheduler-modal.open {
+        display: flex;
+      }
+      .scheduler-editor {
+        width: min(720px, 100%);
+        max-height: calc(100vh - 40px);
+        overflow: auto;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        box-shadow: 0 20px 70px rgba(0, 0, 0, 0.45);
+      }
+      .scheduler-editor-header,
+      .scheduler-editor-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        padding: 15px 18px;
+        border-bottom: 1px solid var(--border);
+      }
+      .scheduler-editor-footer {
+        justify-content: flex-end;
+        border-top: 1px solid var(--border);
+        border-bottom: 0;
+      }
+      .scheduler-editor-body {
+        padding: 18px;
+      }
+      .scheduler-form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      .scheduler-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .scheduler-field.full {
+        grid-column: 1/-1;
+      }
+      @media (max-width: 680px) {
+        .scheduler-modal {
+          padding: 8px;
+        }
+        .scheduler-editor {
+          max-height: calc(100vh - 16px);
+        }
+        .scheduler-form-grid {
+          grid-template-columns: 1fr;
+        }
+        .scheduler-field.full {
+          grid-column: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
+    <aside class="sidemenu" id="sideMenu">
+      <div class="sidemenu-header">
+        <h2>HeishaMon</h2>
+        <p id="sideVersion">
+          Custom build 0.2.7<br /><small
+            >Base: v4.2.1</small
+          >
+        </p>
       </div>
+      <div class="theme-toggle">
+        <label class="theme-toggle-label"
+          ><span class="nav-icon">☀</span> Dark Mode</label
+        >
+        <label class="theme-switch"
+          ><input
+            type="checkbox"
+            id="darkModeToggle"
+            onchange="toggleDarkMode()" /><span class="theme-slider"></span
+        ></label>
+      </div>
+      <nav class="sidemenu-nav" id="sideNav"></nav>
+      <div class="sidemenu-footer">
+        <a href="https://github.com/heishamon/HeishaMon" target="_blank"
+          >GitHub</a
+        >
+      </div>
+    </aside>
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="hamburger" onclick="toggleMenu()">&#9776;</button
+        ><a class="topbar-logo" href="/">Heisha<span>Mon</span></a>
+      </div>
+      <div class="topbar-right"></div>
+    </header>
+    <script>
+      document.title = "Scheduler - HeishaMon";
+    </script>
+    <main class="main-content scheduler-page">
+      <div class="scheduler-heading">
+        <div>
+          <h1>Local Scheduler</h1>
+          <p>
+            Executes heat-pump actions locally using HeishaMon time and live
+            values.
+          </p>
+        </div>
+        <button class="btn btn-primary" onclick="schedulerOpenEditor(0)">
+          + Add schedule
+        </button>
+      </div>
+      <div class="scheduler-status">
+        <div class="scheduler-status-card">
+          <span class="scheduler-status-label">Current local time</span
+          ><span id="schedulerLocalTime" class="scheduler-status-value"
+            >Loading ...</span
+          >
+        </div>
+        <div class="scheduler-status-card">
+          <span class="scheduler-status-label">Time synchronization</span
+          ><span id="schedulerTimeStatus" class="scheduler-status-value"
+            >--</span
+          >
+        </div>
+        <div class="scheduler-status-card">
+          <span class="scheduler-status-label">Active schedules</span
+          ><span id="schedulerActiveCount" class="scheduler-status-value"
+            >--</span
+          >
+        </div>
+        <div class="scheduler-status-card">
+          <span class="scheduler-status-label">Pending actions</span
+          ><span id="schedulerPendingCount" class="scheduler-status-value"
+            >--</span
+          >
+        </div>
+        <div class="scheduler-status-card">
+          <span class="scheduler-status-label">Panasonic main scheduler</span
+          ><span id="schedulerPanasonicState" class="scheduler-status-value"
+            >--</span
+          >
+        </div>
+        <div class="scheduler-status-card">
+          <span class="scheduler-status-label">Next scheduled action</span
+          ><span id="schedulerNextAction" class="scheduler-status-value"
+            >--</span
+          >
+        </div>
+        <div class="scheduler-status-card scheduler-last">
+          <span class="scheduler-status-label">Last scheduler action</span
+          ><span id="schedulerLastAction" class="scheduler-status-value"
+            >No action since boot</span
+          >
+        </div>
+      </div>
+      <section class="scheduler-panel">
+        <div class="scheduler-panel-header">
+          <h2>Schedules</h2>
+          <div class="dashboard-control">
+            <span id="schedulerGlobalLabel" class="dashboard-muted"
+              >Enabled</span
+            ><label class="dashboard-toggle"
+              ><input
+                id="schedulerGlobalToggle"
+                type="checkbox"
+                onchange="schedulerSetGlobal(this.checked)" /><span
+                class="dashboard-toggle-slider"
+              ></span
+            ></label>
+          </div>
+        </div>
+        <div class="scheduler-table-wrap">
+          <table class="scheduler-table">
+            <thead>
+              <tr>
+                <th>On</th>
+                <th>Name</th>
+                <th>Days</th>
+                <th>Time</th>
+                <th>Condition</th>
+                <th>Action</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="schedulerRows">
+              <tr>
+                <td colspan="7" class="scheduler-empty">
+                  Loading schedules ...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <div id="schedulerCommandStatus" class="scheduler-command-status"></div>
+      <section class="scheduler-panel">
+        <div class="scheduler-panel-header">
+          <h2>Recent execution log</h2>
+          <span class="dashboard-muted">RAM only, newest first</span>
+        </div>
+        <div class="scheduler-table-wrap">
+          <table class="scheduler-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Schedule</th>
+                <th>Result</th>
+                <th>Detail</th>
+              </tr>
+            </thead>
+            <tbody id="schedulerEvents">
+              <tr>
+                <td colspan="4" class="scheduler-empty">
+                  No executions since boot.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div
+      id="schedulerModal"
+      class="scheduler-modal"
+      onclick="if(event.target===this)schedulerCloseEditor()"
+    >
+      <section
+        class="scheduler-editor"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="schedulerEditorTitle"
+      >
+        <div class="scheduler-editor-header">
+          <h2 id="schedulerEditorTitle">Add schedule</h2>
+          <button class="btn btn-ghost" onclick="schedulerCloseEditor()">
+            Close
+          </button>
+        </div>
+        <div class="scheduler-editor-body">
+          <div class="scheduler-form-grid">
+            <div class="scheduler-field full">
+              <label for="schedulerName">Name</label
+              ><input
+                id="schedulerName"
+                class="scheduler-input"
+                maxlength="32"
+                placeholder="e.g. Morning hot water"
+              />
+            </div>
+            <div class="scheduler-field">
+              <label for="schedulerTime">Execution time</label
+              ><input
+                id="schedulerTime"
+                class="scheduler-input"
+                type="time"
+                required
+              />
+            </div>
+            <div class="scheduler-field">
+              <label>Schedule state</label
+              ><label
+                class="dashboard-control"
+                style="justify-content: flex-start"
+                ><input id="schedulerEntryEnabled" type="checkbox" checked />
+                Enabled</label
+              >
+            </div>
+            <div class="scheduler-field full">
+              <label>Weekdays</label>
+              <div class="scheduler-days">
+                <label class="scheduler-day"
+                  ><input type="checkbox" data-day="0" /><span>Mon</span></label
+                ><label class="scheduler-day"
+                  ><input type="checkbox" data-day="1" /><span>Tue</span></label
+                ><label class="scheduler-day"
+                  ><input type="checkbox" data-day="2" /><span>Wed</span></label
+                ><label class="scheduler-day"
+                  ><input type="checkbox" data-day="3" /><span>Thu</span></label
+                ><label class="scheduler-day"
+                  ><input type="checkbox" data-day="4" /><span>Fri</span></label
+                ><label class="scheduler-day"
+                  ><input type="checkbox" data-day="5" /><span>Sat</span></label
+                ><label class="scheduler-day"
+                  ><input type="checkbox" data-day="6" /><span>Sun</span></label
+                >
+              </div>
+              <div
+                class="scheduler-actions"
+                style="justify-content: flex-start"
+              >
+                <button
+                  class="btn btn-ghost"
+                  onclick="schedulerSelectDays(127)"
+                >
+                  Every day</button
+                ><button
+                  class="btn btn-ghost"
+                  onclick="schedulerSelectDays(31)"
+                >
+                  Weekdays</button
+                ><button
+                  class="btn btn-ghost"
+                  onclick="schedulerSelectDays(96)"
+                >
+                  Weekend
+                </button>
+              </div>
+            </div>
+            <div class="scheduler-field">
+              <label for="schedulerAction">Action</label
+              ><select
+                id="schedulerAction"
+                class="scheduler-input"
+                onchange="schedulerActionChanged()"
+              >
+                <option value="force_dhw">Force DHW workflow</option>
+                <option value="heatpump_on">Heat pump on</option>
+                <option value="heatpump_off">Heat pump off</option>
+                <option value="set_operation_mode">Set operating mode</option>
+                <option value="set_dhw_target">Set DHW target</option>
+                <option
+                  id="schedulerActionHeatShift"
+                  value="set_heat_curve_shift"
+                >
+                  Set heating curve shift
+                </option>
+                <option
+                  id="schedulerActionWaterTarget"
+                  value="set_z1_heating_water_target"
+                >
+                  Set heating water target
+                </option>
+                <option
+                  id="schedulerActionRoomTarget"
+                  value="set_z1_room_target"
+                >
+                  Set room target
+                </option>
+                <option
+                  id="schedulerActionLegacy"
+                  value="set_z1_request"
+                  disabled
+                >
+                  Legacy Zone 1 request (review required)
+                </option>
+                <option value="set_quiet_mode">Set quiet mode</option>
+              </select>
+            </div>
+            <div id="schedulerActionValueField" class="scheduler-field">
+              <label for="schedulerActionValue">Action value</label>
+              <div id="schedulerActionValueContainer"></div>
+            </div>
+            <div class="scheduler-field full">
+              <label>Conditions (all must be true)</label>
+              <div id="schedulerConditions"></div>
+              <button
+                type="button"
+                class="btn btn-ghost"
+                onclick="schedulerAddCondition()"
+              >
+                + Add condition
+              </button>
+            </div>
+            <div class="scheduler-field full">
+              <div class="scheduler-form-note">
+                Force DHW uses the same protected workflow as Dashboard.
+                Conditions are evaluated from the latest Panasonic values at the
+                scheduled minute. If time or a required value is unavailable,
+                nothing is sent.
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="scheduler-editor-footer">
+          <button class="btn btn-ghost" onclick="schedulerCloseEditor()">
+            Cancel</button
+          ><button
+            id="schedulerSaveButton"
+            class="btn btn-primary"
+            onclick="schedulerSaveEditor()"
+          >
+            Save schedule
+          </button>
+        </div>
+      </section>
     </div>
-    <div class='scheduler-editor-footer'><button class='btn btn-ghost' onclick='schedulerCloseEditor()'>Cancel</button><button id='schedulerSaveButton' class='btn btn-primary' onclick='schedulerSaveEditor()'>Save schedule</button></div>
-  </section>
-</div>
-<script src='/webui/scheduler.js?v=0.2.7-web.14'></script>
-</body>
+    <script src="/webui/scheduler.js?v=0.2.7-web.15"></script>
+  </body>
 </html>

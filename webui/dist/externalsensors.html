@@ -1,38 +1,187 @@
 <!DOCTYPE html>
-<html lang='en'>
-<head>
-<meta charset='utf-8'>
-<meta name='viewport' content='width=device-width, initial-scale=1'>
-<title>Heisha Monitor</title>
-<link rel='stylesheet' href='/webui/styles.css?v=0.2.7-web.14'>
-<script src='/webui/common.js?v=0.2.7-web.14'></script>
-</head>
-<body>
-<div class='sidemenu-overlay' id='menuOverlay' onclick='closeMenu()'></div>
-<aside class='sidemenu' id='sideMenu'>
-  <div class='sidemenu-header'>
-    <h2>HeishaMon</h2>
-    <p id='sideVersion'>Custom build 0.2.7<br><small>Base: v4.2.1</small></p>
-  </div>
-  <div class='theme-toggle'>
-    <label class='theme-toggle-label'><span class='nav-icon'>☀</span> Dark Mode</label>
-    <label class='theme-switch'><input type='checkbox' id='darkModeToggle' onchange='toggleDarkMode()'><span class='theme-slider'></span></label>
-  </div>
-  <nav class='sidemenu-nav' id='sideNav'></nav>
-  <div class='sidemenu-footer'><a href='https://github.com/heishamon/HeishaMon' target='_blank'>GitHub</a></div>
-</aside>
-<header class='topbar'>
-  <div class='topbar-left'><button class='hamburger' onclick='toggleMenu()'>&#9776;</button><a class='topbar-logo' href='/'>Heisha<span>Mon</span></a></div>
-  <div class='topbar-right'></div>
-</header>
-<script>document.title='External Sensors - HeishaMon';</script>
-<main class='main-content scheduler-page'>
-  <div class='scheduler-heading'><div><h1>External Sensors</h1><p>Optional numeric MQTT values for scheduler conditions. Local schedules do not depend on MQTT.</p></div><button class='btn btn-primary' onclick='externalOpenEditor(0)'>+ Add MQTT sensor</button></div>
-  <div class='scheduler-status'><div class='scheduler-status-card'><span class='scheduler-status-label'>MQTT connection</span><span id='externalMqttState' class='scheduler-status-value'>--</span></div><div class='scheduler-status-card'><span class='scheduler-status-label'>Configured sensors</span><span id='externalCount' class='scheduler-status-value'>--</span></div><div class='scheduler-status-card scheduler-last'><span class='scheduler-status-label'>Safety</span><span class='scheduler-status-value'>Stale, invalid or missing values never make a condition true.</span></div></div>
-  <section class='scheduler-panel'><div class='scheduler-panel-header'><h2>Configured sensors</h2><span class='dashboard-muted'>Exact relative MQTT topics, numeric payloads only</span></div><div class='scheduler-table-wrap'><table class='scheduler-table'><thead><tr><th>On</th><th>Name</th><th>Topic</th><th>Value</th><th>Age</th><th>State</th><th></th></tr></thead><tbody id='externalRows'><tr><td colspan='7' class='scheduler-empty'>Loading sensors ...</td></tr></tbody></table></div></section>
-  <div id='externalCommandStatus' class='scheduler-command-status'></div>
-</main>
-<div id='externalModal' class='scheduler-modal' onclick='if(event.target===this)externalCloseEditor()'><section class='scheduler-editor' role='dialog' aria-modal='true'><div class='scheduler-editor-header'><h2 id='externalEditorTitle'>Add MQTT sensor</h2><button class='btn btn-ghost' onclick='externalCloseEditor()'>Close</button></div><div class='scheduler-editor-body'><div class='scheduler-form-grid'><div class='scheduler-field full'><label for='externalName'>Name</label><input id='externalName' class='scheduler-input' maxlength='32' placeholder='Solar collector'></div><div class='scheduler-field full'><label for='externalTopic'>MQTT topic</label><input id='externalTopic' class='scheduler-input' maxlength='96' placeholder='solar/collector/temp'><span class='dashboard-muted'>Relative to the configured HeishaMon MQTT base topic.</span></div><div class='scheduler-field'><label for='externalUnit'>Unit</label><input id='externalUnit' class='scheduler-input' maxlength='12' placeholder='°C'></div><div class='scheduler-field'><label for='externalTimeout'>Stale after</label><div class='smart-dhw-unit'><input id='externalTimeout' class='scheduler-input' type='number' min='5' max='86400' step='1' value='120'><span>seconds</span></div></div><div class='scheduler-field'><label>Sensor state</label><label class='dashboard-control' style='justify-content:flex-start'><input id='externalEnabled' type='checkbox' checked> Enabled</label></div></div></div><div class='scheduler-editor-footer'><button class='btn btn-ghost' onclick='externalCloseEditor()'>Cancel</button><button class='btn btn-primary' onclick='externalSaveEditor()'>Save sensor</button></div></section></div>
-<script src='/webui/externalsensors.js?v=0.2.7-web.14'></script>
-</body>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Heisha Monitor</title>
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.15" />
+    <script src="/webui/common.js?v=0.2.7-web.15"></script>
+  </head>
+  <body>
+    <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
+    <aside class="sidemenu" id="sideMenu">
+      <div class="sidemenu-header">
+        <h2>HeishaMon</h2>
+        <p id="sideVersion">
+          Custom build 0.2.7<br /><small
+            >Base: v4.2.1</small
+          >
+        </p>
+      </div>
+      <div class="theme-toggle">
+        <label class="theme-toggle-label"
+          ><span class="nav-icon">☀</span> Dark Mode</label
+        >
+        <label class="theme-switch"
+          ><input
+            type="checkbox"
+            id="darkModeToggle"
+            onchange="toggleDarkMode()" /><span class="theme-slider"></span
+        ></label>
+      </div>
+      <nav class="sidemenu-nav" id="sideNav"></nav>
+      <div class="sidemenu-footer">
+        <a href="https://github.com/heishamon/HeishaMon" target="_blank"
+          >GitHub</a
+        >
+      </div>
+    </aside>
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="hamburger" onclick="toggleMenu()">&#9776;</button
+        ><a class="topbar-logo" href="/">Heisha<span>Mon</span></a>
+      </div>
+      <div class="topbar-right"></div>
+    </header>
+    <script>
+      document.title = "External Sensors - HeishaMon";
+    </script>
+    <main class="main-content scheduler-page">
+      <div class="scheduler-heading">
+        <div>
+          <h1>External Sensors</h1>
+          <p>
+            Optional numeric MQTT values for scheduler conditions. Local
+            schedules do not depend on MQTT.
+          </p>
+        </div>
+        <button class="btn btn-primary" onclick="externalOpenEditor(0)">
+          + Add MQTT sensor
+        </button>
+      </div>
+      <div class="scheduler-status">
+        <div class="scheduler-status-card">
+          <span class="scheduler-status-label">MQTT connection</span
+          ><span id="externalMqttState" class="scheduler-status-value">--</span>
+        </div>
+        <div class="scheduler-status-card">
+          <span class="scheduler-status-label">Configured sensors</span
+          ><span id="externalCount" class="scheduler-status-value">--</span>
+        </div>
+        <div class="scheduler-status-card scheduler-last">
+          <span class="scheduler-status-label">Safety</span
+          ><span class="scheduler-status-value"
+            >Stale, invalid or missing values never make a condition true.</span
+          >
+        </div>
+      </div>
+      <section class="scheduler-panel">
+        <div class="scheduler-panel-header">
+          <h2>Configured sensors</h2>
+          <span class="dashboard-muted"
+            >Exact relative MQTT topics, numeric payloads only</span
+          >
+        </div>
+        <div class="scheduler-table-wrap">
+          <table class="scheduler-table">
+            <thead>
+              <tr>
+                <th>On</th>
+                <th>Name</th>
+                <th>Topic</th>
+                <th>Value</th>
+                <th>Age</th>
+                <th>State</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="externalRows">
+              <tr>
+                <td colspan="7" class="scheduler-empty">Loading sensors ...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <div id="externalCommandStatus" class="scheduler-command-status"></div>
+    </main>
+    <div
+      id="externalModal"
+      class="scheduler-modal"
+      onclick="if(event.target===this)externalCloseEditor()"
+    >
+      <section class="scheduler-editor" role="dialog" aria-modal="true">
+        <div class="scheduler-editor-header">
+          <h2 id="externalEditorTitle">Add MQTT sensor</h2>
+          <button class="btn btn-ghost" onclick="externalCloseEditor()">
+            Close
+          </button>
+        </div>
+        <div class="scheduler-editor-body">
+          <div class="scheduler-form-grid">
+            <div class="scheduler-field full">
+              <label for="externalName">Name</label
+              ><input
+                id="externalName"
+                class="scheduler-input"
+                maxlength="32"
+                placeholder="Solar collector"
+              />
+            </div>
+            <div class="scheduler-field full">
+              <label for="externalTopic">MQTT topic</label
+              ><input
+                id="externalTopic"
+                class="scheduler-input"
+                maxlength="96"
+                placeholder="solar/collector/temp"
+              /><span class="dashboard-muted"
+                >Relative to the configured HeishaMon MQTT base topic.</span
+              >
+            </div>
+            <div class="scheduler-field">
+              <label for="externalUnit">Unit</label
+              ><input
+                id="externalUnit"
+                class="scheduler-input"
+                maxlength="12"
+                placeholder="°C"
+              />
+            </div>
+            <div class="scheduler-field">
+              <label for="externalTimeout">Stale after</label>
+              <div class="smart-dhw-unit">
+                <input
+                  id="externalTimeout"
+                  class="scheduler-input"
+                  type="number"
+                  min="5"
+                  max="86400"
+                  step="1"
+                  value="120"
+                /><span>seconds</span>
+              </div>
+            </div>
+            <div class="scheduler-field">
+              <label>Sensor state</label
+              ><label
+                class="dashboard-control"
+                style="justify-content: flex-start"
+                ><input id="externalEnabled" type="checkbox" checked />
+                Enabled</label
+              >
+            </div>
+          </div>
+        </div>
+        <div class="scheduler-editor-footer">
+          <button class="btn btn-ghost" onclick="externalCloseEditor()">
+            Cancel</button
+          ><button class="btn btn-primary" onclick="externalSaveEditor()">
+            Save sensor
+          </button>
+        </div>
+      </section>
+    </div>
+    <script src="/webui/externalsensors.js?v=0.2.7-web.15"></script>
+  </body>
 </html>
