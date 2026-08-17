@@ -412,13 +412,12 @@ function schedulerCommand(name, value) {
   }
   schedulerBusy = true;
   schedulerSetStatus("Saving ...", false);
-  return fetch(
-    "/schedulercommand?" +
-      encodeURIComponent(name) +
-      "=" +
-      encodeURIComponent(value),
-    { cache: "no-store" },
-  )
+  return fetch("/schedulercommand", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: encodeURIComponent(name) + "=" + encodeURIComponent(value),
+    cache: "no-store",
+  })
     .then(function (response) {
       if (!response.ok) throw new Error("HTTP " + response.status);
       return response.text();

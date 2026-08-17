@@ -530,23 +530,105 @@ static void appendCustomResponse(struct webserver_t *client, const char *message
   response[oldLength + addLength + 1] = '\0';
 }
 
+constexpr size_t MAX_SCHEDULER_SAVE_JSON_SIZE = 4096;
+
+struct SchedulerRequestState {
+  char *response;
+  char *saveJson;
+  size_t saveLength;
+  bool saveSeen;
+  const char *saveError;
+};
+
+static void appendSchedulerResponse(SchedulerRequestState *state,
+    const char *message) {
+  if (state == nullptr) return;
+  size_t oldLength = state->response == nullptr ? 0 : strlen(state->response);
+  size_t addLength = strlen(message);
+  char *response = (char *)realloc(state->response, oldLength + addLength + 2);
+  if (response == nullptr) {
+    log_message((char *)"Out of memory while building scheduler response");
+    ESP.restart();
+    return;
+  }
+  state->response = response;
+  memcpy(response + oldLength, message, addLength);
+  response[oldLength + addLength] = '\n';
+  response[oldLength + addLength + 1] = '\0';
+}
+
+static void appendSchedulerResult(SchedulerRequestState *state, bool accepted,
+    const char *message) {
+  char result[192];
+  snprintf(result, sizeof(result), "%s: %s", accepted ? "OK" : "ERROR", message);
+  appendSchedulerResponse(state, result);
+  if (accepted) diagnosticsHistoryRecordEvent(HISTORY_EVENT_SCHEDULER,
+    "Scheduler command accepted");
+  log_message(result);
+}
+
+static void appendSchedulerSaveJson(SchedulerRequestState *state,
+    const char *value, size_t length) {
+  if (state == nullptr) return;
+  state->saveSeen = true;
+  if (state->saveError != nullptr || length == 0) return;
+  if (value == nullptr) {
+    state->saveError = "Scheduler JSON chunk is invalid";
+    return;
+  }
+  if (length > MAX_SCHEDULER_SAVE_JSON_SIZE - state->saveLength) {
+    state->saveError = "Scheduler JSON exceeds 4096 bytes";
+    return;
+  }
+  char *json = (char *)realloc(state->saveJson,
+    state->saveLength + length + 1);
+  if (json == nullptr) {
+    state->saveError = "Not enough memory to receive scheduler JSON";
+    return;
+  }
+  state->saveJson = json;
+  memcpy(json + state->saveLength, value, length);
+  state->saveLength += length;
+  json[state->saveLength] = '\0';
+}
+
+static void finishSchedulerSave(SchedulerRequestState *state) {
+  if (state == nullptr || !state->saveSeen) return;
+  char response[160] = {0};
+  bool accepted = false;
+  if (state->saveError != nullptr) {
+    snprintf(response, sizeof(response), "%s", state->saveError);
+  } else if (state->saveJson == nullptr || state->saveLength == 0) {
+    snprintf(response, sizeof(response), "Scheduler JSON is empty");
+  } else {
+    JsonDocument document;
+    DeserializationError error = deserializeJson(document, state->saveJson,
+      state->saveLength);
+    if (error || !document.is<JsonObject>()) {
+      snprintf(response, sizeof(response), "Invalid scheduler JSON: %s",
+        error ? error.c_str() : "root must be an object");
+    } else {
+      accepted = schedulerManager.upsert(document.as<JsonObjectConst>(), response,
+        sizeof(response));
+    }
+  }
+  appendSchedulerResult(state, accepted, response);
+}
+
 static void handleSchedulerArgument(struct webserver_t *client, struct arguments_t *args) {
   char name[24] = {0};
   snprintf(name, sizeof(name), "%s", (char *)args->name);
+  SchedulerRequestState *state = (SchedulerRequestState *)client->userdata;
+  if (strcmp(name, "save") == 0) {
+    appendSchedulerSaveJson(state, (char *)args->value, args->len);
+    return;
+  }
   char value[args->len + 1];
   snprintf(value, sizeof(value), "%.*s", args->len, args->value);
   char response[160] = {0};
   bool accepted = false;
 
-  if (strcmp(name, "save") == 0) {
-    JsonDocument document;
-    DeserializationError error = deserializeJson(document, value);
-    if (error || !document.is<JsonObject>()) {
-      snprintf(response, sizeof(response), "Invalid scheduler JSON");
-    } else {
-      accepted = schedulerManager.upsert(document.as<JsonObjectConst>(), response, sizeof(response));
-    }
-  } else if (strcmp(name, "delete") == 0 || strcmp(name, "run") == 0) {
+  if (strcmp(name, "delete") == 0 || strcmp(name, "run") == 0) {
     char *end = nullptr;
     long id = strtol(value, &end, 10);
     if (end == value || *end != '\0' || id < 1 || id > 255) {
@@ -566,12 +648,7 @@ static void handleSchedulerArgument(struct webserver_t *client, struct arguments
     snprintf(response, sizeof(response), "Unknown scheduler command");
   }
 
-  char result[192];
-  snprintf(result, sizeof(result), "%s: %s", accepted ? "OK" : "ERROR", response);
-  appendCustomResponse(client, result);
-  if (accepted) diagnosticsHistoryRecordEvent(HISTORY_EVENT_SCHEDULER,
-    "Scheduler command accepted");
-  log_message(result);
+  appendSchedulerResult(state, accepted, response);
 }
 
 static void handleExternalSensorsArgument(struct webserver_t *client, struct arguments_t *args) {
@@ -752,7 +829,16 @@ bool customFeaturesHandleUri(struct webserver_t *client, const char *uri) {
   else if (strcmp(uri, "/heatingcurveshift") == 0) client->route = 37;
   else return false;
 
-  if (client->route == 14 || client->route == 26) {
+  if (client->route == 14) {
+    SchedulerRequestState *state =
+      (SchedulerRequestState *)calloc(1, sizeof(SchedulerRequestState));
+    if (state == nullptr) {
+      log_message((char *)"Out of memory while creating scheduler request");
+      ESP.restart();
+      return true;
+    }
+    client->userdata = state;
+  } else if (client->route == 26) {
     client->userdata = malloc(1);
     if (client->userdata == nullptr) {
       log_message((char *)"Out of memory while creating custom request");
@@ -844,11 +930,18 @@ bool customFeaturesHandleWrite(struct webserver_t *client) {
     case 13: handleSchedulerStatus(client); return true;
     case 14:
       if (client->content == 0) {
-        char *response = (char *)client->userdata;
+        SchedulerRequestState *state =
+          (SchedulerRequestState *)client->userdata;
+        finishSchedulerSave(state);
+        char *response = state == nullptr ? nullptr : state->response;
         size_t length = response == nullptr ? 0 : strlen(response);
         webserver_send(client, 200, (char *)"text/plain", length);
         if (length > 0) webserver_send_content(client, response, length);
-        free(response);
+        if (state != nullptr) {
+          free(state->response);
+          free(state->saveJson);
+          free(state);
+        }
         client->userdata = nullptr;
       }
       return true;
