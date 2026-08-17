@@ -8,9 +8,9 @@ static const unsigned long SCHEDULER_DISPATCH_INTERVAL_MS = 2000UL;
 
 SchedulerManager::SchedulerManager()
   : count_(0), eventStart_(0), eventCount_(0), pendingStart_(0), pendingCount_(0),
-    enabled_(true), clockWasValid_(false), lastCheckedMinuteKey_(UINT32_MAX),
-    lastDispatchAt_(0), valueReader_(nullptr), dispatcher_(nullptr), logger_(nullptr),
-    persistentEventLogger_(nullptr) {
+    enabled_(true), clockWasValid_(false), clockInvalidEventRecorded_(false),
+    lastCheckedMinuteKey_(UINT32_MAX), lastDispatchAt_(0), valueReader_(nullptr),
+    dispatcher_(nullptr), logger_(nullptr), persistentEventLogger_(nullptr) {
   memset(entries_, 0, sizeof(entries_));
   memset(events_, 0, sizeof(events_));
   memset(pending_, 0, sizeof(pending_));
@@ -51,15 +51,29 @@ void SchedulerManager::loop() {
   bool valid = readClock(clock);
   if (!valid) {
     if (clockWasValid_) log("[SCHED] local time became invalid; execution paused");
+    if (!clockInvalidEventRecorded_) {
+      SchedulerEntry systemEntry = {};
+      strlcpy(systemEntry.name, "Scheduler", sizeof(systemEntry.name));
+      addEvent(systemEntry, "paused",
+        "Local time unavailable; due schedules cannot be evaluated");
+      clockInvalidEventRecorded_ = true;
+    }
     cancelPending("Local time invalid; pending action cancelled");
     clockWasValid_ = false;
     return;
   }
   if (!clockWasValid_) log("[SCHED] valid local time available");
+  if (clockInvalidEventRecorded_) {
+    SchedulerEntry systemEntry = {};
+    strlcpy(systemEntry.name, "Scheduler", sizeof(systemEntry.name));
+    addEvent(systemEntry, "resumed",
+      "Local time is valid; due schedule evaluation resumed");
+  }
   clockWasValid_ = true;
+  clockInvalidEventRecorded_ = false;
 
   uint32_t minuteKey = schedulerMinuteKey(clock);
-  if (enabled_ && minuteKey != lastCheckedMinuteKey_) {
+  if (minuteKey != lastCheckedMinuteKey_) {
     lastCheckedMinuteKey_ = minuteKey;
     checkSchedules(clock);
   }
@@ -69,7 +83,7 @@ void SchedulerManager::loop() {
 void SchedulerManager::checkSchedules(const SchedulerClock &clock) {
   for (uint8_t i = 0; i < count_; i++) {
     SchedulerEntry &entry = entries_[i];
-    if (!schedulerTimeMatches(entry.enabled, entry.dayMask, entry.hour, entry.minute,
+    if (!schedulerDueNow(entry.dayMask, entry.hour, entry.minute,
         clock, entry.lastExecutionKey)) continue;
 
     entry.lastExecutionKey = schedulerMinuteKey(clock);
@@ -77,15 +91,38 @@ void SchedulerManager::checkSchedules(const SchedulerClock &clock) {
     snprintf(matchMessage, sizeof(matchMessage), "[SCHED] #%u %s matched at %02u:%02u",
       entry.id, entry.name, clock.hour, clock.minute);
     log(matchMessage);
-    char detail[SCHEDULER_DETAIL_LENGTH] = {0};
-    if (!evaluateCondition(entry, detail, sizeof(detail))) {
-      addEvent(entry, "skipped", detail);
+    char action[64] = {0};
+    describeAction(entry, action, sizeof(action));
+    char decision[SCHEDULER_DETAIL_LENGTH] = {0};
+    if (!enabled_) {
+      snprintf(decision, sizeof(decision),
+        "Due %02u:%02u; skipped: scheduler is globally paused; action: %s",
+        clock.hour, clock.minute, action);
+      addEvent(entry, "skipped", decision);
       continue;
     }
+    if (!entry.enabled) {
+      snprintf(decision, sizeof(decision),
+        "Due %02u:%02u; skipped: schedule is disabled; action: %s",
+        clock.hour, clock.minute, action);
+      addEvent(entry, "skipped", decision);
+      continue;
+    }
+    char detail[SCHEDULER_DETAIL_LENGTH] = {0};
+    if (!evaluateCondition(entry, detail, sizeof(detail))) {
+      snprintf(decision, sizeof(decision), "Due %02u:%02u; skipped: %s; action: %s",
+        clock.hour, clock.minute, detail, action);
+      addEvent(entry, "skipped", decision);
+      continue;
+    }
+    snprintf(decision, sizeof(decision), "Due %02u:%02u; %s",
+      clock.hour, clock.minute, detail);
     char queueMessage[64] = {0};
-    if (!enqueue(entry, detail, nullptr, nullptr, nullptr,
+    if (!enqueue(entry, decision, nullptr, nullptr, nullptr,
         queueMessage, sizeof(queueMessage))) {
-      addEvent(entry, "failed", queueMessage);
+      snprintf(decision, sizeof(decision), "Due %02u:%02u; not queued: %s; action: %s",
+        clock.hour, clock.minute, queueMessage, action);
+      addEvent(entry, "failed", decision);
     }
   }
 }
@@ -93,14 +130,14 @@ void SchedulerManager::checkSchedules(const SchedulerClock &clock) {
 bool SchedulerManager::evaluateCondition(const SchedulerEntry &entry,
     char *detail, size_t detailSize) {
   if (entry.conditionCount == 0) {
-    snprintf(detail, detailSize, "No condition");
+    snprintf(detail, detailSize, "no conditions configured");
     return true;
   }
   if (valueReader_ == nullptr) {
-    snprintf(detail, detailSize, "Condition value provider unavailable");
+    snprintf(detail, detailSize,
+      "conditions unavailable: value provider is not initialized");
     return false;
   }
-  size_t used = 0;
   for (uint8_t i = 0; i < entry.conditionCount; i++) {
     const SchedulerCondition &condition = entry.conditions[i];
     float actual = 0;
@@ -111,35 +148,35 @@ bool SchedulerManager::evaluateCondition(const SchedulerEntry &entry,
     if (!valueReader_(condition.source, sourceId, &actual, &ageSeconds,
         providerDetail, sizeof(providerDetail)) || !isfinite(actual)) {
       if (providerDetail[0] != '\0') {
-        snprintf(detail, detailSize, "%s", providerDetail);
+        snprintf(detail, detailSize, "condition %u/%u unavailable: %s",
+          i + 1, entry.conditionCount, providerDetail);
       } else if (condition.source == SCHEDULER_SOURCE_LOCAL) {
-        snprintf(detail, detailSize, "%s unavailable", conditionName(condition.field));
+        snprintf(detail, detailSize, "condition %u/%u unavailable: %s",
+          i + 1, entry.conditionCount, conditionDisplayName(condition.field));
       } else {
-        snprintf(detail, detailSize, "External sensor %u unavailable", condition.externalSensorId);
+        snprintf(detail, detailSize, "condition %u/%u unavailable: MQTT sensor %u",
+          i + 1, entry.conditionCount, condition.externalSensorId);
       }
       return false;
     }
     bool result = schedulerCompare(actual, condition.compare, condition.value);
-    char part[96];
-    if (condition.source == SCHEDULER_SOURCE_LOCAL) {
-      snprintf(part, sizeof(part), "%s %.2f %s %.2f -> %s",
-        conditionName(condition.field), actual, operatorName(condition.compare),
-        condition.value, result ? "true" : "false");
-    } else {
-      snprintf(part, sizeof(part), "External sensor %u %.2f %s %.2f -> %s",
-        condition.externalSensorId, actual, operatorName(condition.compare),
-        condition.value, result ? "true" : "false");
+    if (!result) {
+      if (condition.source == SCHEDULER_SOURCE_LOCAL) {
+        snprintf(detail, detailSize,
+          "condition %u/%u failed: %s is %.2f, expected %s %.2f",
+          i + 1, entry.conditionCount, conditionDisplayName(condition.field),
+          actual, operatorName(condition.compare), condition.value);
+      } else {
+        snprintf(detail, detailSize,
+          "condition %u/%u failed: MQTT sensor %u is %.2f (age %lu s), expected %s %.2f",
+          i + 1, entry.conditionCount, condition.externalSensorId, actual,
+          (unsigned long)ageSeconds, operatorName(condition.compare), condition.value);
+      }
+      return false;
     }
-    if (i > 0 && used + 5 < detailSize) {
-      strlcpy(detail + used, " AND ", detailSize - used);
-      used += 5;
-    }
-    if (used < detailSize) {
-      strlcpy(detail + used, part, detailSize - used);
-      used = strlen(detail);
-    }
-    if (!result) return false;
   }
+  snprintf(detail, detailSize, "all %u condition%s passed", entry.conditionCount,
+    entry.conditionCount == 1 ? "" : "s");
   return true;
 }
 
@@ -474,13 +511,20 @@ bool SchedulerManager::runNow(uint8_t id, char *message, size_t messageSize) {
   }
   int8_t index = findIndex(id);
   if (index < 0) { snprintf(message, messageSize, "Schedule not found"); return false; }
+  char action[64] = {0};
+  describeAction(entries_[index], action, sizeof(action));
   char detail[SCHEDULER_DETAIL_LENGTH];
   if (!evaluateCondition(entries_[index], detail, sizeof(detail))) {
-    addEvent(entries_[index], "skipped", detail);
-    snprintf(message, messageSize, "Condition is false; action skipped");
+    char decision[SCHEDULER_DETAIL_LENGTH];
+    snprintf(decision, sizeof(decision), "Manual run skipped: %s; action: %s",
+      detail, action);
+    addEvent(entries_[index], "skipped", decision);
+    snprintf(message, messageSize, "Action skipped: %s", detail);
     return true;
   }
-  return enqueue(entries_[index], detail, nullptr, nullptr, nullptr,
+  char decision[SCHEDULER_DETAIL_LENGTH];
+  snprintf(decision, sizeof(decision), "Manual run; %s", detail);
+  return enqueue(entries_[index], decision, nullptr, nullptr, nullptr,
     message, messageSize);
 }
 
@@ -693,6 +737,41 @@ const char *SchedulerManager::conditionName(SchedulerConditionField field) {
     "room_temperature", "main_inlet_temperature", "main_outlet_temperature",
     "three_way_valve", "force_dhw"};
   return field < SCHEDULER_CONDITION_COUNT ? names[field] : "unknown";
+}
+
+const char *SchedulerManager::conditionDisplayName(SchedulerConditionField field) {
+  static const char *names[] = {"condition", "DHW temperature", "outside temperature",
+    "Zone 1 room temperature", "main inlet temperature", "main outlet temperature",
+    "three-way valve state", "Force DHW state"};
+  return field < SCHEDULER_CONDITION_COUNT ? names[field] : "unknown condition";
+}
+
+void SchedulerManager::describeAction(const SchedulerEntry &entry,
+    char *description, size_t descriptionSize) {
+  switch (entry.action) {
+    case SCHEDULER_ACTION_FORCE_DHW:
+      snprintf(description, descriptionSize, "Force DHW workflow"); break;
+    case SCHEDULER_ACTION_HEATPUMP_ON:
+      snprintf(description, descriptionSize, "Heat pump on"); break;
+    case SCHEDULER_ACTION_HEATPUMP_OFF:
+      snprintf(description, descriptionSize, "Heat pump off"); break;
+    case SCHEDULER_ACTION_SET_OPERATION_MODE:
+      snprintf(description, descriptionSize, "Set operating mode to %d", entry.actionValue); break;
+    case SCHEDULER_ACTION_SET_DHW_TARGET:
+      snprintf(description, descriptionSize, "Set DHW target to %d C", entry.actionValue); break;
+    case SCHEDULER_ACTION_SET_HEAT_CURVE_SHIFT:
+      snprintf(description, descriptionSize, "Set heating curve shift to %d K", entry.actionValue); break;
+    case SCHEDULER_ACTION_SET_Z1_HEATING_WATER_TARGET:
+      snprintf(description, descriptionSize, "Set heating water target to %d C", entry.actionValue); break;
+    case SCHEDULER_ACTION_SET_Z1_ROOM_TARGET:
+      snprintf(description, descriptionSize, "Set room target to %d C", entry.actionValue); break;
+    case SCHEDULER_ACTION_SET_Z1_REQUEST:
+      snprintf(description, descriptionSize, "Legacy Zone 1 request %d", entry.actionValue); break;
+    case SCHEDULER_ACTION_SET_QUIET_MODE:
+      snprintf(description, descriptionSize, "Set quiet mode to %d", entry.actionValue); break;
+    default:
+      snprintf(description, descriptionSize, "Unknown action"); break;
+  }
 }
 
 const char *SchedulerManager::sourceName(SchedulerConditionSource source) {

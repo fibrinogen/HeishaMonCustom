@@ -43,13 +43,18 @@ inline uint32_t schedulerMinuteKey(const SchedulerClock &clock) {
          ((uint32_t)clock.hour * 60UL) + clock.minute;
 }
 
-inline bool schedulerTimeMatches(bool enabled, uint8_t dayMask, uint8_t hour,
-    uint8_t minute, const SchedulerClock &clock, uint32_t lastExecutionKey) {
-  if (!clock.valid || !enabled || !schedulerBasicEntryValid(dayMask, hour, minute) ||
+inline bool schedulerDueNow(uint8_t dayMask, uint8_t hour, uint8_t minute,
+    const SchedulerClock &clock, uint32_t lastExecutionKey) {
+  if (!clock.valid || !schedulerBasicEntryValid(dayMask, hour, minute) ||
       clock.weekDay > 6) return false;
   if ((dayMask & (1U << clock.weekDay)) == 0) return false;
   if (hour != clock.hour || minute != clock.minute) return false;
   return lastExecutionKey != schedulerMinuteKey(clock);
+}
+
+inline bool schedulerTimeMatches(bool enabled, uint8_t dayMask, uint8_t hour,
+    uint8_t minute, const SchedulerClock &clock, uint32_t lastExecutionKey) {
+  return enabled && schedulerDueNow(dayMask, hour, minute, clock, lastExecutionKey);
 }
 
 inline bool schedulerCompare(float actual, SchedulerCompareOperator op, float expected) {

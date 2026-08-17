@@ -32,6 +32,9 @@ int main() {
 
   // 5: disabled entries never execute.
   assert(!schedulerTimeMatches(false, 0x7F, 18, 0, monday1800, never));
+  // The scheduler manager can still recognize that a disabled entry was due,
+  // allowing it to record an explicit skip reason in the decision log.
+  assert(schedulerDueNow(0x7F, 18, 0, monday1800, never));
 
   // 6 and 7: comparison results gate execution as expected.
   assert(schedulerCompare(39.5f, SCHEDULER_COMPARE_LESS, 42.0f));

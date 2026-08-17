@@ -435,7 +435,6 @@ input:disabled + .theme-slider-compact {
 .scheduler-event-result{font-weight:600}
 .scheduler-event-result.executed,.scheduler-event-result.no-change{color:var(--green)}
 .scheduler-event-result.failed,.scheduler-event-result.busy{color:var(--red)}
-.smart-dhw-page{max-width:1180px;margin:0 auto}
 .hardware-page{max-width:1280px;margin:0 auto}
 .hardware-top-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
 .hardware-card{padding:0 14px 12px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg)}
@@ -447,23 +446,6 @@ input:disabled + .theme-slider-compact {
 .hardware-config-list{max-width:650px;padding-top:7px}
 .hardware-extra{margin-top:14px}
 @media(max-width:900px){.hardware-top-grid{grid-template-columns:1fr}}
-.smart-dhw-status{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
-.smart-dhw-status .scheduler-status-card{min-width:0}
-.smart-dhw-wide{grid-column:span 2}
-.smart-dhw-config{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:14px}
-.smart-dhw-card{padding:16px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-elevated)}
-.smart-dhw-card h3{margin:0 0 14px;color:var(--text-primary);font-size:13px}
-.smart-dhw-card.full{grid-column:1/-1}
-.smart-dhw-row{display:flex;align-items:center;justify-content:space-between;gap:15px;min-height:43px;border-bottom:1px solid rgba(42,48,64,.45)}
-.smart-dhw-row:last-child{border-bottom:0}
-.smart-dhw-row label{color:var(--text-secondary);font-size:11.5px}
-.smart-dhw-row .scheduler-input{width:155px}
-.smart-dhw-unit{display:flex;align-items:center;gap:7px;color:var(--text-muted);font-size:11px}
-.smart-dhw-footer{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:14px;border-top:1px solid var(--border)}
-.smart-dhw-note{margin-right:auto;color:var(--text-muted);font-size:10.5px}
-.smart-dhw-state-active{color:var(--green)}
-.smart-dhw-state-error{color:var(--red)}
-@media(max-width:760px){.smart-dhw-status{grid-template-columns:repeat(2,minmax(0,1fr))}.smart-dhw-config{grid-template-columns:1fr}.smart-dhw-card.full{grid-column:auto}.smart-dhw-row{align-items:flex-start;flex-direction:column;padding:9px 0}.smart-dhw-row .scheduler-input{width:100%}.smart-dhw-unit{width:100%}.smart-dhw-unit .scheduler-input{flex:1}.smart-dhw-footer{align-items:stretch;flex-direction:column}.smart-dhw-note{margin:0 0 5px}.smart-dhw-footer .btn{width:100%}}
 @media(max-width:1250px){.wp-settings-columns{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:680px){.wp-settings-columns{grid-template-columns:1fr}.wp-settings-slider{width:120px}}
 @media(max-width:1000px){.dashboard-columns{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -953,7 +935,7 @@ function markActiveNav() {
   });
   var group = nav.querySelector('[data-custom-nav]');
   if (group) {
-    var customPaths = ['/dashboard','/wpsettings','/scheduler','/externalsensors','/smartdhw','/diagnostics','/history'];
+    var customPaths = ['/dashboard','/wpsettings','/scheduler','/externalsensors','/diagnostics','/history'];
     var customActive = customPaths.indexOf(current) >= 0;
     var toggle = group.querySelector('.sidemenu-group-toggle');
     group.classList.toggle('open', customActive || group.classList.contains('user-open'));
@@ -1008,7 +990,6 @@ function groupCustomNav() {
   submenu.appendChild(createNavLink('/wpsettings', 'WP Configuration', '⚙'));
   submenu.appendChild(createNavLink('/scheduler', 'Scheduler', '◷'));
   submenu.appendChild(createNavLink('/externalsensors', 'External Sensors', '◉'));
-  submenu.appendChild(createNavLink('/smartdhw', 'Smart DHW', '♨'));
   submenu.appendChild(createNavLink('/diagnostics', 'Diagnostics', '◌'));
   submenu.appendChild(createNavLink('/history', 'History', '▥'));
   group.appendChild(submenu);

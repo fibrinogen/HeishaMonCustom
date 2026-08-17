@@ -148,6 +148,7 @@ class SchedulerManager {
   uint8_t pendingCount_;
   bool enabled_;
   bool clockWasValid_;
+  bool clockInvalidEventRecorded_;
   uint32_t lastCheckedMinuteKey_;
   unsigned long lastDispatchAt_;
   SchedulerValueReader valueReader_;
@@ -175,6 +176,9 @@ class SchedulerManager {
   static bool parseSource(const char *name, SchedulerConditionSource &source);
   static bool parseOperator(const char *name, SchedulerCompareOperator &op);
   static uint8_t conditionTopic(SchedulerConditionField field);
+  static const char *conditionDisplayName(SchedulerConditionField field);
+  static void describeAction(const SchedulerEntry &entry, char *description,
+    size_t descriptionSize);
   static const char *sourceName(SchedulerConditionSource source);
   void entryToJson(const SchedulerEntry &entry, JsonObject object) const;
 };
