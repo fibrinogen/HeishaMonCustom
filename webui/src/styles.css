@@ -739,7 +739,7 @@ input:checked + .theme-slider:before {
 .history-status{color:var(--text-muted);font-size:12px;margin-left:auto}
 .history-card{margin-bottom:14px}
 .history-card-body{padding:14px 20px 16px}
-.history-chart{display:block;width:100%;height:230px}
+.history-chart{display:block;width:100%;height:230px;cursor:crosshair;touch-action:pan-y}
 .history-legend{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px;color:var(--text-secondary);font-size:11px}
 .history-legend-item{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .history-legend-line{display:inline-block;width:22px;height:3px;border-radius:2px}

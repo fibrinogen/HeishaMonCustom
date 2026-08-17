@@ -116,11 +116,21 @@
           ><button type="button" class="dashboard-button" onclick="refresh()">
             Load period
           </button>
+          <button
+            id="historyResetZoom"
+            type="button"
+            class="dashboard-button"
+            onclick="resetHistoryZoom()"
+            hidden
+          >
+            Reset zoom
+          </button>
         </div>
         <div class="history-note" style="margin: -4px 0 14px">
           Charts are read from persistent SD-card CSV history. Select a period
           of up to 90 days; the display is downsampled without averaging COP
-          values.
+          values. Hover over a line to inspect its time and value. Drag across
+          a chart to zoom all charts into that time range.
         </div>
         <section class="panel history-card">
           <div class="panel-header"><h3>Temperatures</h3></div>
@@ -240,37 +250,41 @@
     </main>
     <script>
       var chartLines = {
-        outlet: { key: "outlet", label: "Outlet", color: "#e53935" },
-        inlet: { key: "inlet", label: "Inlet", color: "#1e88e5" },
-        target: { key: "target", label: "Target", color: "#f9a825" },
-        outside: { key: "outside", label: "Outside", color: "#43a047" },
-        hz: { key: "hz", label: "Compressor frequency", color: "#8e44ad" },
-        flow: { key: "flow", label: "Water flow", color: "#00897b" },
-        power: { key: "power", label: "Thermal power", color: "#ef6c00" },
-        cop: { key: "cop", label: "Estimated COP", color: "#1565c0" },
+        outlet: { key: "outlet", label: "Outlet", color: "#e53935", unit: "°C" },
+        inlet: { key: "inlet", label: "Inlet", color: "#1e88e5", unit: "°C" },
+        target: { key: "target", label: "Target", color: "#f9a825", unit: "°C" },
+        outside: { key: "outside", label: "Outside", color: "#43a047", unit: "°C" },
+        hz: { key: "hz", label: "Compressor frequency", color: "#8e44ad", unit: "Hz" },
+        flow: { key: "flow", label: "Water flow", color: "#00897b", unit: "l/min" },
+        power: { key: "power", label: "Thermal power", color: "#ef6c00", unit: "kW" },
+        cop: { key: "cop", label: "Estimated COP", color: "#1565c0", unit: "" },
         electrical: {
           key: "electrical",
           label: "Electrical power",
           color: "#c62828",
+          unit: "kW",
         },
-        dhw: { key: "dhw", label: "DHW actual", color: "#d32f2f" },
-        dhwTarget: { key: "target", label: "DHW target", color: "#f9a825" },
+        dhw: { key: "dhw", label: "DHW actual", color: "#d32f2f", unit: "°C" },
+        dhwTarget: { key: "target", label: "DHW target", color: "#f9a825", unit: "°C" },
         zone1Shift: {
           key: "heatingCurveShift",
           label: "Heating curve shift (K)",
           color: "#6a1b9a",
+          unit: "K",
         },
         zone1Water: {
           key: "zone1Request",
           semantic: "heatingWaterTarget",
           label: "Heating water target (°C)",
           color: "#00838f",
+          unit: "°C",
         },
         zone1Room: {
           key: "zone1Request",
           semantic: "roomTarget",
           label: "Room target (°C)",
           color: "#ad1457",
+          unit: "°C",
         },
       };
       function lineLegend(id, lines) {
@@ -286,80 +300,6 @@
           })
           .join("");
       }
-      function draw(id, points, lines) {
-        var c = document.getElementById(id),
-          ctx = c.getContext("2d"),
-          w = c.clientWidth || 800,
-          h = 230,
-          d = devicePixelRatio || 1;
-        c.width = w * d;
-        c.height = h * d;
-        ctx.scale(d, d);
-        ctx.clearRect(0, 0, w, h);
-        if (!points.length) return;
-        function matches(l, p) {
-          return !l.semantic || p.zone1RequestSemantic === l.semantic;
-        }
-        var values = [];
-        lines.forEach(function (l) {
-          points.forEach(function (p) {
-            var n = Number(p[l.key]);
-            if (
-              matches(l, p) &&
-              p[l.key] !== null &&
-              p[l.key] !== undefined &&
-              Number.isFinite(n)
-            )
-              values.push(n);
-          });
-        });
-        if (!values.length) return;
-        var min = Math.min.apply(null, values),
-          max = Math.max.apply(null, values);
-        if (min === max) {
-          min -= 1;
-          max += 1;
-        }
-        function x(i) {
-          return 10 + (w - 25) * (i / (points.length - 1 || 1));
-        }
-        function y(v) {
-          return h - 18 - ((h - 35) * (v - min)) / (max - min);
-        }
-        ctx.font = "11px Arial";
-        ctx.fillStyle = "#75818a";
-        ctx.fillText(max.toFixed(1), 4, 14);
-        ctx.fillText(min.toFixed(1), 4, h - 5);
-        lines.forEach(function (l) {
-          ctx.strokeStyle = l.color;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          var started = false,
-            hasSegment = false;
-          points.forEach(function (p, i) {
-            var n = Number(p[l.key]);
-            if (
-              !matches(l, p) ||
-              p[l.key] === null ||
-              p[l.key] === undefined ||
-              !Number.isFinite(n)
-            ) {
-              started = false;
-              return;
-            }
-            var px = x(i),
-              py = y(n);
-            if (!started) {
-              ctx.moveTo(px, py);
-              started = true;
-            } else {
-              ctx.lineTo(px, py);
-              hasSegment = true;
-            }
-          });
-          if (hasSegment) ctx.stroke();
-        });
-      }
       function val(v, unit) {
         return v === null || v === undefined
           ? "N/A"
@@ -367,6 +307,158 @@
       }
       // Explicit units, grid/tick labels and a time axis keep the lightweight canvas
       // charts readable without adding another browser-side chart library.
+      var chartViews = {};
+      function chartLineMatches(line, point) {
+        return !line.semantic || point.zone1RequestSemantic === line.semantic;
+      }
+      function chartLineValue(line, point) {
+        if (!point || !chartLineMatches(line, point)) return null;
+        var value = point[line.key],
+          number = Number(value);
+        return value === null || value === undefined || !Number.isFinite(number)
+          ? null
+          : number;
+      }
+      function chartFormatClock(timestamp, includeDate) {
+        if (!Number.isFinite(timestamp) || timestamp <= 1000000000) return "N/A";
+        var date = new Date(timestamp * 1000),
+          clock = date.toLocaleTimeString("de-DE", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hourCycle: "h23",
+          });
+        return includeDate
+          ? date.toLocaleDateString("de-DE", {
+              day: "2-digit",
+              month: "2-digit",
+            }) +
+              " " +
+              clock
+          : clock;
+      }
+      function chartTimeAtX(view, px) {
+        var fraction = Math.max(
+            0,
+            Math.min(1, (px - view.left) / view.plotW),
+          );
+        if (view.points.length < 2)
+          return (
+            view.requestStart +
+            (view.requestEnd - view.requestStart) * fraction
+          );
+        var position = fraction * (view.points.length - 1),
+          first = Math.floor(position),
+          last = Math.ceil(position),
+          ratio = position - first,
+          firstTime = Number((view.points[first] || {}).t),
+          lastTime = Number((view.points[last] || {}).t);
+        if (Number.isFinite(firstTime) && Number.isFinite(lastTime))
+          return firstTime + (lastTime - firstTime) * ratio;
+        return (
+          view.requestStart + (view.requestEnd - view.requestStart) * fraction
+        );
+      }
+      function chartHoverAt(view, px, py) {
+        if (
+          px < view.left ||
+          px > view.left + view.plotW ||
+          py < view.top ||
+          py > view.top + view.plotH
+        )
+          return null;
+        var position =
+            ((px - view.left) / view.plotW) * (view.points.length - 1),
+          first = Math.floor(position),
+          last = Math.ceil(position),
+          ratio = position - first,
+          closest = null;
+        view.lines.forEach(function (line) {
+          var firstValue = chartLineValue(line, view.points[first]),
+            lastValue = chartLineValue(line, view.points[last]);
+          if (firstValue === null || lastValue === null) return;
+          var value = firstValue + (lastValue - firstValue) * ratio,
+            lineY = view.y(value),
+            distance = Math.abs(py - lineY);
+          if (distance <= 12 && (!closest || distance < closest.distance)) {
+            closest = {
+              line: line,
+              value: value,
+              x: px,
+              y: lineY,
+              time: chartTimeAtX(view, px),
+              distance: distance,
+            };
+          }
+        });
+        return closest;
+      }
+      function chartPointerPosition(canvas, event) {
+        var bounds = canvas.getBoundingClientRect();
+        return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+      }
+      function setupChartInteraction(canvas) {
+        if (canvas._historyInteractionReady) return;
+        canvas._historyInteractionReady = true;
+        canvas.addEventListener("pointerdown", function (event) {
+          var view = chartViews[canvas.id],
+            point = chartPointerPosition(canvas, event);
+          if (
+            !view ||
+            event.button !== 0 ||
+            point.x < view.left ||
+            point.x > view.left + view.plotW ||
+            point.y < view.top ||
+            point.y > view.top + view.plotH
+          )
+            return;
+          view.dragStartX = point.x;
+          view.dragCurrentX = point.x;
+          view.hover = null;
+          canvas.setPointerCapture(event.pointerId);
+          event.preventDefault();
+          paintChart(view);
+        });
+        canvas.addEventListener("pointermove", function (event) {
+          var view = chartViews[canvas.id];
+          if (!view) return;
+          var point = chartPointerPosition(canvas, event);
+          if (view.dragStartX !== null) {
+            view.dragCurrentX = Math.max(
+              view.left,
+              Math.min(view.left + view.plotW, point.x),
+            );
+          } else {
+            view.hover = chartHoverAt(view, point.x, point.y);
+          }
+          paintChart(view);
+        });
+        canvas.addEventListener("pointerup", function (event) {
+          var view = chartViews[canvas.id];
+          if (!view || view.dragStartX === null) return;
+          var startX = Math.min(view.dragStartX, view.dragCurrentX),
+            endX = Math.max(view.dragStartX, view.dragCurrentX),
+            selectedStart = chartTimeAtX(view, startX),
+            selectedEnd = chartTimeAtX(view, endX);
+          view.dragStartX = null;
+          view.dragCurrentX = null;
+          paintChart(view);
+          if (endX - startX < 8) return;
+          zoomHistory(selectedStart, selectedEnd);
+        });
+        canvas.addEventListener("pointercancel", function () {
+          var view = chartViews[canvas.id];
+          if (!view) return;
+          view.dragStartX = null;
+          view.dragCurrentX = null;
+          paintChart(view);
+        });
+        canvas.addEventListener("pointerleave", function () {
+          var view = chartViews[canvas.id];
+          if (!view || view.dragStartX !== null) return;
+          view.hover = null;
+          paintChart(view);
+        });
+      }
       function draw(id, points, lines) {
         var c = document.getElementById(id),
           ctx = c.getContext("2d"),
@@ -376,25 +468,18 @@
         c.width = w * d;
         c.height = h * d;
         ctx.scale(d, d);
-        ctx.clearRect(0, 0, w, h);
-        if (!points.length) return;
-        function matches(l, p) {
-          return !l.semantic || p.zone1RequestSemantic === l.semantic;
-        }
         var values = [];
         lines.forEach(function (l) {
           points.forEach(function (p) {
-            var n = Number(p[l.key]);
-            if (
-              matches(l, p) &&
-              p[l.key] !== null &&
-              p[l.key] !== undefined &&
-              Number.isFinite(n)
-            )
-              values.push(n);
+            var value = chartLineValue(l, p);
+            if (value !== null) values.push(value);
           });
         });
-        if (!values.length) return;
+        if (!points.length || !values.length) {
+          chartViews[id] = null;
+          ctx.clearRect(0, 0, w, h);
+          return;
+        }
         var min = Math.min.apply(null, values),
           max = Math.max.apply(null, values);
         if (min === max) {
@@ -407,41 +492,54 @@
           bottom = 34,
           plotW = w - left - right,
           plotH = h - top - bottom;
-        function x(i) {
-          return left + plotW * (i / (points.length - 1 || 1));
-        }
-        function y(v) {
-          return top + plotH - (plotH * (v - min)) / (max - min);
-        }
-        var rangeSeconds = historyDisplayRangeSeconds || 0;
-        function formatTime(date) {
-          return date.toLocaleTimeString("de-DE", {
-            hour: "2-digit",
-            minute: "2-digit",
-            hourCycle: "h23",
-          });
-        }
-        function timeText(p) {
-          if (p && p.timeValid && Number(p.t) > 1000000000) {
-            var date = new Date(Number(p.t) * 1000);
-            if (rangeSeconds >= 43200 && rangeSeconds <= 93600)
-              return (
-                date.toLocaleDateString("de-DE", {
-                  day: "2-digit",
-                  month: "2-digit",
-                }) +
-                " " +
-                formatTime(date)
-              );
-            return rangeSeconds > 93600
-              ? date.toLocaleDateString("de-DE", {
-                  day: "2-digit",
-                  month: "2-digit",
-                })
-              : formatTime(date);
-          }
-          return "N/A";
-        }
+        var rangeSeconds = historyDisplayRangeSeconds || 0,
+          view = {
+            canvas: c,
+            ctx: ctx,
+            width: w,
+            height: h,
+            points: points,
+            lines: lines,
+            min: min,
+            max: max,
+            left: left,
+            right: right,
+            top: top,
+            bottom: bottom,
+            plotW: plotW,
+            plotH: plotH,
+            rangeSeconds: rangeSeconds,
+            requestStart: historyRequestStart,
+            requestEnd: historyRequestEnd,
+            dragStartX: null,
+            dragCurrentX: null,
+            hover: null,
+          };
+        view.x = function (index) {
+          return left + plotW * (index / (points.length - 1 || 1));
+        };
+        view.y = function (value) {
+          return top + plotH - (plotH * (value - min)) / (max - min);
+        };
+        chartViews[id] = view;
+        setupChartInteraction(c);
+        paintChart(view);
+      }
+      function paintChart(view) {
+        var ctx = view.ctx,
+          w = view.width,
+          h = view.height,
+          points = view.points,
+          lines = view.lines,
+          min = view.min,
+          max = view.max,
+          left = view.left,
+          right = view.right,
+          top = view.top,
+          plotW = view.plotW,
+          plotH = view.plotH,
+          rangeSeconds = view.rangeSeconds;
+        ctx.clearRect(0, 0, w, h);
         var timeAxisLabel =
           rangeSeconds >= 43200 && rangeSeconds <= 93600
             ? "Datum / Zeit"
@@ -449,11 +547,11 @@
               ? "Datum"
               : "Zeit";
         var units =
-          id === "temps" || id === "dhw"
+          view.canvas.id === "temps" || view.canvas.id === "dhw"
             ? "°C"
-            : id === "zone1Request"
+            : view.canvas.id === "zone1Request"
               ? "°C / K"
-              : id === "hydraulics"
+              : view.canvas.id === "hydraulics"
                 ? "Hz / L/min / kW"
                 : "COP / kW";
         ctx.font = "11px Arial";
@@ -479,7 +577,14 @@
         ctx.textAlign = "center";
         [0, 0.25, 0.5, 0.75, 1].forEach(function (f) {
           var index = Math.round((points.length - 1) * f);
-          ctx.fillText(timeText(points[index]), left + plotW * f, h - 12);
+          ctx.fillText(
+            chartFormatClock(
+              Number((points[index] || {}).t),
+              rangeSeconds >= 43200,
+            ),
+            left + plotW * f,
+            h - 12,
+          );
         });
         ctx.fillText(timeAxisLabel, left + plotW / 2, h - 1);
         ctx.textAlign = "left";
@@ -490,18 +595,13 @@
           var started = false,
             hasSegment = false;
           points.forEach(function (p, i) {
-            var n = Number(p[l.key]);
-            if (
-              !matches(l, p) ||
-              p[l.key] === null ||
-              p[l.key] === undefined ||
-              !Number.isFinite(n)
-            ) {
+            var n = chartLineValue(l, p);
+            if (n === null) {
               started = false;
               return;
             }
-            var px = x(i),
-              py = y(n);
+            var px = view.x(i),
+              py = view.y(n);
             if (!started) {
               ctx.moveTo(px, py);
               started = true;
@@ -512,9 +612,62 @@
           });
           if (hasSegment) ctx.stroke();
         });
+        if (view.dragStartX !== null) {
+          var selectionX = Math.min(view.dragStartX, view.dragCurrentX),
+            selectionWidth = Math.abs(view.dragCurrentX - view.dragStartX);
+          ctx.fillStyle = "rgba(30,136,229,.16)";
+          ctx.fillRect(selectionX, top, selectionWidth, plotH);
+          ctx.strokeStyle = "rgba(30,136,229,.9)";
+          ctx.strokeRect(selectionX, top, selectionWidth, plotH);
+        }
+        if (view.hover) {
+          var hover = view.hover,
+            valueText = String(Math.round(hover.value * 100) / 100),
+            text =
+              hover.line.label +
+              " · " +
+              chartFormatClock(hover.time, rangeSeconds >= 86400) +
+              " · " +
+              valueText +
+              (hover.line.unit ? " " + hover.line.unit : ""),
+            styles = getComputedStyle(document.documentElement),
+            background = styles.getPropertyValue("--bg-elevated").trim() || "#fff",
+            foreground = styles.getPropertyValue("--text-primary").trim() || "#222",
+            padding = 7,
+            boxWidth;
+          ctx.font = "12px Arial";
+          boxWidth = ctx.measureText(text).width + padding * 2;
+          var boxX = Math.max(
+              2,
+              Math.min(w - boxWidth - 2, hover.x + 10),
+            ),
+            boxY = Math.min(
+              h - 27,
+              hover.y > 38 ? hover.y - 32 : hover.y + 12,
+            );
+          ctx.strokeStyle = "rgba(117,129,138,.55)";
+          ctx.beginPath();
+          ctx.moveTo(hover.x, top);
+          ctx.lineTo(hover.x, top + plotH);
+          ctx.stroke();
+          ctx.fillStyle = hover.line.color;
+          ctx.beginPath();
+          ctx.arc(hover.x, hover.y, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = background;
+          ctx.strokeStyle = "rgba(117,129,138,.55)";
+          ctx.fillRect(boxX, boxY, boxWidth, 25);
+          ctx.strokeRect(boxX, boxY, boxWidth, 25);
+          ctx.fillStyle = foreground;
+          ctx.fillText(text, boxX + padding, boxY + 17);
+        }
       }
       var renderedHistory = null,
-        historyDisplayRangeSeconds = 0;
+        historyDisplayRangeSeconds = 0,
+        historyRequestStart = 0,
+        historyRequestEnd = 0,
+        historyZoomBase = null,
+        historyRequestSequence = 0;
       function render(d) {
         renderedHistory = d;
         var p = d.samples || [],
@@ -619,6 +772,7 @@
       }
       function historyPeriodEdited() {
         document.getElementById("range").value = "custom";
+        clearHistoryZoom();
       }
       function historyTimestamp(id) {
         var value =
@@ -630,11 +784,13 @@
           parsed = new Date(value).getTime();
         return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : 0;
       }
-      function refresh() {
-        syncHistoryPresetToNow();
+      function clearHistoryZoom() {
+        historyZoomBase = null;
+        document.getElementById("historyResetZoom").hidden = true;
+      }
+      function loadHistoryRange(start, end) {
         var status = document.getElementById("status"),
-          start = historyTimestamp("historyStart"),
-          end = historyTimestamp("historyEnd");
+          requestSequence = ++historyRequestSequence;
         if (!start || !end || end <= start) {
           status.textContent = "Choose a valid start and end date.";
           return;
@@ -643,6 +799,8 @@
           status.textContent = "The SD display period is limited to 90 days.";
           return;
         }
+        historyRequestStart = start;
+        historyRequestEnd = end;
         historyDisplayRangeSeconds = end - start;
         status.textContent = "Reading SD history…";
         fetch(
@@ -663,12 +821,47 @@
             });
           })
           .then(function (d) {
+            if (requestSequence !== historyRequestSequence) return;
             if (d.error) throw Error(d.error);
             render(d);
           })
           .catch(function (e) {
+            if (requestSequence !== historyRequestSequence) return;
             status.textContent = "SD history unavailable: " + e.message;
           });
+      }
+      function refresh() {
+        syncHistoryPresetToNow();
+        clearHistoryZoom();
+        loadHistoryRange(
+          historyTimestamp("historyStart"),
+          historyTimestamp("historyEnd"),
+        );
+      }
+      function zoomHistory(start, end) {
+        start = Math.floor(start / 60) * 60;
+        end = Math.ceil(end / 60) * 60;
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start)
+          return;
+        if (!historyZoomBase)
+          historyZoomBase = {
+            start: historyRequestStart,
+            end: historyRequestEnd,
+          };
+        document.getElementById("range").value = "custom";
+        setHistoryDateTime("historyStart", new Date(start * 1000));
+        setHistoryDateTime("historyEnd", new Date(end * 1000));
+        document.getElementById("historyResetZoom").hidden = false;
+        loadHistoryRange(start, end);
+      }
+      function resetHistoryZoom() {
+        if (!historyZoomBase) return;
+        var base = historyZoomBase;
+        clearHistoryZoom();
+        document.getElementById("range").value = "custom";
+        setHistoryDateTime("historyStart", new Date(base.start * 1000));
+        setHistoryDateTime("historyEnd", new Date(base.end * 1000));
+        loadHistoryRange(base.start, base.end);
       }
       function setIntervalValue() {
         fetch(
