@@ -122,7 +122,6 @@
               <select id="eventType" onchange="renderEventLog()">
                 <option value="">All</option>
                 <option value="scheduler">Scheduler</option>
-                <option value="smart_dhw">Smart DHW</option>
                 <option value="system">System</option>
                 <option value="communication">Communication</option>
                 <option value="mqtt">MQTT</option>
@@ -247,7 +246,6 @@
             row("DHW target", val(w.target, " °C")),
             row("DHW active", w.active ? "Yes" : "No"),
             row("Force DHW", val(w.forceState)),
-            row("Smart DHW", "See Smart DHW page"),
           ]) +
           card("LIFETIME & CYCLE COUNTERS", [
             row("Panasonic operation hours", val(n.panasonicOperationHours)),

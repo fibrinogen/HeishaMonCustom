@@ -98,7 +98,6 @@ constexpr PageRoute PAGE_ROUTES[] = {
   {"/wpsettings", "wpsettings.html"},
   {"/scheduler", "scheduler.html"},
   {"/externalsensors", "externalsensors.html"},
-  {"/smartdhw", "smartdhw.html"},
   {"/hardware", "hardware.html"},
   {"/diagnostics", "diagnostics.html"},
   {"/history", "history.html"},
@@ -108,7 +107,7 @@ constexpr const char *REQUIRED_FILES[] = {
   "styles.css", "common.js", "websocket.js",
   "dashboard.html", "dashboard.js", "wpsettings.html", "wpsettings.js",
   "scheduler.html", "scheduler.js", "externalsensors.html", "externalsensors.js",
-  "smartdhw.html", "smartdhw.js", "hardware.html", "hardware.js",
+  "hardware.html", "hardware.js",
   "diagnostics.html", "history.html"
 };
 

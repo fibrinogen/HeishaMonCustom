@@ -385,8 +385,9 @@
               <div class="scheduler-form-note">
                 Force DHW uses the same protected workflow as Dashboard.
                 Conditions are evaluated from the latest Panasonic values at the
-                scheduled minute. If time or a required value is unavailable,
-                nothing is sent.
+                scheduled minute. For a DHW reserve, add DHW temperature,
+                three-way valve = 0, and Force DHW = 0. If time or a required
+                value is unavailable, nothing is sent.
               </div>
             </div>
           </div>

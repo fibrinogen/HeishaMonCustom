@@ -1,7 +1,7 @@
 # SD-hosted Custom Web UI
 
-The custom Dashboard, Settings, Scheduler, External Sensors, Smart DHW,
-Hardware, Diagnostics, and History pages are served from the microSD card.
+The custom Dashboard, Settings, Scheduler, External Sensors, Hardware,
+Diagnostics, and History pages are served from the microSD card.
 The original HeishaMon Home, firmware update, network settings, rules, and
 recovery pages remain embedded in the firmware.
 

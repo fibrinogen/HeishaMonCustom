@@ -24,6 +24,8 @@ var schedulerConditionLabels = {
   room_temperature: "Zone 1 room temperature",
   main_inlet_temperature: "Main inlet temperature",
   main_outlet_temperature: "Main outlet temperature",
+  three_way_valve: "Three-way valve (0=Room, 1=DHW)",
+  force_dhw: "Force DHW (0=Off, 1=On)",
 };
 var schedulerEscape = hmEscape;
 function schedulerDayText(mask) {
@@ -169,7 +171,7 @@ function schedulerConditionRow(condition) {
   function fill() {
     if (source.value === "local") {
       field.innerHTML =
-        '<option value="dhw_temperature">DHW temperature</option><option value="outside_temperature">Outside temperature</option><option value="room_temperature">Zone 1 room temperature</option><option value="main_inlet_temperature">Main inlet temperature</option><option value="main_outlet_temperature">Main outlet temperature</option>';
+        '<option value="dhw_temperature">DHW temperature</option><option value="outside_temperature">Outside temperature</option><option value="room_temperature">Zone 1 room temperature</option><option value="main_inlet_temperature">Main inlet temperature</option><option value="main_outlet_temperature">Main outlet temperature</option><option value="three_way_valve">Three-way valve (0=Room, 1=DHW)</option><option value="force_dhw">Force DHW (0=Off, 1=On)</option>';
       field.value = condition.field || "dhw_temperature";
     } else {
       field.innerHTML = schedulerExternalSensors()

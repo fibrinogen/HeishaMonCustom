@@ -287,7 +287,7 @@ static const char *eventTypeName(HistoryEventType type) {
     case HISTORY_EVENT_ERROR_APPEARED: return "error_appeared";
     case HISTORY_EVENT_ERROR_CLEARED: return "error_cleared";
     case HISTORY_EVENT_SCHEDULER: return "scheduler";
-    case HISTORY_EVENT_SMART_DHW: return "smart_dhw";
+    case HISTORY_EVENT_LEGACY_SMART_DHW: return "smart_dhw";
     case HISTORY_EVENT_COMMUNICATION: return "communication";
     case HISTORY_EVENT_MQTT: return "mqtt";
     case HISTORY_EVENT_OPERATION_MODE_CHANGED: return "operation_mode_changed";

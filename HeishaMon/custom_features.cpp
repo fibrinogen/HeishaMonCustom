@@ -7,7 +7,6 @@
 #include <time.h>
 
 #include "scheduler.h"
-#include "smart_dhw.h"
 #include "external_sensors.h"
 #include "diagnostics_history.h"
 #include "webfunctions.h"
@@ -69,7 +68,6 @@ static DashboardWorkflowState dashboardWorkflow = {
 static char dashboardWorkflowMessage[128] = "Ready";
 
 static SchedulerManager schedulerManager;
-static SmartDhwController smartDhwController;
 static ExternalSensorRegistry externalSensors;
 static time_t lastNtpSyncEpoch = 0;
 
@@ -90,7 +88,6 @@ bool customFeaturesReadExternalElectricalPower(uint8_t sourceId, float *value,
 static bool schedulerReadTopic(uint8_t topic, float *value);
 static bool schedulerReadValue(SchedulerConditionSource source, uint8_t sourceId,
   float *value, uint32_t *ageSeconds, char *detail, size_t detailSize);
-static bool smartDhwReadTopic(uint8_t topic, float *value);
 static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType action,
   int16_t value, char *detail, size_t detailSize);
 static bool dispatchZone1HeatSemanticCommand(const char *commandName,
@@ -103,14 +100,6 @@ static void persistSchedulerEvent(const SchedulerEvent *event) {
   snprintf(message, sizeof(message), "#%u %s -> %s: %s", event->entryId,
     event->name, event->result, event->detail);
   diagnosticsHistoryRecordEvent(HISTORY_EVENT_SCHEDULER, message, event->entryId);
-}
-
-static void persistSmartDhwEvent(const SmartDhwEvent *event) {
-  if (event == nullptr) return;
-  char message[96];
-  snprintf(message, sizeof(message), "%s -> %s: %s", event->reserve,
-    event->result, event->detail);
-  diagnosticsHistoryRecordEvent(HISTORY_EVENT_SMART_DHW, message);
 }
 
 static bool dashboardWorkflowTimeReached(unsigned long target) {
@@ -346,10 +335,6 @@ static bool schedulerReadTopic(uint8_t topic, float *value) {
   return schedulerParseFiniteNumber(topicValue.c_str(), *value);
 }
 
-static bool smartDhwReadTopic(uint8_t topic, float *value) {
-  return schedulerReadTopic(topic, value);
-}
-
 static bool schedulerReadValue(SchedulerConditionSource source, uint8_t sourceId,
     float *value, uint32_t *ageSeconds, char *detail, size_t detailSize) {
   if (source == SCHEDULER_SOURCE_MQTT) {
@@ -512,24 +497,6 @@ static int handleSchedulerStatus(struct webserver_t *client) {
   return 0;
 }
 
-static int handleSmartDhwStatus(struct webserver_t *client) {
-  if (client->content != 0) return 0;
-  JsonDocument document;
-  smartDhwController.toJson(document);
-  size_t length = measureJson(document);
-  char *response = (char *)malloc(length + 1);
-  if (response == nullptr) {
-    webserver_send(client, 503, (char *)"text/plain", 21);
-    webserver_send_content_P(client, PSTR("Smart DHW unavailable"), 21);
-    return 0;
-  }
-  serializeJson(document, response, length + 1);
-  webserver_send(client, 200, (char *)"application/json", length);
-  webserver_send_content(client, response, length);
-  free(response);
-  return 0;
-}
-
 static int handleExternalSensorsStatus(struct webserver_t *client) {
   if (client->content != 0) return 0;
   JsonDocument document;
@@ -604,45 +571,6 @@ static void handleSchedulerArgument(struct webserver_t *client, struct arguments
   appendCustomResponse(client, result);
   if (accepted) diagnosticsHistoryRecordEvent(HISTORY_EVENT_SCHEDULER,
     "Scheduler command accepted");
-  log_message(result);
-}
-
-static void handleSmartDhwArgument(struct webserver_t *client, struct arguments_t *args) {
-  char name[16] = {0};
-  snprintf(name, sizeof(name), "%s", (char *)args->name);
-  char value[args->len + 1];
-  snprintf(value, sizeof(value), "%.*s", args->len, args->value);
-  char response[192] = {0};
-  bool accepted = false;
-
-  if (strcmp(name, "save") == 0) {
-    JsonDocument document;
-    DeserializationError error = deserializeJson(document, value);
-    if (error || !document.is<JsonObject>()) {
-      snprintf(response, sizeof(response), "Invalid Smart DHW JSON");
-    } else {
-      accepted = smartDhwController.update(document.as<JsonObjectConst>(),
-        response, sizeof(response));
-    }
-  } else if (strcmp(name, "test") == 0) {
-    if (strcmp(value, "evening") == 0) {
-      accepted = smartDhwController.testDecision(SMART_DHW_SLOT_EVENING,
-        response, sizeof(response));
-    } else if (strcmp(value, "morning") == 0) {
-      accepted = smartDhwController.testDecision(SMART_DHW_SLOT_MORNING,
-        response, sizeof(response));
-    } else {
-      snprintf(response, sizeof(response), "Test must be evening or morning");
-    }
-  } else {
-    snprintf(response, sizeof(response), "Unknown Smart DHW command");
-  }
-
-  char result[224];
-  snprintf(result, sizeof(result), "%s: %s", accepted ? "OK" : "ERROR", response);
-  appendCustomResponse(client, result);
-  if (accepted) diagnosticsHistoryRecordEvent(HISTORY_EVENT_SMART_DHW,
-    "Smart DHW command accepted");
   log_message(result);
 }
 
@@ -818,15 +746,13 @@ bool customFeaturesHandleUri(struct webserver_t *client, const char *uri) {
   else if (strcmp(uri, "/wpsettingsconfig") == 0) client->route = 16;
   else if (strcmp(uri, "/schedulerapi") == 0) client->route = 13;
   else if (strcmp(uri, "/schedulercommand") == 0) client->route = 14;
-  else if (strcmp(uri, "/smartdhwapi") == 0) client->route = 18;
-  else if (strcmp(uri, "/smartdhwcommand") == 0) client->route = 19;
   else if (strcmp(uri, "/externalsensorsapi") == 0) client->route = 25;
   else if (strcmp(uri, "/externalsensorscommand") == 0) client->route = 26;
   else if (strcmp(uri, "/zone1heatsemantic") == 0) client->route = 36;
   else if (strcmp(uri, "/heatingcurveshift") == 0) client->route = 37;
   else return false;
 
-  if (client->route == 14 || client->route == 19 || client->route == 26) {
+  if (client->route == 14 || client->route == 26) {
     client->userdata = malloc(1);
     if (client->userdata == nullptr) {
       log_message((char *)"Out of memory while creating custom request");
@@ -843,10 +769,6 @@ bool customFeaturesHandleArgs(struct webserver_t *client, struct arguments_t *ar
   if (diagnosticsHistoryHandleArgs(client, args)) return true;
   if (client->route == 14) {
     handleSchedulerArgument(client, args);
-    return true;
-  }
-  if (client->route == 19) {
-    handleSmartDhwArgument(client, args);
     return true;
   }
   if (client->route == 26) {
@@ -921,7 +843,6 @@ bool customFeaturesHandleWrite(struct webserver_t *client) {
   switch (client->route) {
     case 13: handleSchedulerStatus(client); return true;
     case 14:
-    case 19:
       if (client->content == 0) {
         char *response = (char *)client->userdata;
         size_t length = response == nullptr ? 0 : strlen(response);
@@ -933,7 +854,6 @@ bool customFeaturesHandleWrite(struct webserver_t *client) {
       return true;
     case 15: handleDashboardWorkflowStatus(client); return true;
     case 16: handleWpSettingsConfigStatus(client); return true;
-    case 18: handleSmartDhwStatus(client); return true;
     case 25: handleExternalSensorsStatus(client); return true;
     case 26:
       if (client->content == 0) {
@@ -968,9 +888,6 @@ void customFeaturesBegin() {
   log_message((char *)"Loading local scheduler...");
   schedulerManager.begin(schedulerReadValue, schedulerDispatchAction, log_message);
   schedulerManager.setPersistentEventLogger(persistSchedulerEvent);
-  log_message((char *)"Loading Smart DHW...");
-  smartDhwController.begin(&schedulerManager, smartDhwReadTopic, log_message);
-  smartDhwController.setPersistentEventLogger(persistSmartDhwEvent);
 }
 
 bool customFeaturesHandleMqttMessage(const char *topic, const char *mqttBase,
@@ -1007,7 +924,6 @@ void customFeaturesLoop(PubSubClient &mqttClient, const char *mqttBase) {
   processDashboardWorkflow();
   heatingCurveShiftLoop();
   schedulerManager.loop();
-  smartDhwController.loop();
   diagnosticsHistoryLoop();
   sdWebUiLoop();
 }

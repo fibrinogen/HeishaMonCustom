@@ -134,7 +134,6 @@ function markActiveNav() {
       "/wpsettings",
       "/scheduler",
       "/externalsensors",
-      "/smartdhw",
       "/diagnostics",
       "/history",
     ];
@@ -206,7 +205,6 @@ function groupCustomNav() {
   submenu.appendChild(
     createNavLink("/externalsensors", "External Sensors", "◉"),
   );
-  submenu.appendChild(createNavLink("/smartdhw", "Smart DHW", "♨"));
   submenu.appendChild(createNavLink("/diagnostics", "Diagnostics", "◌"));
   submenu.appendChild(createNavLink("/history", "History", "▥"));
   group.appendChild(submenu);

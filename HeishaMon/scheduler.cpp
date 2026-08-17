@@ -690,7 +690,8 @@ const char *SchedulerManager::actionName(SchedulerActionType action) {
 
 const char *SchedulerManager::conditionName(SchedulerConditionField field) {
   static const char *names[] = {"none", "dhw_temperature", "outside_temperature",
-    "room_temperature", "main_inlet_temperature", "main_outlet_temperature"};
+    "room_temperature", "main_inlet_temperature", "main_outlet_temperature",
+    "three_way_valve", "force_dhw"};
   return field < SCHEDULER_CONDITION_COUNT ? names[field] : "unknown";
 }
 
@@ -743,6 +744,8 @@ uint8_t SchedulerManager::conditionTopic(SchedulerConditionField field) {
     case SCHEDULER_CONDITION_ROOM_TEMPERATURE: return 56;
     case SCHEDULER_CONDITION_MAIN_INLET_TEMPERATURE: return 5;
     case SCHEDULER_CONDITION_MAIN_OUTLET_TEMPERATURE: return 6;
+    case SCHEDULER_CONDITION_THREE_WAY_VALVE: return 20;
+    case SCHEDULER_CONDITION_FORCE_DHW: return 2;
     default: return 255;
   }
 }
