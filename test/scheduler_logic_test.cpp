@@ -81,6 +81,14 @@ int main() {
   assert(!schedulerDispatchReady(1, 1000, 2999, 2000));
   assert(schedulerDispatchReady(1, 1000, 3000, 2000));
 
+  // Ordered action sequences continue only after a successful dispatch or
+  // when the requested value was already active. Busy and failed actions stop
+  // the remaining sequence.
+  assert(schedulerSequenceContinues(SCHEDULER_DISPATCH_EXECUTED));
+  assert(schedulerSequenceContinues(SCHEDULER_DISPATCH_NO_CHANGE));
+  assert(!schedulerSequenceContinues(SCHEDULER_DISPATCH_BUSY));
+  assert(!schedulerSequenceContinues(SCHEDULER_DISPATCH_FAILED));
+
   // Mixed logical joins use conventional precedence: AND groups are evaluated
   // before those groups are joined with OR.
   SchedulerTruthValue mixedValues[] = {

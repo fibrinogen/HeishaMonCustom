@@ -4,11 +4,12 @@
 #include <ArduinoJson.h>
 #include "scheduler_logic.h"
 
-#define SCHEDULER_CONFIG_VERSION 4
+#define SCHEDULER_CONFIG_VERSION 5
 #define SCHEDULER_MAX_ENTRIES 24
 #define SCHEDULER_MAX_EVENTS 10
 #define SCHEDULER_NAME_LENGTH 33
 #define SCHEDULER_DETAIL_LENGTH 128
+#define SCHEDULER_MAX_ACTIONS 4
 #define SCHEDULER_MAX_CONDITIONS 4
 
 enum SchedulerActionType : uint8_t {
@@ -44,6 +45,11 @@ enum SchedulerConditionSource : uint8_t {
   SCHEDULER_SOURCE_COUNT
 };
 
+struct SchedulerAction {
+  SchedulerActionType type;
+  int16_t value;
+};
+
 struct SchedulerCondition {
   SchedulerConditionJoin join;
   SchedulerConditionSource source;
@@ -53,13 +59,6 @@ struct SchedulerCondition {
   float value;
 };
 
-enum SchedulerDispatchResult : uint8_t {
-  SCHEDULER_DISPATCH_EXECUTED = 0,
-  SCHEDULER_DISPATCH_NO_CHANGE,
-  SCHEDULER_DISPATCH_BUSY,
-  SCHEDULER_DISPATCH_FAILED
-};
-
 struct SchedulerEntry {
   uint8_t id;
   bool enabled;
@@ -67,8 +66,8 @@ struct SchedulerEntry {
   uint8_t dayMask;
   uint8_t hour;
   uint8_t minute;
-  SchedulerActionType action;
-  int16_t actionValue;
+  uint8_t actionCount;
+  SchedulerAction actions[SCHEDULER_MAX_ACTIONS];
   uint8_t conditionCount;
   SchedulerCondition conditions[SCHEDULER_MAX_CONDITIONS];
   uint32_t lastExecutionKey;
@@ -127,11 +126,12 @@ class SchedulerManager {
   static const char *operatorName(SchedulerCompareOperator op);
 
  private:
-  struct PendingAction {
+  struct PendingActionGroup {
     uint8_t entryId;
     char name[SCHEDULER_NAME_LENGTH];
-    SchedulerActionType action;
-    int16_t value;
+    uint8_t actionCount;
+    uint8_t nextActionIndex;
+    SchedulerAction actions[SCHEDULER_MAX_ACTIONS];
     bool automation;
     char conditionDetail[80];
     SchedulerDispatchGuard guard;
@@ -141,7 +141,7 @@ class SchedulerManager {
 
   SchedulerEntry entries_[SCHEDULER_MAX_ENTRIES];
   SchedulerEvent events_[SCHEDULER_MAX_EVENTS];
-  PendingAction pending_[SCHEDULER_MAX_ENTRIES];
+  PendingActionGroup pending_[SCHEDULER_MAX_ENTRIES];
   uint8_t count_;
   uint8_t eventStart_;
   uint8_t eventCount_;
@@ -164,6 +164,7 @@ class SchedulerManager {
     SchedulerDispatchGuard guard, SchedulerDispatchObserver observer, void *observerContext,
     char *message, size_t messageSize);
   void dispatchNext();
+  uint8_t pendingActionCount() const;
   void cancelPending(const char *reason);
   void addEvent(const SchedulerEntry &entry, const char *result, const char *detail);
   void log(const char *message) const;
@@ -172,6 +173,8 @@ class SchedulerManager {
   bool parseEntry(JsonObjectConst object, SchedulerEntry &entry,
     char *message, size_t messageSize) const;
   bool validateEntry(const SchedulerEntry &entry, char *message, size_t messageSize) const;
+  static bool validateAction(const SchedulerAction &action,
+    char *message, size_t messageSize);
   static bool parseAction(const char *name, SchedulerActionType &action);
   static bool parseCondition(const char *name, SchedulerConditionField &field);
   static bool parseSource(const char *name, SchedulerConditionSource &source);
@@ -179,7 +182,9 @@ class SchedulerManager {
   static bool parseJoin(const char *name, SchedulerConditionJoin &join);
   static uint8_t conditionTopic(SchedulerConditionField field);
   static const char *conditionDisplayName(SchedulerConditionField field);
-  static void describeAction(const SchedulerEntry &entry, char *description,
+  static void describeAction(const SchedulerAction &action, char *description,
+    size_t descriptionSize);
+  static void describeActions(const SchedulerEntry &entry, char *description,
     size_t descriptionSize);
   static const char *joinName(SchedulerConditionJoin join);
   static const char *sourceName(SchedulerConditionSource source);

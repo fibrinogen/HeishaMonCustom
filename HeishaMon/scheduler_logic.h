@@ -33,6 +33,13 @@ enum SchedulerTruthValue : uint8_t {
   SCHEDULER_TRUTH_UNKNOWN
 };
 
+enum SchedulerDispatchResult : uint8_t {
+  SCHEDULER_DISPATCH_EXECUTED = 0,
+  SCHEDULER_DISPATCH_NO_CHANGE,
+  SCHEDULER_DISPATCH_BUSY,
+  SCHEDULER_DISPATCH_FAILED
+};
+
 inline bool schedulerBasicEntryValid(uint8_t dayMask, uint8_t hour, uint8_t minute) {
   return dayMask > 0 && dayMask <= 0x7F && hour <= 23 && minute <= 59;
 }
@@ -48,6 +55,11 @@ inline bool schedulerDispatchReady(uint8_t pendingCount, unsigned long lastDispa
     unsigned long now, unsigned long interval) {
   return pendingCount > 0 &&
     (lastDispatchAt == 0 || (unsigned long)(now - lastDispatchAt) >= interval);
+}
+
+inline bool schedulerSequenceContinues(SchedulerDispatchResult result) {
+  return result == SCHEDULER_DISPATCH_EXECUTED ||
+    result == SCHEDULER_DISPATCH_NO_CHANGE;
 }
 
 inline uint32_t schedulerMinuteKey(const SchedulerClock &clock) {

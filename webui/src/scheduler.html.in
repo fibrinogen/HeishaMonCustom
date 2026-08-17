@@ -326,49 +326,21 @@
                 </button>
               </div>
             </div>
-            <div class="scheduler-field">
-              <label for="schedulerAction">Action</label
-              ><select
-                id="schedulerAction"
-                class="scheduler-input"
-                onchange="schedulerActionChanged()"
+            <div class="scheduler-field full">
+              <label>Actions (executed from top to bottom)</label>
+              <div id="schedulerActionsEditor"></div>
+              <button
+                type="button"
+                class="btn btn-ghost scheduler-add-action"
+                onclick="schedulerAddAction()"
               >
-                <option value="force_dhw">Force DHW workflow</option>
-                <option value="heatpump_on">Heat pump on</option>
-                <option value="heatpump_off">Heat pump off</option>
-                <option value="set_operation_mode">Set operating mode</option>
-                <option value="set_dhw_target">Set DHW target</option>
-                <option
-                  id="schedulerActionHeatShift"
-                  value="set_heat_curve_shift"
-                >
-                  Set heating curve shift
-                </option>
-                <option
-                  id="schedulerActionWaterTarget"
-                  value="set_z1_heating_water_target"
-                >
-                  Set heating water target
-                </option>
-                <option
-                  id="schedulerActionRoomTarget"
-                  value="set_z1_room_target"
-                >
-                  Set room target
-                </option>
-                <option
-                  id="schedulerActionLegacy"
-                  value="set_z1_request"
-                  disabled
-                >
-                  Legacy Zone 1 request (review required)
-                </option>
-                <option value="set_quiet_mode">Set quiet mode</option>
-              </select>
-            </div>
-            <div id="schedulerActionValueField" class="scheduler-field">
-              <label for="schedulerActionValue">Action value</label>
-              <div id="schedulerActionValueContainer"></div>
+                + Add action
+              </button>
+              <div class="scheduler-action-note">
+                Up to four actions can be combined. If an action is busy or
+                fails, all following actions are cancelled. Force DHW starts a
+                protected workflow and must be the final action.
+              </div>
             </div>
             <div class="scheduler-field full">
               <label>Conditions (AND is evaluated before OR)</label>

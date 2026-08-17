@@ -91,8 +91,8 @@ void SchedulerManager::checkSchedules(const SchedulerClock &clock) {
     snprintf(matchMessage, sizeof(matchMessage), "[SCHED] #%u %s matched at %02u:%02u",
       entry.id, entry.name, clock.hour, clock.minute);
     log(matchMessage);
-    char action[64] = {0};
-    describeAction(entry, action, sizeof(action));
+    char action[96] = {0};
+    describeActions(entry, action, sizeof(action));
     char decision[SCHEDULER_DETAIL_LENGTH] = {0};
     if (!enabled_) {
       snprintf(decision, sizeof(decision),
@@ -220,8 +220,10 @@ bool SchedulerManager::enqueue(const SchedulerEntry &entry, const char *conditio
   }
   pending_[index].entryId = entry.id;
   strlcpy(pending_[index].name, entry.name, sizeof(pending_[index].name));
-  pending_[index].action = entry.action;
-  pending_[index].value = entry.actionValue;
+  pending_[index].actionCount = entry.actionCount;
+  pending_[index].nextActionIndex = 0;
+  memcpy(pending_[index].actions, entry.actions,
+    sizeof(SchedulerAction) * entry.actionCount);
   pending_[index].automation = entry.id == 0;
   strlcpy(pending_[index].conditionDetail, conditionDetail,
     sizeof(pending_[index].conditionDetail));
@@ -229,7 +231,8 @@ bool SchedulerManager::enqueue(const SchedulerEntry &entry, const char *conditio
   pending_[index].observer = observer;
   pending_[index].observerContext = observerContext;
   pendingCount_++;
-  snprintf(message, messageSize, "Action queued");
+  snprintf(message, messageSize, "%u action%s queued", entry.actionCount,
+    entry.actionCount == 1 ? "" : "s");
   return true;
 }
 
@@ -239,15 +242,17 @@ void SchedulerManager::dispatchNext() {
   if (!schedulerDispatchReady(pendingCount_, lastDispatchAt_, now,
       SCHEDULER_DISPATCH_INTERVAL_MS)) return;
 
-  PendingAction pending = pending_[pendingStart_];
-  pendingStart_ = (uint8_t)((pendingStart_ + 1) % SCHEDULER_MAX_ENTRIES);
-  pendingCount_--;
+  PendingActionGroup &pending = pending_[pendingStart_];
+  uint8_t actionIndex = pending.nextActionIndex;
+  SchedulerAction action = pending.actions[actionIndex];
+  SchedulerDispatchObserver observer = pending.observer;
+  void *observerContext = pending.observerContext;
   lastDispatchAt_ = now;
 
   SchedulerEntry eventEntry = {};
   eventEntry.id = pending.entryId;
-  eventEntry.action = pending.action;
-  eventEntry.actionValue = pending.value;
+  eventEntry.actionCount = 1;
+  eventEntry.actions[0] = action;
   strlcpy(eventEntry.name, pending.name, sizeof(eventEntry.name));
 
   char actionDetail[SCHEDULER_DETAIL_LENGTH] = {0};
@@ -259,30 +264,49 @@ void SchedulerManager::dispatchNext() {
     snprintf(actionDetail, sizeof(actionDetail), "Automation request cancelled before dispatch");
     result = SCHEDULER_DISPATCH_FAILED;
   } else {
-    result = dispatcher_(pending.action, pending.value, actionDetail, sizeof(actionDetail));
+    result = dispatcher_(action.type, action.value, actionDetail, sizeof(actionDetail));
   }
+  char actionDescription[64] = {0};
+  describeAction(action, actionDescription, sizeof(actionDescription));
   char detail[SCHEDULER_DETAIL_LENGTH] = {0};
-  snprintf(detail, sizeof(detail), "%s; %s", pending.conditionDetail, actionDetail);
+  snprintf(detail, sizeof(detail), "%s; action %u/%u %s: %s",
+    pending.conditionDetail, actionIndex + 1, pending.actionCount,
+    actionDescription, actionDetail);
   switch (result) {
     case SCHEDULER_DISPATCH_EXECUTED: addEvent(eventEntry, "executed", detail); break;
     case SCHEDULER_DISPATCH_NO_CHANGE: addEvent(eventEntry, "no change", detail); break;
     case SCHEDULER_DISPATCH_BUSY: addEvent(eventEntry, "busy", detail); break;
     default: addEvent(eventEntry, "failed", detail); break;
   }
-  if (pending.observer != nullptr) {
-    pending.observer(result, actionDetail, pending.observerContext);
+  bool continueGroup = schedulerSequenceContinues(result);
+  if (continueGroup && actionIndex + 1 < pending.actionCount) {
+    pending.nextActionIndex++;
+  } else {
+    if (!continueGroup && actionIndex + 1 < pending.actionCount) {
+      char cancellation[SCHEDULER_DETAIL_LENGTH] = {0};
+      snprintf(cancellation, sizeof(cancellation),
+        "Action %u/%u stopped sequence; %u remaining action%s cancelled",
+        actionIndex + 1, pending.actionCount, pending.actionCount - actionIndex - 1,
+        pending.actionCount - actionIndex - 1 == 1 ? "" : "s");
+      addEvent(eventEntry, "cancelled", cancellation);
+    }
+    pendingStart_ = (uint8_t)((pendingStart_ + 1) % SCHEDULER_MAX_ENTRIES);
+    pendingCount_--;
+  }
+  if (observer != nullptr) {
+    observer(result, actionDetail, observerContext);
   }
 }
 
 void SchedulerManager::cancelPending(const char *reason) {
   while (pendingCount_ > 0) {
-    PendingAction pending = pending_[pendingStart_];
+    PendingActionGroup pending = pending_[pendingStart_];
     pendingStart_ = (uint8_t)((pendingStart_ + 1) % SCHEDULER_MAX_ENTRIES);
     pendingCount_--;
     SchedulerEntry eventEntry = {};
     eventEntry.id = pending.entryId;
-    eventEntry.action = pending.action;
-    eventEntry.actionValue = pending.value;
+    eventEntry.actionCount = 1;
+    eventEntry.actions[0] = pending.actions[pending.nextActionIndex];
     strlcpy(eventEntry.name, pending.name, sizeof(eventEntry.name));
     addEvent(eventEntry, "failed", reason);
     if (pending.observer != nullptr) {
@@ -342,6 +366,47 @@ uint8_t SchedulerManager::enabledCount() const {
   return result;
 }
 
+uint8_t SchedulerManager::pendingActionCount() const {
+  uint8_t result = 0;
+  for (uint8_t offset = 0; offset < pendingCount_; offset++) {
+    uint8_t index = (uint8_t)((pendingStart_ + offset) % SCHEDULER_MAX_ENTRIES);
+    const PendingActionGroup &pending = pending_[index];
+    result = (uint8_t)(result + pending.actionCount - pending.nextActionIndex);
+  }
+  return result;
+}
+
+bool SchedulerManager::validateAction(const SchedulerAction &action,
+    char *message, size_t messageSize) {
+  if (action.type >= SCHEDULER_ACTION_COUNT) {
+    snprintf(message, messageSize, "Unknown action"); return false;
+  }
+  switch (action.type) {
+    case SCHEDULER_ACTION_SET_OPERATION_MODE:
+      if (action.value < 0 || action.value > 6) { snprintf(message, messageSize, "Operating mode must be 0..6"); return false; }
+      break;
+    case SCHEDULER_ACTION_SET_DHW_TARGET:
+      if (action.value < 40 || action.value > 75) { snprintf(message, messageSize, "DHW target must be 40..75 C"); return false; }
+      break;
+    case SCHEDULER_ACTION_SET_HEAT_CURVE_SHIFT:
+      if (action.value < -5 || action.value > 5) { snprintf(message, messageSize, "Heating curve shift must be -5..5 K"); return false; }
+      break;
+    case SCHEDULER_ACTION_SET_Z1_HEATING_WATER_TARGET:
+      if (action.value < 20 || action.value > 100) { snprintf(message, messageSize, "Heating water target must be 20..100 C"); return false; }
+      break;
+    case SCHEDULER_ACTION_SET_Z1_ROOM_TARGET:
+      if (action.value < 10 || action.value > 35) { snprintf(message, messageSize, "Room target must be 10..35 C"); return false; }
+      break;
+    case SCHEDULER_ACTION_SET_Z1_REQUEST:
+      break;
+    case SCHEDULER_ACTION_SET_QUIET_MODE:
+      if (action.value < 0 || action.value > 3) { snprintf(message, messageSize, "Quiet mode must be 0..3"); return false; }
+      break;
+    default: break;
+  }
+  return true;
+}
+
 bool SchedulerManager::validateEntry(const SchedulerEntry &entry,
     char *message, size_t messageSize) const {
   size_t nameLength = strnlen(entry.name, sizeof(entry.name));
@@ -354,32 +419,21 @@ bool SchedulerManager::validateEntry(const SchedulerEntry &entry,
   if (!schedulerBasicEntryValid(entry.dayMask, entry.hour, entry.minute)) {
     snprintf(message, messageSize, "Time is outside 00:00..23:59"); return false;
   }
-  if (entry.action >= SCHEDULER_ACTION_COUNT) {
-    snprintf(message, messageSize, "Unknown action"); return false;
+  if (entry.actionCount == 0 || entry.actionCount > SCHEDULER_MAX_ACTIONS) {
+    snprintf(message, messageSize, "One to %u actions are required", SCHEDULER_MAX_ACTIONS);
+    return false;
   }
-  switch (entry.action) {
-    case SCHEDULER_ACTION_SET_OPERATION_MODE:
-      if (entry.actionValue < 0 || entry.actionValue > 6) { snprintf(message, messageSize, "Operating mode must be 0..6"); return false; }
-      break;
-    case SCHEDULER_ACTION_SET_DHW_TARGET:
-      if (entry.actionValue < 40 || entry.actionValue > 75) { snprintf(message, messageSize, "DHW target must be 40..75 C"); return false; }
-      break;
-    case SCHEDULER_ACTION_SET_HEAT_CURVE_SHIFT:
-      if (entry.actionValue < -5 || entry.actionValue > 5) { snprintf(message, messageSize, "Heating curve shift must be -5..5 K"); return false; }
-      break;
-    case SCHEDULER_ACTION_SET_Z1_HEATING_WATER_TARGET:
-      if (entry.actionValue < 20 || entry.actionValue > 100) { snprintf(message, messageSize, "Heating water target must be 20..100 C"); return false; }
-      break;
-    case SCHEDULER_ACTION_SET_Z1_ROOM_TARGET:
-      if (entry.actionValue < 10 || entry.actionValue > 35) { snprintf(message, messageSize, "Room target must be 10..35 C"); return false; }
-      break;
-    case SCHEDULER_ACTION_SET_Z1_REQUEST:
-      if (entry.actionValue < INT16_MIN || entry.actionValue > INT16_MAX) { snprintf(message, messageSize, "Legacy Zone 1 request is invalid"); return false; }
-      break;
-    case SCHEDULER_ACTION_SET_QUIET_MODE:
-      if (entry.actionValue < 0 || entry.actionValue > 3) { snprintf(message, messageSize, "Quiet mode must be 0..3"); return false; }
-      break;
-    default: break;
+  for (uint8_t i = 0; i < entry.actionCount; i++) {
+    char actionMessage[80] = {0};
+    if (!validateAction(entry.actions[i], actionMessage, sizeof(actionMessage))) {
+      snprintf(message, messageSize, "Action %u: %s", i + 1, actionMessage);
+      return false;
+    }
+    if (entry.actions[i].type == SCHEDULER_ACTION_FORCE_DHW &&
+        i + 1 < entry.actionCount) {
+      snprintf(message, messageSize, "Force DHW must be the final action");
+      return false;
+    }
   }
   if (entry.conditionCount > SCHEDULER_MAX_CONDITIONS) {
     snprintf(message, messageSize, "At most %u conditions are supported", SCHEDULER_MAX_CONDITIONS);
@@ -431,11 +485,33 @@ bool SchedulerManager::parseEntry(JsonObjectConst object, SchedulerEntry &entry,
   entry.dayMask = (uint8_t)days;
   entry.hour = (uint8_t)hour;
   entry.minute = (uint8_t)minute;
-  entry.actionValue = (int16_t)actionValue;
   entry.lastExecutionKey = UINT32_MAX;
 
-  if (!parseAction(object["action"] | "", entry.action)) {
-    snprintf(message, messageSize, "Unknown action"); return false;
+  JsonArrayConst actions = object["actions"].as<JsonArrayConst>();
+  if (!actions.isNull()) {
+    for (JsonObjectConst actionObject : actions) {
+      if (entry.actionCount >= SCHEDULER_MAX_ACTIONS) {
+        snprintf(message, messageSize, "At most %u actions are supported", SCHEDULER_MAX_ACTIONS);
+        return false;
+      }
+      SchedulerAction &action = entry.actions[entry.actionCount];
+      if (!parseAction(actionObject["action"] | "", action.type)) {
+        snprintf(message, messageSize, "Unknown action"); return false;
+      }
+      long value = actionObject["value"] | 0L;
+      if (value < INT16_MIN || value > INT16_MAX) {
+        snprintf(message, messageSize, "Action value outside supported range");
+        return false;
+      }
+      action.value = (int16_t)value;
+      entry.actionCount++;
+    }
+  } else {
+    entry.actionCount = 1;
+    if (!parseAction(object["action"] | "", entry.actions[0].type)) {
+      snprintf(message, messageSize, "Unknown action"); return false;
+    }
+    entry.actions[0].value = (int16_t)actionValue;
   }
   JsonArrayConst conditions = object["conditions"].as<JsonArrayConst>();
   if (!conditions.isNull()) {
@@ -546,8 +622,8 @@ bool SchedulerManager::runNow(uint8_t id, char *message, size_t messageSize) {
   }
   int8_t index = findIndex(id);
   if (index < 0) { snprintf(message, messageSize, "Schedule not found"); return false; }
-  char action[64] = {0};
-  describeAction(entries_[index], action, sizeof(action));
+  char action[96] = {0};
+  describeActions(entries_[index], action, sizeof(action));
   char detail[SCHEDULER_DETAIL_LENGTH];
   if (!evaluateCondition(entries_[index], detail, sizeof(detail))) {
     char decision[SCHEDULER_DETAIL_LENGTH];
@@ -584,8 +660,9 @@ bool SchedulerManager::submitAutomationAction(const char *name, SchedulerActionT
   }
   SchedulerEntry entry = {};
   entry.id = 0;
-  entry.action = action;
-  entry.actionValue = value;
+  entry.actionCount = 1;
+  entry.actions[0].type = action;
+  entry.actions[0].value = value;
   strlcpy(entry.name, name, sizeof(entry.name));
   return enqueue(entry, reason == nullptr ? "Automation request" : reason,
     guard, observer, context, message, messageSize);
@@ -631,9 +708,12 @@ bool SchedulerManager::load() {
       log(logMessage);
       continue;
     }
-    if (entry.action == SCHEDULER_ACTION_SET_Z1_REQUEST) {
-      entry.enabled = false;
-      log("[SCHED] legacy set_z1_request disabled; edit it to choose a semantic Zone 1 action");
+    for (uint8_t actionIndex = 0; actionIndex < entry.actionCount; actionIndex++) {
+      if (entry.actions[actionIndex].type == SCHEDULER_ACTION_SET_Z1_REQUEST) {
+        entry.enabled = false;
+        log("[SCHED] legacy set_z1_request disabled; edit it to choose a semantic Zone 1 action");
+        break;
+      }
     }
     entries_[count_++] = entry;
   }
@@ -661,8 +741,14 @@ void SchedulerManager::entryToJson(const SchedulerEntry &entry, JsonObject objec
   object["days"] = entry.dayMask;
   object["hour"] = entry.hour;
   object["minute"] = entry.minute;
-  object["action"] = actionName(entry.action);
-  object["actionValue"] = entry.actionValue;
+  object["action"] = actionName(entry.actions[0].type);
+  object["actionValue"] = entry.actions[0].value;
+  JsonArray actions = object["actions"].to<JsonArray>();
+  for (uint8_t i = 0; i < entry.actionCount; i++) {
+    JsonObject actionObject = actions.add<JsonObject>();
+    actionObject["action"] = actionName(entry.actions[i].type);
+    actionObject["value"] = entry.actions[i].value;
+  }
   JsonArray conditions = object["conditions"].to<JsonArray>();
   for (uint8_t i = 0; i < entry.conditionCount; i++) {
     const SchedulerCondition &condition = entry.conditions[i];
@@ -703,7 +789,7 @@ void SchedulerManager::toJson(JsonDocument &document) const {
     strftime(localTime, sizeof(localTime), "%Y-%m-%d %H:%M:%S", &local);
   }
   document["localTime"] = localTime;
-  document["pendingActions"] = pendingCount_;
+  document["pendingActions"] = pendingActionCount();
   float mainScheduleState = 0;
   uint32_t mainScheduleAge = 0;
   char mainScheduleDetail[64] = {0};
@@ -782,9 +868,9 @@ const char *SchedulerManager::conditionDisplayName(SchedulerConditionField field
   return field < SCHEDULER_CONDITION_COUNT ? names[field] : "unknown condition";
 }
 
-void SchedulerManager::describeAction(const SchedulerEntry &entry,
+void SchedulerManager::describeAction(const SchedulerAction &action,
     char *description, size_t descriptionSize) {
-  switch (entry.action) {
+  switch (action.type) {
     case SCHEDULER_ACTION_FORCE_DHW:
       snprintf(description, descriptionSize, "Force DHW workflow"); break;
     case SCHEDULER_ACTION_HEATPUMP_ON:
@@ -792,21 +878,35 @@ void SchedulerManager::describeAction(const SchedulerEntry &entry,
     case SCHEDULER_ACTION_HEATPUMP_OFF:
       snprintf(description, descriptionSize, "Heat pump off"); break;
     case SCHEDULER_ACTION_SET_OPERATION_MODE:
-      snprintf(description, descriptionSize, "Set operating mode to %d", entry.actionValue); break;
+      snprintf(description, descriptionSize, "Set operating mode to %d", action.value); break;
     case SCHEDULER_ACTION_SET_DHW_TARGET:
-      snprintf(description, descriptionSize, "Set DHW target to %d C", entry.actionValue); break;
+      snprintf(description, descriptionSize, "Set DHW target to %d C", action.value); break;
     case SCHEDULER_ACTION_SET_HEAT_CURVE_SHIFT:
-      snprintf(description, descriptionSize, "Set heating curve shift to %d K", entry.actionValue); break;
+      snprintf(description, descriptionSize, "Set heating curve shift to %d K", action.value); break;
     case SCHEDULER_ACTION_SET_Z1_HEATING_WATER_TARGET:
-      snprintf(description, descriptionSize, "Set heating water target to %d C", entry.actionValue); break;
+      snprintf(description, descriptionSize, "Set heating water target to %d C", action.value); break;
     case SCHEDULER_ACTION_SET_Z1_ROOM_TARGET:
-      snprintf(description, descriptionSize, "Set room target to %d C", entry.actionValue); break;
+      snprintf(description, descriptionSize, "Set room target to %d C", action.value); break;
     case SCHEDULER_ACTION_SET_Z1_REQUEST:
-      snprintf(description, descriptionSize, "Legacy Zone 1 request %d", entry.actionValue); break;
+      snprintf(description, descriptionSize, "Legacy Zone 1 request %d", action.value); break;
     case SCHEDULER_ACTION_SET_QUIET_MODE:
-      snprintf(description, descriptionSize, "Set quiet mode to %d", entry.actionValue); break;
+      snprintf(description, descriptionSize, "Set quiet mode to %d", action.value); break;
     default:
       snprintf(description, descriptionSize, "Unknown action"); break;
+  }
+}
+
+void SchedulerManager::describeActions(const SchedulerEntry &entry,
+    char *description, size_t descriptionSize) {
+  if (descriptionSize == 0) return;
+  description[0] = '\0';
+  for (uint8_t i = 0; i < entry.actionCount; i++) {
+    char action[64] = {0};
+    describeAction(entry.actions[i], action, sizeof(action));
+    size_t used = strlen(description);
+    if (used >= descriptionSize - 1) break;
+    snprintf(description + used, descriptionSize - used, "%s%s",
+      i == 0 ? "" : " -> ", action);
   }
 }
 

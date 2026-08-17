@@ -49,9 +49,17 @@ function schedulerSemanticMatches(action) {
       schedulerSemantic.semantic === "roomTarget")
   );
 }
-function schedulerActionText(entry) {
-  var label = schedulerActionLabels[entry.action] || entry.action;
-  if (entry.action === "set_operation_mode") {
+function schedulerEntryActions(entry) {
+  if (entry && Array.isArray(entry.actions) && entry.actions.length)
+    return entry.actions;
+  return entry && entry.action
+    ? [{ action: entry.action, value: entry.actionValue }]
+    : [];
+}
+function schedulerActionText(action) {
+  var value = action.value === undefined ? action.actionValue : action.value;
+  var label = schedulerActionLabels[action.action] || action.action;
+  if (action.action === "set_operation_mode") {
     var modes = [
       "Heat only",
       "Cool only",
@@ -61,38 +69,44 @@ function schedulerActionText(entry) {
       "Cool + DHW",
       "Auto + DHW",
     ];
-    return label + ": " + (modes[entry.actionValue] || entry.actionValue);
+    return label + ": " + (modes[value] || value);
   }
-  if (entry.action === "set_quiet_mode")
+  if (action.action === "set_quiet_mode")
     return (
       label +
       ": " +
-      (Number(entry.actionValue) === 0 ? "Off" : "Level " + entry.actionValue)
+      (Number(value) === 0 ? "Off" : "Level " + value)
     );
-  if (entry.action === "set_dhw_target")
-    return label + ": " + entry.actionValue + " °C";
-  if (entry.action === "set_heat_curve_shift")
+  if (action.action === "set_dhw_target") return label + ": " + value + " °C";
+  if (action.action === "set_heat_curve_shift")
     return (
       label +
       ": " +
-      entry.actionValue +
+      value +
       " K" +
-      (schedulerSemanticMatches(entry.action) ? "" : " [INCOMPATIBLE]")
+      (schedulerSemanticMatches(action.action) ? "" : " [INCOMPATIBLE]")
     );
   if (
-    entry.action === "set_z1_heating_water_target" ||
-    entry.action === "set_z1_room_target"
+    action.action === "set_z1_heating_water_target" ||
+    action.action === "set_z1_room_target"
   )
     return (
       label +
       ": " +
-      entry.actionValue +
+      value +
       " °C" +
-      (schedulerSemanticMatches(entry.action) ? "" : " [INCOMPATIBLE]")
+      (schedulerSemanticMatches(action.action) ? "" : " [INCOMPATIBLE]")
     );
-  if (entry.action === "set_z1_request")
-    return label + ": " + entry.actionValue + " [REVIEW REQUIRED]";
+  if (action.action === "set_z1_request")
+    return label + ": " + value + " [REVIEW REQUIRED]";
   return label;
+}
+function schedulerActionsText(entry) {
+  return schedulerEntryActions(entry)
+    .map(function (action, index) {
+      return index + 1 + ". " + schedulerActionText(action);
+    })
+    .join(" → ");
 }
 function schedulerConditionText(entry) {
   var c = entry.conditions || [];
@@ -268,15 +282,6 @@ function schedulerRender(data) {
   schedulerData = data;
   schedulerSemantic = data.zone1HeatRequest || null;
   schedulerCurveShift = data.heatingCurveShift || null;
-  var semanticOptions = {
-    set_heat_curve_shift: "schedulerActionHeatShift",
-    set_z1_heating_water_target: "schedulerActionWaterTarget",
-    set_z1_room_target: "schedulerActionRoomTarget",
-  };
-  Object.keys(semanticOptions).forEach(function (action) {
-    var option = document.getElementById(semanticOptions[action]);
-    if (option) option.disabled = !schedulerSemanticMatches(action);
-  });
   document.getElementById("schedulerLocalTime").textContent =
     data.localTime || "Time unavailable";
   var timeStatus = document.getElementById("schedulerTimeStatus");
@@ -344,7 +349,7 @@ function schedulerRender(data) {
           "</td><td>" +
           schedulerEscape(schedulerConditionText(entry)) +
           "</td><td>" +
-          schedulerEscape(schedulerActionText(entry)) +
+          schedulerEscape(schedulerActionsText(entry)) +
           '</td><td><div class="scheduler-actions"><button class="btn btn-ghost" onclick="schedulerRun(' +
           entry.id +
           ')">Run</button><button class="btn btn-ghost" onclick="schedulerOpenEditor(' +
@@ -480,10 +485,11 @@ function schedulerOpenEditor(id) {
   document.querySelectorAll(".scheduler-day input").forEach(function (input) {
     input.checked = !!(mask & (1 << Number(input.dataset.day)));
   });
-  document.getElementById("schedulerAction").value = entry
-    ? entry.action
-    : "force_dhw";
-  schedulerActionChanged(entry ? entry.actionValue : 0);
+  schedulerSetActions(
+    entry
+      ? schedulerEntryActions(entry)
+      : [{ action: "force_dhw", value: 0 }],
+  );
   var conditions =
     entry && entry.conditions
       ? entry.conditions
@@ -504,23 +510,35 @@ function schedulerOpenEditor(id) {
 function schedulerCloseEditor() {
   document.getElementById("schedulerModal").classList.remove("open");
 }
-function schedulerActionChanged(selectedValue) {
-  var action = document.getElementById("schedulerAction").value;
-  var container = document.getElementById("schedulerActionValueContainer");
-  var field = document.getElementById("schedulerActionValueField");
-  field.style.visibility = "visible";
+function schedulerActionOptions(select, selectedAction) {
+  select.innerHTML =
+    '<option value="force_dhw">Force DHW workflow</option><option value="heatpump_on">Heat pump on</option><option value="heatpump_off">Heat pump off</option><option value="set_operation_mode">Set operating mode</option><option value="set_dhw_target">Set DHW target</option><option value="set_heat_curve_shift">Set heating curve shift</option><option value="set_z1_heating_water_target">Set heating water target</option><option value="set_z1_room_target">Set room target</option><option value="set_z1_request" disabled>Legacy Zone 1 request (review required)</option><option value="set_quiet_mode">Set quiet mode</option>';
+  [
+    "set_heat_curve_shift",
+    "set_z1_heating_water_target",
+    "set_z1_room_target",
+  ].forEach(function (action) {
+    var option = select.querySelector('option[value="' + action + '"]');
+    option.disabled = !schedulerSemanticMatches(action);
+  });
+  select.value = selectedAction || "force_dhw";
+}
+function schedulerActionChanged(select, selectedValue) {
+  var row = select.closest(".scheduler-action-row");
+  var action = select.value;
+  var container = row.querySelector(".scheduler-action-value");
   if (action === "set_operation_mode") {
     container.innerHTML =
-      '<select id="schedulerActionValue" class="scheduler-input"><option value="0">Heat only</option><option value="1">Cool only</option><option value="2">Auto</option><option value="3">DHW only</option><option value="4">Heat + DHW</option><option value="5">Cool + DHW</option><option value="6">Auto + DHW</option></select>';
+      '<select class="scheduler-input scheduler-action-value-input"><option value="0">Heat only</option><option value="1">Cool only</option><option value="2">Auto</option><option value="3">DHW only</option><option value="4">Heat + DHW</option><option value="5">Cool + DHW</option><option value="6">Auto + DHW</option></select>';
   } else if (action === "set_quiet_mode") {
     container.innerHTML =
-      '<select id="schedulerActionValue" class="scheduler-input"><option value="0">Off</option><option value="1">Level 1</option><option value="2">Level 2</option><option value="3">Level 3</option></select>';
+      '<select class="scheduler-input scheduler-action-value-input"><option value="0">Off</option><option value="1">Level 1</option><option value="2">Level 2</option><option value="3">Level 3</option></select>';
   } else if (action === "set_dhw_target") {
     container.innerHTML =
-      '<input id="schedulerActionValue" class="scheduler-input" type="number" min="40" max="75" step="1" value="45">';
+      '<input class="scheduler-input scheduler-action-value-input" type="number" min="40" max="75" step="1" value="45">';
   } else if (action === "set_heat_curve_shift") {
     container.innerHTML =
-      '<input id="schedulerActionValue" class="scheduler-input" type="number" min="-5" max="5" step="1" value="0">';
+      '<input class="scheduler-input scheduler-action-value-input" type="number" min="-5" max="5" step="1" value="0">';
   } else if (action === "set_z1_heating_water_target") {
     var min =
       schedulerSemantic && Number.isFinite(Number(schedulerSemantic.min))
@@ -531,7 +549,7 @@ function schedulerActionChanged(selectedValue) {
         ? schedulerSemantic.max
         : 65;
     container.innerHTML =
-      '<input id="schedulerActionValue" class="scheduler-input" type="number" min="' +
+      '<input class="scheduler-input scheduler-action-value-input" type="number" min="' +
       min +
       '" max="' +
       max +
@@ -540,18 +558,104 @@ function schedulerActionChanged(selectedValue) {
       '">';
   } else if (action === "set_z1_room_target") {
     container.innerHTML =
-      '<input id="schedulerActionValue" class="scheduler-input" type="number" min="10" max="35" step="1" value="20">';
+      '<input class="scheduler-input scheduler-action-value-input" type="number" min="10" max="35" step="1" value="20">';
   } else {
     container.innerHTML =
-      '<input id="schedulerActionValue" type="hidden" value="0"><span class="dashboard-muted">No value required</span>';
-    field.style.visibility = "visible";
+      '<input class="scheduler-action-value-input" type="hidden" value="0"><span class="dashboard-muted">No value required</span>';
   }
-  if (
-    selectedValue !== undefined &&
-    document.getElementById("schedulerActionValue")
-  )
-    document.getElementById("schedulerActionValue").value =
+  if (selectedValue !== undefined)
+    container.querySelector(".scheduler-action-value-input").value =
       String(selectedValue);
+}
+function schedulerActionRow(action) {
+  action = action || { action: "force_dhw", value: 0 };
+  var row = document.createElement("div");
+  row.className = "scheduler-action-row";
+  var type = document.createElement("select");
+  type.className = "scheduler-input scheduler-action-type";
+  schedulerActionOptions(type, action.action);
+  type.onchange = function () {
+    schedulerActionChanged(type);
+  };
+  var value = document.createElement("div");
+  value.className = "scheduler-action-value";
+  var up = document.createElement("button");
+  up.type = "button";
+  up.className = "btn btn-ghost scheduler-action-up";
+  up.textContent = "↑";
+  up.title = "Move action earlier";
+  up.onclick = function () {
+    if (row.previousElementSibling)
+      row.parentNode.insertBefore(row, row.previousElementSibling);
+    schedulerUpdateActionButtons();
+  };
+  var down = document.createElement("button");
+  down.type = "button";
+  down.className = "btn btn-ghost scheduler-action-down";
+  down.textContent = "↓";
+  down.title = "Move action later";
+  down.onclick = function () {
+    if (row.nextElementSibling)
+      row.parentNode.insertBefore(row.nextElementSibling, row);
+    schedulerUpdateActionButtons();
+  };
+  var remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "btn btn-danger scheduler-action-remove";
+  remove.textContent = "×";
+  remove.title = "Remove action";
+  remove.onclick = function () {
+    row.remove();
+    schedulerUpdateActionButtons();
+  };
+  row.appendChild(type);
+  row.appendChild(value);
+  row.appendChild(up);
+  row.appendChild(down);
+  row.appendChild(remove);
+  schedulerActionChanged(type, action.value);
+  return row;
+}
+function schedulerUpdateActionButtons() {
+  var rows = Array.prototype.slice.call(
+    document.querySelectorAll(".scheduler-action-row"),
+  );
+  rows.forEach(function (row, index) {
+    row.querySelector(".scheduler-action-up").disabled = index === 0;
+    row.querySelector(".scheduler-action-down").disabled =
+      index === rows.length - 1;
+    row.querySelector(".scheduler-action-remove").disabled = rows.length === 1;
+  });
+}
+function schedulerSetActions(actions) {
+  var box = document.getElementById("schedulerActionsEditor");
+  box.innerHTML = "";
+  (actions || []).slice(0, 4).forEach(function (action) {
+    box.appendChild(schedulerActionRow(action));
+  });
+  if (!box.children.length) box.appendChild(schedulerActionRow());
+  schedulerUpdateActionButtons();
+}
+function schedulerAddAction() {
+  var box = document.getElementById("schedulerActionsEditor");
+  if (box.children.length >= 4) {
+    schedulerSetStatus("At most four actions are supported.", true);
+    return;
+  }
+  box.appendChild(schedulerActionRow());
+  schedulerUpdateActionButtons();
+}
+function schedulerReadActions() {
+  return Array.prototype.slice
+    .call(document.querySelectorAll(".scheduler-action-row"))
+    .map(function (row) {
+      return {
+        action: row.querySelector(".scheduler-action-type").value,
+        value: Number(
+          row.querySelector(".scheduler-action-value-input").value,
+        ),
+      };
+    });
 }
 function schedulerSaveEditor() {
   var name = document.getElementById("schedulerName").value.trim();
@@ -586,10 +690,7 @@ function schedulerSaveEditor() {
     schedulerSetStatus("Time must be between 00:00 and 23:59.", true);
     return;
   }
-  var action = document.getElementById("schedulerAction").value;
-  var actionValue = Number(
-    document.getElementById("schedulerActionValue").value,
-  );
+  var actions = schedulerReadActions();
   var validActions = [
     "force_dhw",
     "heatpump_on",
@@ -601,37 +702,55 @@ function schedulerSaveEditor() {
     "set_z1_room_target",
     "set_quiet_mode",
   ];
-  if (validActions.indexOf(action) < 0 || !Number.isFinite(actionValue)) {
-    schedulerSetStatus("Select a valid action.", true);
+  if (!actions.length || actions.length > 4) {
+    schedulerSetStatus("One to four actions are required.", true);
     return;
   }
-  if (
-    (action === "set_heat_curve_shift" &&
-      (actionValue < -5 || actionValue > 5)) ||
-    (action === "set_z1_heating_water_target" &&
-      (actionValue < Number(schedulerSemantic ? schedulerSemantic.min : 20) ||
-        actionValue >
-          Number(schedulerSemantic ? schedulerSemantic.max : 65))) ||
-    (action === "set_z1_room_target" &&
-      (actionValue < 10 || actionValue > 35)) ||
-    (action === "set_operation_mode" && (actionValue < 0 || actionValue > 6)) ||
-    (action === "set_dhw_target" && (actionValue < 40 || actionValue > 75)) ||
-    (action === "set_quiet_mode" && (actionValue < 0 || actionValue > 3))
-  ) {
-    schedulerSetStatus("Action value is outside its supported range.", true);
-    return;
-  }
-  if (
-    (action === "set_heat_curve_shift" ||
-      action === "set_z1_heating_water_target" ||
-      action === "set_z1_room_target") &&
-    !schedulerSemanticMatches(action)
-  ) {
-    schedulerSetStatus(
-      "This action does not match the current Zone 1 control configuration.",
-      true,
-    );
-    return;
+  for (var ai = 0; ai < actions.length; ai++) {
+    var action = actions[ai].action;
+    var actionValue = actions[ai].value;
+    if (validActions.indexOf(action) < 0 || !Number.isFinite(actionValue)) {
+      schedulerSetStatus("Select a valid action for step " + (ai + 1) + ".", true);
+      return;
+    }
+    if (
+      (action === "set_heat_curve_shift" &&
+        (actionValue < -5 || actionValue > 5)) ||
+      (action === "set_z1_heating_water_target" &&
+        (actionValue < Number(schedulerSemantic ? schedulerSemantic.min : 20) ||
+          actionValue >
+            Number(schedulerSemantic ? schedulerSemantic.max : 65))) ||
+      (action === "set_z1_room_target" &&
+        (actionValue < 10 || actionValue > 35)) ||
+      (action === "set_operation_mode" &&
+        (actionValue < 0 || actionValue > 6)) ||
+      (action === "set_dhw_target" &&
+        (actionValue < 40 || actionValue > 75)) ||
+      (action === "set_quiet_mode" &&
+        (actionValue < 0 || actionValue > 3))
+    ) {
+      schedulerSetStatus(
+        "Action value for step " + (ai + 1) + " is outside its supported range.",
+        true,
+      );
+      return;
+    }
+    if (action === "force_dhw" && ai + 1 < actions.length) {
+      schedulerSetStatus("Force DHW must be the final action.", true);
+      return;
+    }
+    if (
+      (action === "set_heat_curve_shift" ||
+        action === "set_z1_heating_water_target" ||
+        action === "set_z1_room_target") &&
+      !schedulerSemanticMatches(action)
+    ) {
+      schedulerSetStatus(
+        "Action " + (ai + 1) + " does not match the current Zone 1 control configuration.",
+        true,
+      );
+      return;
+    }
   }
   var conditions = schedulerReadConditions();
   if (conditions.length > 4) {
@@ -656,8 +775,9 @@ function schedulerSaveEditor() {
     days: days,
     hour: hour,
     minute: minute,
-    action: action,
-    actionValue: actionValue,
+    actions: actions,
+    action: actions[0].action,
+    actionValue: actions[0].value,
     conditions: conditions,
   };
   schedulerCommand("save", JSON.stringify(payload)).then(function () {
