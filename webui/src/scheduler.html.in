@@ -371,7 +371,7 @@
               <div id="schedulerActionValueContainer"></div>
             </div>
             <div class="scheduler-field full">
-              <label>Conditions (all must be true)</label>
+              <label>Conditions (AND is evaluated before OR)</label>
               <div id="schedulerConditions"></div>
               <button
                 type="button"
@@ -385,9 +385,11 @@
               <div class="scheduler-form-note">
                 Force DHW uses the same protected workflow as Dashboard.
                 Conditions are evaluated from the latest Panasonic values at the
-                scheduled minute. For a DHW reserve, add DHW temperature,
-                three-way valve = 0, and Force DHW = 0. If time or a required
-                value is unavailable, nothing is sent.
+                scheduled minute. AND groups are evaluated before OR groups, so
+                A AND B OR C AND D means (A AND B) OR (C AND D). For a DHW
+                reserve, add DHW temperature, three-way valve = 0, and Force DHW
+                = 0. If time or a value required by the expression is
+                unavailable, nothing is sent.
               </div>
             </div>
           </div>

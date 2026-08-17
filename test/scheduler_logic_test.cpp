@@ -81,6 +81,33 @@ int main() {
   assert(!schedulerDispatchReady(1, 1000, 2999, 2000));
   assert(schedulerDispatchReady(1, 1000, 3000, 2000));
 
+  // Mixed logical joins use conventional precedence: AND groups are evaluated
+  // before those groups are joined with OR.
+  SchedulerTruthValue mixedValues[] = {
+    SCHEDULER_TRUTH_TRUE, SCHEDULER_TRUTH_FALSE,
+    SCHEDULER_TRUTH_TRUE, SCHEDULER_TRUTH_TRUE
+  };
+  SchedulerConditionJoin mixedJoins[] = {
+    SCHEDULER_JOIN_AND, SCHEDULER_JOIN_AND,
+    SCHEDULER_JOIN_OR, SCHEDULER_JOIN_AND
+  };
+  assert(schedulerEvaluateConditionExpression(mixedValues, mixedJoins, 4) ==
+    SCHEDULER_TRUTH_TRUE); // (true AND false) OR (true AND true)
+
+  mixedValues[3] = SCHEDULER_TRUTH_FALSE;
+  assert(schedulerEvaluateConditionExpression(mixedValues, mixedJoins, 4) ==
+    SCHEDULER_TRUTH_FALSE);
+
+  SchedulerTruthValue unknownOrTrue[] = {
+    SCHEDULER_TRUTH_UNKNOWN, SCHEDULER_TRUTH_TRUE
+  };
+  SchedulerConditionJoin orJoin[] = {SCHEDULER_JOIN_AND, SCHEDULER_JOIN_OR};
+  assert(schedulerEvaluateConditionExpression(unknownOrTrue, orJoin, 2) ==
+    SCHEDULER_TRUTH_TRUE);
+  unknownOrTrue[1] = SCHEDULER_TRUTH_FALSE;
+  assert(schedulerEvaluateConditionExpression(unknownOrTrue, orJoin, 2) ==
+    SCHEDULER_TRUTH_UNKNOWN);
+
   puts("scheduler_logic_test: all checks passed");
   return 0;
 }

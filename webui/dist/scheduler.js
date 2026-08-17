@@ -106,15 +106,24 @@ function schedulerConditionText(entry) {
       },
     ];
   if (!c.length) return "Always";
-  return c
-    .map(function (x) {
-      var label =
-        x.source === "mqtt"
-          ? "MQTT sensor " + x.sensorId
-          : schedulerConditionLabels[x.field] || x.field;
-      return label + " " + x.operator + " " + x.value;
+  var groups = [[]];
+  c.forEach(function (x, index) {
+    if (index > 0 && String(x.join || "and").toLowerCase() === "or")
+      groups.push([]);
+    var label =
+      x.source === "mqtt"
+        ? "MQTT sensor " + x.sensorId
+        : schedulerConditionLabels[x.field] || x.field;
+    groups[groups.length - 1].push(
+      label + " " + x.operator + " " + x.value,
+    );
+  });
+  return groups
+    .map(function (group) {
+      var text = group.join(" AND ");
+      return group.length > 1 && groups.length > 1 ? "(" + text + ")" : text;
     })
-    .join(" AND ");
+    .join(" OR ");
 }
 function schedulerSetStatus(message, isError) {
   var el = document.getElementById("schedulerCommandStatus");
@@ -142,6 +151,11 @@ function schedulerConditionRow(condition) {
   };
   var row = document.createElement("div");
   row.className = "scheduler-condition-row";
+  var join = document.createElement("select");
+  join.className = "scheduler-input scheduler-condition-join";
+  join.innerHTML =
+    '<option value="and">AND</option><option value="or">OR</option>';
+  join.value = condition.join || "and";
   var source = document.createElement("select");
   source.className = "scheduler-input scheduler-condition-source";
   source.innerHTML =
@@ -167,6 +181,7 @@ function schedulerConditionRow(condition) {
   remove.textContent = "×";
   remove.onclick = function () {
     row.remove();
+    schedulerUpdateConditionJoins();
   };
   function fill() {
     if (source.value === "local") {
@@ -193,6 +208,7 @@ function schedulerConditionRow(condition) {
     }
   }
   source.onchange = fill;
+  row.appendChild(join);
   row.appendChild(source);
   row.appendChild(field);
   row.appendChild(op);
@@ -201,12 +217,23 @@ function schedulerConditionRow(condition) {
   fill();
   return row;
 }
+function schedulerUpdateConditionJoins() {
+  Array.prototype.slice
+    .call(document.querySelectorAll(".scheduler-condition-row"))
+    .forEach(function (row, index) {
+      var join = row.querySelector(".scheduler-condition-join");
+      join.disabled = index === 0;
+      join.style.visibility = index === 0 ? "hidden" : "visible";
+      if (index === 0) join.value = "and";
+    });
+}
 function schedulerSetConditions(conditions) {
   var box = document.getElementById("schedulerConditions");
   box.innerHTML = "";
   (conditions || []).slice(0, 4).forEach(function (c) {
     box.appendChild(schedulerConditionRow(c));
   });
+  schedulerUpdateConditionJoins();
 }
 function schedulerAddCondition() {
   var box = document.getElementById("schedulerConditions");
@@ -215,14 +242,19 @@ function schedulerAddCondition() {
     return;
   }
   box.appendChild(schedulerConditionRow());
+  schedulerUpdateConditionJoins();
 }
 function schedulerReadConditions() {
   return Array.prototype.slice
     .call(document.querySelectorAll(".scheduler-condition-row"))
-    .map(function (row) {
+    .map(function (row, index) {
       var source = row.querySelector(".scheduler-condition-source").value,
         field = row.querySelector(".scheduler-condition-field"),
         condition = {
+          join:
+            index === 0
+              ? "and"
+              : row.querySelector(".scheduler-condition-join").value,
           source: source,
           operator: row.querySelector(".scheduler-condition-operator").value,
           value: Number(row.querySelector(".scheduler-condition-value").value),

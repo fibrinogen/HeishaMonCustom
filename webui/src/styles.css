@@ -412,7 +412,7 @@ input:disabled + .theme-slider-compact {
 .scheduler-field.full{grid-column:1/-1}
 .scheduler-field label{color:var(--text-secondary);font-size:11px}
 .scheduler-input{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-elevated);color:var(--text-primary);font:12px 'JetBrains Mono',monospace}
-.scheduler-condition-row{display:flex;align-items:center;gap:6px;margin:0 0 7px;flex-wrap:wrap}.scheduler-condition-row .scheduler-condition-source{width:120px}.scheduler-condition-row .scheduler-condition-field{width:190px}.scheduler-condition-row .scheduler-condition-operator{width:72px}.scheduler-condition-row .scheduler-condition-value{width:105px}.scheduler-condition-row .btn{height:32px;padding:5px 9px}
+.scheduler-condition-row{display:flex;align-items:center;gap:6px;margin:0 0 7px;flex-wrap:wrap}.scheduler-condition-row .scheduler-condition-join{width:72px}.scheduler-condition-row .scheduler-condition-source{width:120px}.scheduler-condition-row .scheduler-condition-field{width:190px}.scheduler-condition-row .scheduler-condition-operator{width:72px}.scheduler-condition-row .scheduler-condition-value{width:105px}.scheduler-condition-row .btn{height:32px;padding:5px 9px}
 .scheduler-days{display:flex;flex-wrap:wrap;gap:6px}
 .scheduler-day input{display:none}
 .scheduler-day span{display:block;min-width:35px;padding:7px 8px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-muted);font-size:10px;cursor:pointer}

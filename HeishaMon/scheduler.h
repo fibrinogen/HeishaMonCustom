@@ -4,7 +4,7 @@
 #include <ArduinoJson.h>
 #include "scheduler_logic.h"
 
-#define SCHEDULER_CONFIG_VERSION 3
+#define SCHEDULER_CONFIG_VERSION 4
 #define SCHEDULER_MAX_ENTRIES 24
 #define SCHEDULER_MAX_EVENTS 10
 #define SCHEDULER_NAME_LENGTH 33
@@ -45,6 +45,7 @@ enum SchedulerConditionSource : uint8_t {
 };
 
 struct SchedulerCondition {
+  SchedulerConditionJoin join;
   SchedulerConditionSource source;
   SchedulerConditionField field;
   uint8_t externalSensorId;
@@ -175,10 +176,12 @@ class SchedulerManager {
   static bool parseCondition(const char *name, SchedulerConditionField &field);
   static bool parseSource(const char *name, SchedulerConditionSource &source);
   static bool parseOperator(const char *name, SchedulerCompareOperator &op);
+  static bool parseJoin(const char *name, SchedulerConditionJoin &join);
   static uint8_t conditionTopic(SchedulerConditionField field);
   static const char *conditionDisplayName(SchedulerConditionField field);
   static void describeAction(const SchedulerEntry &entry, char *description,
     size_t descriptionSize);
+  static const char *joinName(SchedulerConditionJoin join);
   static const char *sourceName(SchedulerConditionSource source);
   void entryToJson(const SchedulerEntry &entry, JsonObject object) const;
 };

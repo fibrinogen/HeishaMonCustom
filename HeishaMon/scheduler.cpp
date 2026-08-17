@@ -138,8 +138,15 @@ bool SchedulerManager::evaluateCondition(const SchedulerEntry &entry,
       "conditions unavailable: value provider is not initialized");
     return false;
   }
+  SchedulerTruthValue values[SCHEDULER_MAX_CONDITIONS];
+  SchedulerConditionJoin joins[SCHEDULER_MAX_CONDITIONS];
+  char firstFailure[SCHEDULER_DETAIL_LENGTH] = {0};
+  char firstUnavailable[SCHEDULER_DETAIL_LENGTH] = {0};
+  bool hasOr = false;
   for (uint8_t i = 0; i < entry.conditionCount; i++) {
     const SchedulerCondition &condition = entry.conditions[i];
+    joins[i] = i == 0 ? SCHEDULER_JOIN_AND : condition.join;
+    if (i > 0 && condition.join == SCHEDULER_JOIN_OR) hasOr = true;
     float actual = 0;
     uint32_t ageSeconds = 0;
     char providerDetail[64] = {0};
@@ -147,37 +154,60 @@ bool SchedulerManager::evaluateCondition(const SchedulerEntry &entry,
       conditionTopic(condition.field) : condition.externalSensorId;
     if (!valueReader_(condition.source, sourceId, &actual, &ageSeconds,
         providerDetail, sizeof(providerDetail)) || !isfinite(actual)) {
-      if (providerDetail[0] != '\0') {
-        snprintf(detail, detailSize, "condition %u/%u unavailable: %s",
+      if (firstUnavailable[0] != '\0') {
+        values[i] = SCHEDULER_TRUTH_UNKNOWN;
+        continue;
+      } else if (providerDetail[0] != '\0') {
+        snprintf(firstUnavailable, sizeof(firstUnavailable),
+          "condition %u/%u unavailable: %s",
           i + 1, entry.conditionCount, providerDetail);
       } else if (condition.source == SCHEDULER_SOURCE_LOCAL) {
-        snprintf(detail, detailSize, "condition %u/%u unavailable: %s",
+        snprintf(firstUnavailable, sizeof(firstUnavailable),
+          "condition %u/%u unavailable: %s",
           i + 1, entry.conditionCount, conditionDisplayName(condition.field));
       } else {
-        snprintf(detail, detailSize, "condition %u/%u unavailable: MQTT sensor %u",
+        snprintf(firstUnavailable, sizeof(firstUnavailable),
+          "condition %u/%u unavailable: MQTT sensor %u",
           i + 1, entry.conditionCount, condition.externalSensorId);
       }
-      return false;
+      values[i] = SCHEDULER_TRUTH_UNKNOWN;
+      continue;
     }
     bool result = schedulerCompare(actual, condition.compare, condition.value);
-    if (!result) {
+    values[i] = result ? SCHEDULER_TRUTH_TRUE : SCHEDULER_TRUTH_FALSE;
+    if (!result && firstFailure[0] == '\0') {
       if (condition.source == SCHEDULER_SOURCE_LOCAL) {
-        snprintf(detail, detailSize,
+        snprintf(firstFailure, sizeof(firstFailure),
           "condition %u/%u failed: %s is %.2f, expected %s %.2f",
           i + 1, entry.conditionCount, conditionDisplayName(condition.field),
           actual, operatorName(condition.compare), condition.value);
       } else {
-        snprintf(detail, detailSize,
+        snprintf(firstFailure, sizeof(firstFailure),
           "condition %u/%u failed: MQTT sensor %u is %.2f (age %lu s), expected %s %.2f",
           i + 1, entry.conditionCount, condition.externalSensorId, actual,
           (unsigned long)ageSeconds, operatorName(condition.compare), condition.value);
       }
-      return false;
     }
   }
-  snprintf(detail, detailSize, "all %u condition%s passed", entry.conditionCount,
-    entry.conditionCount == 1 ? "" : "s");
-  return true;
+  SchedulerTruthValue expression = schedulerEvaluateConditionExpression(
+    values, joins, entry.conditionCount);
+  if (expression == SCHEDULER_TRUTH_TRUE) {
+    if (hasOr) {
+      snprintf(detail, detailSize, "condition expression passed (AND before OR)");
+    } else {
+      snprintf(detail, detailSize, "all %u condition%s passed", entry.conditionCount,
+        entry.conditionCount == 1 ? "" : "s");
+    }
+    return true;
+  }
+  if (expression == SCHEDULER_TRUTH_UNKNOWN) {
+    snprintf(detail, detailSize, "expression unavailable: %s",
+      firstUnavailable[0] == '\0' ? "required value unavailable" : firstUnavailable);
+    return false;
+  }
+  snprintf(detail, detailSize, hasOr ? "all OR groups false: %s" : "%s",
+    firstFailure[0] == '\0' ? "condition expression is false" : firstFailure);
+  return false;
 }
 
 bool SchedulerManager::enqueue(const SchedulerEntry &entry, const char *conditionDetail,
@@ -358,6 +388,7 @@ bool SchedulerManager::validateEntry(const SchedulerEntry &entry,
   for (uint8_t i = 0; i < entry.conditionCount; i++) {
     const SchedulerCondition &condition = entry.conditions[i];
     if (condition.source >= SCHEDULER_SOURCE_COUNT ||
+        condition.join >= SCHEDULER_JOIN_COUNT ||
         condition.compare > SCHEDULER_COMPARE_GREATER || !isfinite(condition.value) ||
         condition.value < -100.0f || condition.value > 200.0f) {
       snprintf(message, messageSize, "Invalid condition"); return false;
@@ -414,6 +445,9 @@ bool SchedulerManager::parseEntry(JsonObjectConst object, SchedulerEntry &entry,
         return false;
       }
       SchedulerCondition &condition = entry.conditions[entry.conditionCount];
+      if (!parseJoin(conditionObject["join"] | "and", condition.join)) {
+        snprintf(message, messageSize, "Unknown condition join"); return false;
+      }
       if (!parseSource(conditionObject["source"] | "local", condition.source)) {
         snprintf(message, messageSize, "Unknown condition source"); return false;
       }
@@ -445,6 +479,7 @@ bool SchedulerManager::parseEntry(JsonObjectConst object, SchedulerEntry &entry,
     }
     if (field != SCHEDULER_CONDITION_NONE) {
       entry.conditionCount = 1;
+      entry.conditions[0].join = SCHEDULER_JOIN_AND;
       entry.conditions[0].source = SCHEDULER_SOURCE_LOCAL;
       entry.conditions[0].field = field;
       entry.conditions[0].externalSensorId = 0;
@@ -580,7 +615,7 @@ bool SchedulerManager::load() {
   DeserializationError error = deserializeJson(document, file);
   file.close();
   int version = document["version"] | 0;
-  if (error || (version != 1 && version != 2 && version != SCHEDULER_CONFIG_VERSION)) {
+  if (error || version < 1 || version > SCHEDULER_CONFIG_VERSION) {
     enabled_ = false;
     return false;
   }
@@ -632,6 +667,7 @@ void SchedulerManager::entryToJson(const SchedulerEntry &entry, JsonObject objec
   for (uint8_t i = 0; i < entry.conditionCount; i++) {
     const SchedulerCondition &condition = entry.conditions[i];
     JsonObject conditionObject = conditions.add<JsonObject>();
+    conditionObject["join"] = joinName(i == 0 ? SCHEDULER_JOIN_AND : condition.join);
     conditionObject["source"] = sourceName(condition.source);
     conditionObject["operator"] = operatorName(condition.compare);
     conditionObject["value"] = condition.value;
@@ -778,6 +814,10 @@ const char *SchedulerManager::sourceName(SchedulerConditionSource source) {
   return source == SCHEDULER_SOURCE_MQTT ? "mqtt" : "local";
 }
 
+const char *SchedulerManager::joinName(SchedulerConditionJoin join) {
+  return join == SCHEDULER_JOIN_OR ? "or" : "and";
+}
+
 const char *SchedulerManager::operatorName(SchedulerCompareOperator op) {
   static const char *names[] = {"<", "<=", "==", ">=", ">"};
   return op <= SCHEDULER_COMPARE_GREATER ? names[op] : "?";
@@ -813,6 +853,12 @@ bool SchedulerManager::parseOperator(const char *name, SchedulerCompareOperator 
   for (uint8_t i = 0; i <= SCHEDULER_COMPARE_GREATER; i++) {
     if (strcmp(name, operatorName((SchedulerCompareOperator)i)) == 0) { op = (SchedulerCompareOperator)i; return true; }
   }
+  return false;
+}
+
+bool SchedulerManager::parseJoin(const char *name, SchedulerConditionJoin &join) {
+  if (strcmp(name, "and") == 0) { join = SCHEDULER_JOIN_AND; return true; }
+  if (strcmp(name, "or") == 0) { join = SCHEDULER_JOIN_OR; return true; }
   return false;
 }
 

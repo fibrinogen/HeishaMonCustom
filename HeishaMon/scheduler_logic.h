@@ -21,6 +21,18 @@ enum SchedulerCompareOperator : uint8_t {
   SCHEDULER_COMPARE_GREATER
 };
 
+enum SchedulerConditionJoin : uint8_t {
+  SCHEDULER_JOIN_AND = 0,
+  SCHEDULER_JOIN_OR,
+  SCHEDULER_JOIN_COUNT
+};
+
+enum SchedulerTruthValue : uint8_t {
+  SCHEDULER_TRUTH_FALSE = 0,
+  SCHEDULER_TRUTH_TRUE,
+  SCHEDULER_TRUTH_UNKNOWN
+};
+
 inline bool schedulerBasicEntryValid(uint8_t dayMask, uint8_t hour, uint8_t minute) {
   return dayMask > 0 && dayMask <= 0x7F && hour <= 23 && minute <= 59;
 }
@@ -66,6 +78,45 @@ inline bool schedulerCompare(float actual, SchedulerCompareOperator op, float ex
     case SCHEDULER_COMPARE_GREATER: return actual > expected;
     default: return false;
   }
+}
+
+inline SchedulerTruthValue schedulerTruthAnd(SchedulerTruthValue left,
+    SchedulerTruthValue right) {
+  if (left == SCHEDULER_TRUTH_FALSE || right == SCHEDULER_TRUTH_FALSE) {
+    return SCHEDULER_TRUTH_FALSE;
+  }
+  if (left == SCHEDULER_TRUTH_UNKNOWN || right == SCHEDULER_TRUTH_UNKNOWN) {
+    return SCHEDULER_TRUTH_UNKNOWN;
+  }
+  return SCHEDULER_TRUTH_TRUE;
+}
+
+inline SchedulerTruthValue schedulerTruthOr(SchedulerTruthValue left,
+    SchedulerTruthValue right) {
+  if (left == SCHEDULER_TRUTH_TRUE || right == SCHEDULER_TRUTH_TRUE) {
+    return SCHEDULER_TRUTH_TRUE;
+  }
+  if (left == SCHEDULER_TRUTH_UNKNOWN || right == SCHEDULER_TRUTH_UNKNOWN) {
+    return SCHEDULER_TRUTH_UNKNOWN;
+  }
+  return SCHEDULER_TRUTH_FALSE;
+}
+
+inline SchedulerTruthValue schedulerEvaluateConditionExpression(
+    const SchedulerTruthValue *values, const SchedulerConditionJoin *joins,
+    uint8_t count) {
+  if (values == nullptr || joins == nullptr || count == 0) return SCHEDULER_TRUTH_TRUE;
+  SchedulerTruthValue expression = SCHEDULER_TRUTH_FALSE;
+  SchedulerTruthValue andGroup = values[0];
+  for (uint8_t i = 1; i < count; i++) {
+    if (joins[i] == SCHEDULER_JOIN_OR) {
+      expression = schedulerTruthOr(expression, andGroup);
+      andGroup = values[i];
+    } else {
+      andGroup = schedulerTruthAnd(andGroup, values[i]);
+    }
+  }
+  return schedulerTruthOr(expression, andGroup);
 }
 
 inline bool schedulerParseFiniteNumber(const char *text, float &value) {
