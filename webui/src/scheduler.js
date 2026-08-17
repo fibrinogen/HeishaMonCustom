@@ -4,7 +4,8 @@ var schedulerBusy = false;
 var schedulerRefreshPromise = null;
 var schedulerDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 var schedulerActionLabels = {
-  force_dhw: "Force DHW workflow",
+  force_dhw_on: "Force DHW on",
+  force_dhw_off: "Force DHW off",
   heatpump_on: "Heat pump on",
   heatpump_off: "Heat pump off",
   set_operation_mode: "Set operating mode",
@@ -50,11 +51,17 @@ function schedulerSemanticMatches(action) {
   );
 }
 function schedulerEntryActions(entry) {
-  if (entry && Array.isArray(entry.actions) && entry.actions.length)
-    return entry.actions;
-  return entry && entry.action
+  var actions =
+    entry && Array.isArray(entry.actions) && entry.actions.length
+      ? entry.actions
+      : entry && entry.action
     ? [{ action: entry.action, value: entry.actionValue }]
     : [];
+  return actions.map(function (action) {
+    return action.action === "force_dhw"
+      ? { action: "force_dhw_on", value: 0 }
+      : action;
+  });
 }
 function schedulerActionText(action) {
   var value = action.value === undefined ? action.actionValue : action.value;
@@ -487,7 +494,7 @@ function schedulerOpenEditor(id) {
   schedulerSetActions(
     entry
       ? schedulerEntryActions(entry)
-      : [{ action: "force_dhw", value: 0 }],
+      : [{ action: "force_dhw_on", value: 0 }],
   );
   var conditions =
     entry && entry.conditions
@@ -511,7 +518,7 @@ function schedulerCloseEditor() {
 }
 function schedulerActionOptions(select, selectedAction) {
   select.innerHTML =
-    '<option value="force_dhw">Force DHW workflow</option><option value="heatpump_on">Heat pump on</option><option value="heatpump_off">Heat pump off</option><option value="set_operation_mode">Set operating mode</option><option value="set_dhw_target">Set DHW target</option><option value="set_heat_curve_shift">Set heating curve shift</option><option value="set_z1_heating_water_target">Set heating water target</option><option value="set_z1_room_target">Set room target</option><option value="set_z1_request" disabled>Legacy Zone 1 request (review required)</option><option value="set_quiet_mode">Set quiet mode</option>';
+    '<option value="force_dhw_on">Force DHW on</option><option value="force_dhw_off">Force DHW off</option><option value="heatpump_on">Heat pump on</option><option value="heatpump_off">Heat pump off</option><option value="set_operation_mode">Set operating mode</option><option value="set_dhw_target">Set DHW target</option><option value="set_heat_curve_shift">Set heating curve shift</option><option value="set_z1_heating_water_target">Set heating water target</option><option value="set_z1_room_target">Set room target</option><option value="set_z1_request" disabled>Legacy Zone 1 request (review required)</option><option value="set_quiet_mode">Set quiet mode</option>';
   [
     "set_heat_curve_shift",
     "set_z1_heating_water_target",
@@ -520,7 +527,7 @@ function schedulerActionOptions(select, selectedAction) {
     var option = select.querySelector('option[value="' + action + '"]');
     option.disabled = !schedulerSemanticMatches(action);
   });
-  select.value = selectedAction || "force_dhw";
+  select.value = selectedAction || "force_dhw_on";
 }
 function schedulerActionChanged(select, selectedValue) {
   var row = select.closest(".scheduler-action-row");
@@ -558,6 +565,9 @@ function schedulerActionChanged(select, selectedValue) {
   } else if (action === "set_z1_room_target") {
     container.innerHTML =
       '<input class="scheduler-input scheduler-action-value-input" type="number" min="10" max="35" step="1" value="20">';
+  } else if (action === "force_dhw_on" || action === "force_dhw_off") {
+    container.innerHTML =
+      '<input class="scheduler-action-value-input" type="hidden" value="0"><span class="dashboard-muted">Direct Panasonic command; operating mode is not changed</span>';
   } else {
     container.innerHTML =
       '<input class="scheduler-action-value-input" type="hidden" value="0"><span class="dashboard-muted">No value required</span>';
@@ -567,7 +577,7 @@ function schedulerActionChanged(select, selectedValue) {
       String(selectedValue);
 }
 function schedulerActionRow(action) {
-  action = action || { action: "force_dhw", value: 0 };
+  action = action || { action: "force_dhw_on", value: 0 };
   var row = document.createElement("div");
   row.className = "scheduler-action-row";
   var type = document.createElement("select");
@@ -691,7 +701,8 @@ function schedulerSaveEditor() {
   }
   var actions = schedulerReadActions();
   var validActions = [
-    "force_dhw",
+    "force_dhw_on",
+    "force_dhw_off",
     "heatpump_on",
     "heatpump_off",
     "set_operation_mode",
@@ -732,10 +743,6 @@ function schedulerSaveEditor() {
         "Action value for step " + (ai + 1) + " is outside its supported range.",
         true,
       );
-      return;
-    }
-    if (action === "force_dhw" && ai + 1 < actions.length) {
-      schedulerSetStatus("Force DHW must be the final action.", true);
       return;
     }
     if (

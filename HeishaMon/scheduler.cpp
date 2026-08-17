@@ -429,11 +429,6 @@ bool SchedulerManager::validateEntry(const SchedulerEntry &entry,
       snprintf(message, messageSize, "Action %u: %s", i + 1, actionMessage);
       return false;
     }
-    if (entry.actions[i].type == SCHEDULER_ACTION_FORCE_DHW &&
-        i + 1 < entry.actionCount) {
-      snprintf(message, messageSize, "Force DHW must be the final action");
-      return false;
-    }
   }
   if (entry.conditionCount > SCHEDULER_MAX_CONDITIONS) {
     snprintf(message, messageSize, "At most %u conditions are supported", SCHEDULER_MAX_CONDITIONS);
@@ -847,7 +842,8 @@ void SchedulerManager::toJson(JsonDocument &document) const {
 }
 
 const char *SchedulerManager::actionName(SchedulerActionType action) {
-  static const char *names[] = {"force_dhw", "heatpump_on", "heatpump_off",
+  static const char *names[] = {"force_dhw_on", "force_dhw_off",
+    "heatpump_on", "heatpump_off",
     "set_operation_mode", "set_dhw_target", "set_heat_curve_shift",
     "set_z1_heating_water_target", "set_z1_room_target", "set_z1_request",
     "set_quiet_mode"};
@@ -871,8 +867,10 @@ const char *SchedulerManager::conditionDisplayName(SchedulerConditionField field
 void SchedulerManager::describeAction(const SchedulerAction &action,
     char *description, size_t descriptionSize) {
   switch (action.type) {
-    case SCHEDULER_ACTION_FORCE_DHW:
-      snprintf(description, descriptionSize, "Force DHW workflow"); break;
+    case SCHEDULER_ACTION_FORCE_DHW_ON:
+      snprintf(description, descriptionSize, "Force DHW on"); break;
+    case SCHEDULER_ACTION_FORCE_DHW_OFF:
+      snprintf(description, descriptionSize, "Force DHW off"); break;
     case SCHEDULER_ACTION_HEATPUMP_ON:
       snprintf(description, descriptionSize, "Heat pump on"); break;
     case SCHEDULER_ACTION_HEATPUMP_OFF:
@@ -924,6 +922,13 @@ const char *SchedulerManager::operatorName(SchedulerCompareOperator op) {
 }
 
 bool SchedulerManager::parseAction(const char *name, SchedulerActionType &action) {
+  // Scheduler versions up to 5 used "force_dhw" for an asynchronous workflow.
+  // Preserve its user-visible intent while migrating it to the direct Panasonic
+  // Force DHW command.
+  if (strcmp(name, "force_dhw") == 0) {
+    action = SCHEDULER_ACTION_FORCE_DHW_ON;
+    return true;
+  }
   for (uint8_t i = 0; i < SCHEDULER_ACTION_COUNT; i++) {
     if (strcmp(name, actionName((SchedulerActionType)i)) == 0) { action = (SchedulerActionType)i; return true; }
   }

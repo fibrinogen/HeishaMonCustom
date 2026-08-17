@@ -35,7 +35,6 @@ extern bool send_command(byte *command, int length);
 
 enum DashboardWorkflowType : uint8_t {
   DASHBOARD_WORKFLOW_NONE = 0,
-  DASHBOARD_WORKFLOW_DHW,
   DASHBOARD_WORKFLOW_STERILIZATION
 };
 
@@ -117,7 +116,6 @@ static int dashboardWorkflowTopicValue(uint8_t topic) {
 
 static const char *dashboardWorkflowTypeName() {
   switch (dashboardWorkflow.type) {
-    case DASHBOARD_WORKFLOW_DHW: return "dhw";
     case DASHBOARD_WORKFLOW_STERILIZATION: return "sterilization";
     default: return "none";
   }
@@ -157,8 +155,6 @@ static bool dashboardWorkflowSendCommand(bool operationModeCommand, int value) {
   unsigned int len;
   if (operationModeCommand) {
     len = set_operation_mode(valueString, cmd, commandLog);
-  } else if (dashboardWorkflow.type == DASHBOARD_WORKFLOW_DHW) {
-    len = set_force_DHW(valueString, cmd, commandLog);
   } else if (dashboardWorkflow.type == DASHBOARD_WORKFLOW_STERILIZATION) {
     len = set_force_sterilization(valueString, cmd, commandLog);
   } else {
@@ -175,7 +171,7 @@ static void dashboardWorkflowScheduleRestore(unsigned long delayMs, const char *
   dashboardWorkflowSetMessage(message);
 }
 
-static bool dashboardWorkflowStart(DashboardWorkflowType type, char *response, size_t responseSize) {
+static bool dashboardWorkflowStartSterilization(char *response, size_t responseSize) {
   if (heishamonSettings.listenonly) {
     snprintf(response, responseSize, "Dashboard workflow unavailable in listen-only mode");
     return false;
@@ -189,14 +185,7 @@ static bool dashboardWorkflowStart(DashboardWorkflowType type, char *response, s
     return false;
   }
 
-  if (type == DASHBOARD_WORKFLOW_DHW &&
-      dashboardWorkflowTopicValue(10) >= heishamonSettings.wpDhwBlockAbove) {
-    snprintf(response, responseSize, "DHW temperature is at or above the configured Force DHW limit");
-    return false;
-  }
-
-  uint8_t stateTopic = (type == DASHBOARD_WORKFLOW_DHW) ? 2 : 69;
-  if (dashboardWorkflowTopicValue(stateTopic) != 0) {
+  if (dashboardWorkflowTopicValue(69) != 0) {
     snprintf(response, responseSize, "The requested function is already active outside this dashboard workflow");
     return false;
   }
@@ -209,7 +198,7 @@ static bool dashboardWorkflowStart(DashboardWorkflowType type, char *response, s
     return false;
   }
 
-  dashboardWorkflow.type = type;
+  dashboardWorkflow.type = DASHBOARD_WORKFLOW_STERILIZATION;
   dashboardWorkflow.stage = DASHBOARD_WORKFLOW_WAIT_FORCE;
   dashboardWorkflow.previousMode = currentMode;
   dashboardWorkflow.modeChanged = (currentMode != 3);
@@ -223,14 +212,13 @@ static bool dashboardWorkflowStart(DashboardWorkflowType type, char *response, s
   }
 
   dashboardWorkflow.nextActionAt = millis() + (dashboardWorkflow.modeChanged ? 2500UL : 250UL);
-  dashboardWorkflowSetMessage(type == DASHBOARD_WORKFLOW_DHW ?
-    "Preparing forced DHW cycle" : "Preparing forced sterilization cycle");
+  dashboardWorkflowSetMessage("Preparing forced sterilization cycle");
   snprintf(response, responseSize, "Workflow started");
   return true;
 }
 
-static bool dashboardWorkflowCancel(DashboardWorkflowType type, char *response, size_t responseSize) {
-  if (dashboardWorkflow.type != type) {
+static bool dashboardWorkflowCancelSterilization(char *response, size_t responseSize) {
+  if (dashboardWorkflow.type != DASHBOARD_WORKFLOW_STERILIZATION) {
     snprintf(response, responseSize, "This workflow is not running");
     return false;
   }
@@ -242,25 +230,18 @@ static bool dashboardWorkflowCancel(DashboardWorkflowType type, char *response, 
   if (dashboardWorkflow.stage == DASHBOARD_WORKFLOW_ACTIVE) {
     dashboardWorkflowSendCommand(false, 0);
   }
-  dashboardWorkflowScheduleRestore(10000UL, type == DASHBOARD_WORKFLOW_DHW ?
-    "Forced DHW cancelled; restoring operating mode" :
+  dashboardWorkflowScheduleRestore(10000UL,
     "Forced sterilization cancelled; restoring operating mode");
   snprintf(response, responseSize, "Workflow cancellation requested");
   return true;
 }
 
 static bool dashboardWorkflowRequest(const char *action, char *response, size_t responseSize) {
-  if (strcmp(action, "start_dhw") == 0) {
-    return dashboardWorkflowStart(DASHBOARD_WORKFLOW_DHW, response, responseSize);
-  }
-  if (strcmp(action, "cancel_dhw") == 0) {
-    return dashboardWorkflowCancel(DASHBOARD_WORKFLOW_DHW, response, responseSize);
-  }
   if (strcmp(action, "start_sterilization") == 0) {
-    return dashboardWorkflowStart(DASHBOARD_WORKFLOW_STERILIZATION, response, responseSize);
+    return dashboardWorkflowStartSterilization(response, responseSize);
   }
   if (strcmp(action, "cancel_sterilization") == 0) {
-    return dashboardWorkflowCancel(DASHBOARD_WORKFLOW_STERILIZATION, response, responseSize);
+    return dashboardWorkflowCancelSterilization(response, responseSize);
   }
   snprintf(response, responseSize, "Unknown dashboard workflow action");
   return false;
@@ -274,8 +255,7 @@ static void processDashboardWorkflow() {
     if (dashboardWorkflowSendCommand(false, 1)) {
       dashboardWorkflow.stage = DASHBOARD_WORKFLOW_ACTIVE;
       dashboardWorkflow.forceSentAt = millis();
-      dashboardWorkflowSetMessage(dashboardWorkflow.type == DASHBOARD_WORKFLOW_DHW ?
-        "Forced DHW cycle active" : "Forced sterilization cycle active");
+      dashboardWorkflowSetMessage("Forced sterilization cycle active");
     } else {
       dashboardWorkflowScheduleRestore(1000UL, "Could not send force command; restoring operating mode");
     }
@@ -283,8 +263,7 @@ static void processDashboardWorkflow() {
   }
 
   if (dashboardWorkflow.stage == DASHBOARD_WORKFLOW_ACTIVE && dashboardWorkflowHasData()) {
-    uint8_t stateTopic = (dashboardWorkflow.type == DASHBOARD_WORKFLOW_DHW) ? 2 : 69;
-    int actualState = dashboardWorkflowTopicValue(stateTopic);
+    int actualState = dashboardWorkflowTopicValue(69);
     if (actualState == 1) dashboardWorkflow.observedActive = true;
 
     if (!dashboardWorkflow.observedActive &&
@@ -296,13 +275,8 @@ static void processDashboardWorkflow() {
     int dhwActual = dashboardWorkflowTopicValue(10);
     int dhwTarget = dashboardWorkflowTopicValue(9);
     if (dashboardWorkflow.observedActive && actualState == 0 && (dhwActual + 2 >= dhwTarget)) {
-      if (dashboardWorkflow.type == DASHBOARD_WORKFLOW_DHW) {
-        dashboardWorkflowScheduleRestore(15UL * 60UL * 1000UL,
-          "Forced DHW complete; operating mode will be restored in 15 minutes");
-      } else {
-        dashboardWorkflowScheduleRestore(10000UL,
-          "Sterilization complete; restoring operating mode");
-      }
+      dashboardWorkflowScheduleRestore(10000UL,
+        "Sterilization complete; restoring operating mode");
     }
     return;
   }
@@ -359,6 +333,8 @@ static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType actio
   uint8_t stateTopic = 255;
   int desired = value;
   switch (action) {
+    case SCHEDULER_ACTION_FORCE_DHW_ON: stateTopic = 2; desired = 1; break;
+    case SCHEDULER_ACTION_FORCE_DHW_OFF: stateTopic = 2; desired = 0; break;
     case SCHEDULER_ACTION_HEATPUMP_ON: stateTopic = 0; desired = 1; break;
     case SCHEDULER_ACTION_HEATPUMP_OFF: stateTopic = 0; desired = 0; break;
     case SCHEDULER_ACTION_SET_OPERATION_MODE: stateTopic = 4; break;
@@ -405,20 +381,6 @@ static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType actio
     }
   }
 
-  if (action == SCHEDULER_ACTION_FORCE_DHW) {
-    if (dashboardWorkflow.type != DASHBOARD_WORKFLOW_NONE) {
-      snprintf(detail, detailSize, "Dashboard workflow is busy");
-      return SCHEDULER_DISPATCH_BUSY;
-    }
-    char workflowResponse[128] = {0};
-    if (!dashboardWorkflowStart(DASHBOARD_WORKFLOW_DHW, workflowResponse, sizeof(workflowResponse))) {
-      strlcpy(detail, workflowResponse, detailSize);
-      return SCHEDULER_DISPATCH_FAILED;
-    }
-    strlcpy(detail, workflowResponse, detailSize);
-    return SCHEDULER_DISPATCH_EXECUTED;
-  }
-
   if (dashboardWorkflow.type != DASHBOARD_WORKFLOW_NONE) {
     snprintf(detail, detailSize, "Dashboard workflow is busy");
     return SCHEDULER_DISPATCH_BUSY;
@@ -430,6 +392,9 @@ static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType actio
   snprintf(valueString, sizeof(valueString), "%d", desired);
   unsigned int length = 0;
   switch (action) {
+    case SCHEDULER_ACTION_FORCE_DHW_ON:
+    case SCHEDULER_ACTION_FORCE_DHW_OFF:
+      length = set_force_DHW(valueString, command, commandLog); break;
     case SCHEDULER_ACTION_HEATPUMP_ON:
     case SCHEDULER_ACTION_HEATPUMP_OFF:
       length = set_heatpump_state(valueString, command, commandLog); break;
@@ -679,11 +644,10 @@ static void handleExternalSensorsArgument(struct webserver_t *client, struct arg
 
 static int handleWpSettingsConfigStatus(struct webserver_t *client) {
   if (client->content == 0) {
-    char response[128];
+    char response[96];
     snprintf(response, sizeof(response),
-      "{\"heatMin\":%d,\"heatMax\":%d,\"dhwBlockAbove\":%d}",
-      heishamonSettings.wpHeatMin, heishamonSettings.wpHeatMax,
-      heishamonSettings.wpDhwBlockAbove);
+      "{\"heatMin\":%d,\"heatMax\":%d}",
+      heishamonSettings.wpHeatMin, heishamonSettings.wpHeatMax);
     webserver_send(client, 200, (char *)"application/json", strlen(response));
     webserver_send_content(client, response, strlen(response));
   }
@@ -799,12 +763,6 @@ static bool updateWpSettingsConfig(const char *name, const char *value,
       return false;
     }
     heishamonSettings.wpHeatMax = parsed;
-  } else if (strcmp(name, "WpDhwBlockAbove") == 0) {
-    if (parsed < 40 || parsed > 100) {
-      snprintf(response, responseSize, "DHW limit must be between 40 and 100");
-      return false;
-    }
-    heishamonSettings.wpDhwBlockAbove = parsed;
   } else {
     return false;
   }
@@ -912,8 +870,7 @@ bool customFeaturesHandleCommandArgument(struct webserver_t *client, struct argu
   }
 
   if (strcmp((char *)args->name, "WpHeatMin") == 0 ||
-      strcmp((char *)args->name, "WpHeatMax") == 0 ||
-      strcmp((char *)args->name, "WpDhwBlockAbove") == 0) {
+      strcmp((char *)args->name, "WpHeatMax") == 0) {
     char response[160] = {0};
     updateWpSettingsConfig((char *)args->name, value, response, sizeof(response));
     appendCustomResponse(client, response);

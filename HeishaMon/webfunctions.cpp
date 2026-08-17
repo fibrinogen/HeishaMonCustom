@@ -245,7 +245,6 @@ void loadSettings(settingsStruct *heishamonSettings) {
           if ( jsonDoc[F("timezone")]) heishamonSettings->timezone = jsonDoc[F("timezone")];
           if ( jsonDoc[F("wp_heat_min")]) heishamonSettings->wpHeatMin = jsonDoc[F("wp_heat_min")];
           if ( jsonDoc[F("wp_heat_max")]) heishamonSettings->wpHeatMax = jsonDoc[F("wp_heat_max")];
-          if ( jsonDoc[F("wp_dhw_block_above")]) heishamonSettings->wpDhwBlockAbove = jsonDoc[F("wp_dhw_block_above")];
           if ( jsonDoc[F("wp_curve_base_high")]) heishamonSettings->wpCurveBaseHigh = jsonDoc[F("wp_curve_base_high")];
           if ( jsonDoc[F("wp_curve_base_low")]) heishamonSettings->wpCurveBaseLow = jsonDoc[F("wp_curve_base_low")];
           if ( jsonDoc[F("wp_curve_outside_high")]) heishamonSettings->wpCurveOutsideHigh = jsonDoc[F("wp_curve_outside_high")];
@@ -257,7 +256,6 @@ void loadSettings(settingsStruct *heishamonSettings) {
             heishamonSettings->wpHeatMin = 20;
             heishamonSettings->wpHeatMax = 65;
           }
-          if (heishamonSettings->wpDhwBlockAbove < 40 || heishamonSettings->wpDhwBlockAbove > 100) heishamonSettings->wpDhwBlockAbove = 75;
           if (heishamonSettings->wpCurveShift < -5 || heishamonSettings->wpCurveShift > 5) heishamonSettings->wpCurveShift = 0;
           if (heishamonSettings->wpCurveBaseHigh < -50 || heishamonSettings->wpCurveBaseHigh > 100 ||
               heishamonSettings->wpCurveBaseLow < -50 || heishamonSettings->wpCurveBaseLow > 100 ||
@@ -509,7 +507,6 @@ void settingsToJson(JsonDocument &jsonDoc, settingsStruct *heishamonSettings) {
   jsonDoc[F("waitTime")] = heishamonSettings->waitTime;
   jsonDoc[F("wp_heat_min")] = heishamonSettings->wpHeatMin;
   jsonDoc[F("wp_heat_max")] = heishamonSettings->wpHeatMax;
-  jsonDoc[F("wp_dhw_block_above")] = heishamonSettings->wpDhwBlockAbove;
   jsonDoc[F("wp_curve_base_high")] = heishamonSettings->wpCurveBaseHigh;
   jsonDoc[F("wp_curve_base_low")] = heishamonSettings->wpCurveBaseLow;
   jsonDoc[F("wp_curve_outside_high")] = heishamonSettings->wpCurveOutsideHigh;

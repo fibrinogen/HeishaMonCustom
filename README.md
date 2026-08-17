@@ -43,23 +43,25 @@ The ESP32-S3 web interface contains a **Scheduler** page for local, conditional 
 
 Open `http://heishamon.local/scheduler` (or use the device IP), select **Add schedule**, choose weekdays and a time, then select an optional temperature condition and an action. Existing schedules can be enabled, edited, deleted, or run manually for testing. The page also shows the ESP's local time, synchronization state, queued actions, and the ten most recent execution results since boot.
 
-Version 1 supports these actions:
+The Scheduler supports these actions:
 
-- protected Force DHW workflow
+- Panasonic Force DHW on or off
 - heat pump on or off
 - operating mode
 - DHW target temperature
 - Zone 1 heat request / curve shift
 - quiet mode level
 
-Conditions can compare the current DHW, outside, Zone 1 room, main inlet, or main outlet temperature, the three-way valve state (0=Room, 1=DHW), and the Force-DHW state (0=off, 1=on) using `<`, `<=`, `==`, `>=`, or `>`. The latest already-received Panasonic value is used; the Scheduler does not initiate additional polling. A typical hot-water reserve combines `DHW temperature < threshold`, `three-way valve == 0`, and `Force DHW == 0` with the protected Force-DHW action.
+Conditions can compare the current DHW, outside, Zone 1 room, main inlet, or main outlet temperature, the three-way valve state (0=Room, 1=DHW), and the Force-DHW state (0=off, 1=on) using `<`, `<=`, `==`, `>=`, or `>`. The latest already-received Panasonic value is used; the Scheduler does not initiate additional polling. A typical hot-water reserve combines `DHW temperature < threshold`, `three-way valve == 0`, and `Force DHW == 0` with ordered `heat pump on`, `set operating mode`, and `Force DHW on` actions.
 
-Up to 16 schedules are stored in the versioned LittleFS file `/scheduler.json`. Runtime information, including the execution log and last-executed minute, remains in RAM. A schedule executes at most once in its configured local minute. Invalid time, unavailable condition data, invalid entries, or a disabled Scheduler result in no Panasonic command.
+Force DHW is sent directly to the Panasonic controller. HeishaMon does not change or later restore the operating mode automatically, and it does not supervise the resulting DHW cycle. Select an operating mode that includes DHW before sending Force DHW. Stored schedules using the former `force_dhw` workflow action are interpreted as `Force DHW on`.
+
+Up to 24 schedules are stored in the versioned LittleFS file `/scheduler.json`. Runtime information, including the execution log and last-executed minute, remains in RAM. A schedule executes at most once in its configured local minute. Invalid time, unavailable condition data, invalid entries, or a disabled Scheduler result in no Panasonic command.
 
 The lightweight API follows the existing HeishaMon query-command convention:
 
 - `GET /schedulerapi` returns status, entries, and the in-memory event log as JSON.
-- `GET /schedulercommand?save=<url-encoded-json>` creates or updates an entry.
+- `POST /schedulercommand` with a form-encoded `save=<json>` body creates or updates an entry.
 - `GET /schedulercommand?delete=<id>` deletes an entry.
 - `GET /schedulercommand?run=<id>` evaluates and queues an entry immediately.
 - `GET /schedulercommand?enabled=0|1` pauses or enables the complete Scheduler.

@@ -398,28 +398,6 @@
               </div>
             </div>
             <div class="dashboard-section-title">Limits</div>
-            <div class="dashboard-row">
-              <span>Block Force DHW above</span>
-              <div class="dashboard-control">
-                <button
-                  class="dashboard-step"
-                  onclick="wpConfigStep('dhwBlockAbove',-1)"
-                >
-                  &#8964;</button
-                ><span class="dashboard-value"
-                  ><span id="wpDhwBlockValue">--</span> &deg;C</span
-                ><button
-                  class="dashboard-step"
-                  onclick="wpConfigStep('dhwBlockAbove',1)"
-                >
-                  &#8963;
-                </button>
-              </div>
-            </div>
-            <div class="wp-settings-note">
-              This limit blocks the Force DHW workflow on Dashboard when the
-              tank is already warm enough.
-            </div>
             <div id="wpSettingsStatus" class="dashboard-command-status"></div>
           </div>
         </section>

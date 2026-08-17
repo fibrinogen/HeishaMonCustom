@@ -38,7 +38,6 @@ struct settingsStruct {
   uint16_t timezone = 0;
   int16_t wpHeatMin = 20; //minimum direct heat water setpoint used by the web UI
   int16_t wpHeatMax = 65; //maximum direct heat water setpoint used by the web UI
-  int16_t wpDhwBlockAbove = 75; //block dashboard Force DHW above this tank temperature
   // Custom compensation-curve state. These fields are persisted in the normal
   // JSON configuration and are intentionally kept outside upstream protocol code.
   int16_t wpCurveBaseHigh = 0;

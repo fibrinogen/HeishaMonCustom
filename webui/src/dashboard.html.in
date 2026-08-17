@@ -350,20 +350,24 @@
                 ><span id="TOP2-Value" class="dashboard-hidden"></span>
                 <div class="dashboard-workflow-actions">
                   <button
-                    id="startDhwButton"
+                    id="forceDhwOnButton"
                     class="btn btn-ghost"
-                    onclick="startDashboardWorkflow('dhw')"
+                    onclick="setDashboardForceDhw(1)"
                   >
-                    Start</button
+                    On</button
                   ><button
-                    id="cancelDhwButton"
+                    id="forceDhwOffButton"
                     class="btn btn-danger"
-                    onclick="cancelDashboardWorkflow('dhw')"
+                    onclick="setDashboardForceDhw(0)"
                   >
-                    Cancel
+                    Off
                   </button>
                 </div>
               </div>
+            </div>
+            <div class="wp-settings-note">
+              Sends the Panasonic Force DHW command directly. The current
+              operating mode must include DHW and is not changed automatically.
             </div>
             <div class="dashboard-row">
               <span>Force sterilization</span>

@@ -1,5 +1,5 @@
 var wpValues = {};
-var wpConfig = { heatMin: 20, heatMax: 65, dhwBlockAbove: 75 };
+var wpConfig = { heatMin: 20, heatMax: 65 };
 var wpCurveShift = null;
 var wpRefreshPromise = null;
 var wpCommandBusy = false;
@@ -66,7 +66,6 @@ function wpSync() {
   }
   updCell("wpHeatMinValue", String(wpConfig.heatMin));
   updCell("wpHeatMaxValue", String(wpConfig.heatMax));
-  updCell("wpDhwBlockValue", String(wpConfig.dhwBlockAbove));
   var curveAvailable = !!(
     wpCurveShift &&
     wpCurveShift.implementation === "curveEndpoints" &&
@@ -237,10 +236,7 @@ function wpConfigStep(field, delta) {
   } else if (field === "heatMax") {
     next = Math.max(wpConfig.heatMin, Math.min(100, next));
     command = "WpHeatMax";
-  } else {
-    next = Math.max(40, Math.min(100, next));
-    command = "WpDhwBlockAbove";
-  }
+  } else return;
   wpConfig[field] = next;
   wpSync();
   wpQueueStep("config:" + field, command, next);

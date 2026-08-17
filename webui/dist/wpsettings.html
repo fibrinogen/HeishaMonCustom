@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Heisha Monitor</title>
-    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.21" />
-    <script src="/webui/common.js?v=0.2.7-web.21"></script>
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.22" />
+    <script src="/webui/common.js?v=0.2.7-web.22"></script>
   </head>
   <body>
     <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
@@ -398,34 +398,12 @@
               </div>
             </div>
             <div class="dashboard-section-title">Limits</div>
-            <div class="dashboard-row">
-              <span>Block Force DHW above</span>
-              <div class="dashboard-control">
-                <button
-                  class="dashboard-step"
-                  onclick="wpConfigStep('dhwBlockAbove',-1)"
-                >
-                  &#8964;</button
-                ><span class="dashboard-value"
-                  ><span id="wpDhwBlockValue">--</span> &deg;C</span
-                ><button
-                  class="dashboard-step"
-                  onclick="wpConfigStep('dhwBlockAbove',1)"
-                >
-                  &#8963;
-                </button>
-              </div>
-            </div>
-            <div class="wp-settings-note">
-              This limit blocks the Force DHW workflow on Dashboard when the
-              tank is already warm enough.
-            </div>
             <div id="wpSettingsStatus" class="dashboard-command-status"></div>
           </div>
         </section>
       </div>
     </main>
-    <script src="/webui/websocket.js?v=0.2.7-web.21"></script>
-    <script src="/webui/wpsettings.js?v=0.2.7-web.21"></script>
+    <script src="/webui/websocket.js?v=0.2.7-web.22"></script>
+    <script src="/webui/wpsettings.js?v=0.2.7-web.22"></script>
   </body>
 </html>

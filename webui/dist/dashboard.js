@@ -5,7 +5,6 @@ var dashboardWorkflow = {
   previousMode: -1,
   message: "Loading workflow status ...",
 };
-var dashboardWpConfig = { heatMin: 20, heatMax: 65, dhwBlockAbove: 75 };
 var dashboardRefreshTimer = null;
 var dashboardRefreshPromise = null;
 var dashboardCommandBusy = false;
@@ -144,14 +143,6 @@ function refreshDashboard() {
       return refreshDashboardWorkflow();
     })
     .then(function () {
-      return fetch("/wpsettingsconfig", { cache: "no-store" });
-    })
-    .then(function (response) {
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      return response.json();
-    })
-    .then(function (data) {
-      dashboardWpConfig = data;
       dashboardRefreshPromise = null;
       syncDashboardControls();
     })
@@ -209,14 +200,17 @@ function syncDashboardControls() {
   setDashboardSelectValue("dashboardQuietMode", dashboardValues.TOP18);
   setDashboardSelectValue("dashboardPowerfulMode", dashboardValues.TOP17);
   var busy = dashboardWorkflow.type !== "none";
-  var startDhw = document.getElementById("startDhwButton");
-  var cancelDhw = document.getElementById("cancelDhwButton");
+  var forceDhwOn = document.getElementById("forceDhwOnButton");
+  var forceDhwOff = document.getElementById("forceDhwOffButton");
   var startSterilization = document.getElementById("startSterilizationButton");
   var cancelSterilization = document.getElementById(
     "cancelSterilizationButton",
   );
-  if (startDhw) startDhw.disabled = busy || Number(dashboardValues.TOP2) !== 0;
-  if (cancelDhw) cancelDhw.disabled = dashboardWorkflow.type !== "dhw";
+  var forceDhwActive = Number(dashboardValues.TOP2) !== 0;
+  var forceDhwModeAvailable = dashboardOperationModeIncludesDhw();
+  if (forceDhwOn)
+    forceDhwOn.disabled = busy || forceDhwActive || !forceDhwModeAvailable;
+  if (forceDhwOff) forceDhwOff.disabled = busy || !forceDhwActive;
   if (startSterilization)
     startSterilization.disabled = busy || Number(dashboardValues.TOP69) !== 0;
   if (cancelSterilization)
@@ -224,8 +218,11 @@ function syncDashboardControls() {
   var workflowMessage = dashboardWorkflow.message;
   if (!busy && Number(dashboardValues.TOP69) !== 0)
     workflowMessage = "Sterilization is active outside the dashboard workflow";
-  else if (!busy && Number(dashboardValues.TOP2) !== 0)
-    workflowMessage = "Force DHW is active outside the dashboard workflow";
+  else if (!busy && forceDhwActive)
+    workflowMessage = "Panasonic Force DHW is active";
+  else if (!busy && !forceDhwModeAvailable)
+    workflowMessage =
+      "Force DHW requires an operating mode that includes DHW; the mode will not be changed automatically";
   if (workflowMessage) setDashboardStatus(workflowMessage, false);
   setGauge("TOP1", 35);
   setGauge("TOP8", 120);
@@ -301,23 +298,46 @@ function setDashboardSelect(select, command) {
     },
   );
 }
+function dashboardOperationModeIncludesDhw() {
+  var mode = Number(dashboardValues.TOP4);
+  return mode === 3 || mode === 4 || mode === 5 || mode === 6 || mode === 8;
+}
+function setDashboardForceDhw(state) {
+  if (state && !dashboardOperationModeIncludesDhw()) {
+    setDashboardStatus(
+      "Select an operating mode that includes DHW before enabling Force DHW",
+      true,
+    );
+    return;
+  }
+  var action = state ? "enable" : "disable";
+  if (
+    !window.confirm(
+      (state ? "Enable" : "Disable") +
+        " Panasonic Force DHW? The operating mode will not be changed.",
+    )
+  )
+    return;
+  setDashboardStatus("Waiting to " + action + " Force DHW ...", false);
+  sendDashboardCommand("SetForceDHW", state ? 1 : 0);
+}
 function sendDashboardWorkflow(action) {
   return sendDashboardCommand("DashboardWorkflow", action);
 }
 function startDashboardWorkflow(type) {
-  var label = type === "dhw" ? "forced DHW" : "forced sterilization";
-  if (!window.confirm("Start " + label + " cycle?")) return;
-  sendDashboardWorkflow(type === "dhw" ? "start_dhw" : "start_sterilization");
+  if (type !== "sterilization") return;
+  if (!window.confirm("Start forced sterilization cycle?")) return;
+  sendDashboardWorkflow("start_sterilization");
 }
 function cancelDashboardWorkflow(type) {
-  var label = type === "dhw" ? "forced DHW" : "forced sterilization";
+  if (type !== "sterilization") return;
   if (
     !window.confirm(
-      "Cancel " + label + " and restore the previous operating mode?",
+      "Cancel forced sterilization and restore the previous operating mode?",
     )
   )
     return;
-  sendDashboardWorkflow(type === "dhw" ? "cancel_dhw" : "cancel_sterilization");
+  sendDashboardWorkflow("cancel_sterilization");
 }
 function queueDashboardStep(command, topic, value) {
   if (dashboardStepTimers[topic])
