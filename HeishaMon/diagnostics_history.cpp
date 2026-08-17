@@ -1570,7 +1570,14 @@ static void finishStoredHistoryBucket(StoredHistoryOutput &output) {
   if (output.aggregate.count == 0 || output.emitted >= output.maxPoints) return;
   finishAggregate(output.aggregate);
   float cop = NAN;
-  totalsCop(output.aggregate.energy, cop);
+  bool copValid = totalsCop(output.aggregate.energy, cop);
+  // Short requested ranges can place every stored sample in its own display
+  // bucket. Such a bucket has no pair from which to integrate energy, so use
+  // the sample's instantaneous COP instead. Multi-sample buckets continue to
+  // use energy totals and are never reduced to an average of COP samples.
+  if (!copValid && output.aggregate.count == 1) {
+    instantaneousCop(output.aggregate.sample, cop);
+  }
   output.samples[output.emitted] = output.aggregate.sample;
   output.cops[output.emitted] = cop;
   output.emitted++;
