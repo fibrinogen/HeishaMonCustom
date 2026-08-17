@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Heisha Monitor</title>
-    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.17" />
-    <script src="/webui/common.js?v=0.2.7-web.17"></script>
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.18" />
+    <script src="/webui/common.js?v=0.2.7-web.18"></script>
   </head>
   <body>
     <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
@@ -334,7 +334,8 @@
           ctx.strokeStyle = l.color;
           ctx.lineWidth = 2;
           ctx.beginPath();
-          var started = false;
+          var started = false,
+            hasSegment = false;
           points.forEach(function (p, i) {
             var n = Number(p[l.key]);
             if (
@@ -351,9 +352,12 @@
             if (!started) {
               ctx.moveTo(px, py);
               started = true;
-            } else ctx.lineTo(px, py);
+            } else {
+              ctx.lineTo(px, py);
+              hasSegment = true;
+            }
           });
-          if (started) ctx.stroke();
+          if (hasSegment) ctx.stroke();
         });
       }
       function val(v, unit) {
@@ -483,7 +487,8 @@
           ctx.strokeStyle = l.color;
           ctx.lineWidth = 2;
           ctx.beginPath();
-          var started = false;
+          var started = false,
+            hasSegment = false;
           points.forEach(function (p, i) {
             var n = Number(p[l.key]);
             if (
@@ -500,9 +505,12 @@
             if (!started) {
               ctx.moveTo(px, py);
               started = true;
-            } else ctx.lineTo(px, py);
+            } else {
+              ctx.lineTo(px, py);
+              hasSegment = true;
+            }
           });
-          if (started) ctx.stroke();
+          if (hasSegment) ctx.stroke();
         });
       }
       var renderedHistory = null,
