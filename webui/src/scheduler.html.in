@@ -124,9 +124,6 @@
             values.
           </p>
         </div>
-        <button class="btn btn-primary" onclick="schedulerOpenEditor(0)">
-          + Add schedule
-        </button>
       </div>
       <div class="scheduler-status">
         <div class="scheduler-status-card">
@@ -175,17 +172,22 @@
       <section class="scheduler-panel">
         <div class="scheduler-panel-header">
           <h2>Schedules</h2>
-          <div class="dashboard-control">
-            <span id="schedulerGlobalLabel" class="dashboard-muted"
-              >Enabled</span
-            ><label class="dashboard-toggle"
-              ><input
-                id="schedulerGlobalToggle"
-                type="checkbox"
-                onchange="schedulerSetGlobal(this.checked)" /><span
-                class="dashboard-toggle-slider"
-              ></span
-            ></label>
+          <div class="scheduler-panel-actions">
+            <div class="dashboard-control">
+              <span id="schedulerGlobalLabel" class="dashboard-muted"
+                >Enabled</span
+              ><label class="dashboard-toggle"
+                ><input
+                  id="schedulerGlobalToggle"
+                  type="checkbox"
+                  onchange="schedulerSetGlobal(this.checked)" /><span
+                  class="dashboard-toggle-slider"
+                ></span
+              ></label>
+            </div>
+            <button class="btn btn-primary" onclick="schedulerOpenEditor(0)">
+              + Add schedule
+            </button>
           </div>
         </div>
         <div class="scheduler-table-wrap">
@@ -215,7 +217,7 @@
       <section class="scheduler-panel">
         <div class="scheduler-panel-header">
           <h2>Recent execution log</h2>
-          <span class="dashboard-muted">RAM only, newest first</span>
+          <span class="dashboard-muted">SD card, newest first</span>
         </div>
         <div class="scheduler-table-wrap">
           <table class="scheduler-table">
@@ -230,11 +232,23 @@
             <tbody id="schedulerEvents">
               <tr>
                 <td colspan="4" class="scheduler-empty">
-                  No executions since boot.
+                  Reading scheduler executions from SD card ...
                 </td>
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="scheduler-log-footer">
+          <span id="schedulerLogStatus" class="dashboard-muted"></span>
+          <button
+            id="schedulerLoadMore"
+            class="btn btn-ghost"
+            type="button"
+            onclick="schedulerLoadMoreEvents()"
+            disabled
+          >
+            Loading ...
+          </button>
         </div>
       </section>
     </main>

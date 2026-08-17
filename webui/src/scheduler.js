@@ -2,6 +2,11 @@ var schedulerData = { entries: [], events: [] };
 var schedulerEditingId = 0;
 var schedulerBusy = false;
 var schedulerRefreshPromise = null;
+var schedulerLogEvents = [];
+var schedulerLogOffset = 0;
+var schedulerLogTotal = 0;
+var schedulerLogBusy = false;
+var schedulerLogPageSize = 20;
 var schedulerDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 var schedulerActionLabels = {
   force_dhw_on: "Force DHW on",
@@ -339,6 +344,18 @@ function schedulerRender(data) {
       "<tr><td colspan='7' class='scheduler-empty'>No schedules configured. Add the first one above.</td></tr>";
   } else {
     rows.innerHTML = data.entries
+      .slice()
+      .sort(function (a, b) {
+        var timeDifference =
+          Number(a.hour) * 60 +
+          Number(a.minute) -
+          (Number(b.hour) * 60 + Number(b.minute));
+        if (timeDifference) return timeDifference;
+        var nameDifference = String(a.name || "").localeCompare(
+          String(b.name || ""),
+        );
+        return nameDifference || Number(a.id) - Number(b.id);
+      })
       .map(function (entry) {
         return (
           '<tr><td><label class="dashboard-toggle"><input type="checkbox" ' +
@@ -368,17 +385,41 @@ function schedulerRender(data) {
       })
       .join("");
   }
+}
+function schedulerParsePersistentEvent(event) {
+  var message = String(event.message || "");
+  var match = /^#(\d+)\s+(.*?)\s+->\s+([^:]+):\s*(.*)$/.exec(message);
+  return {
+    t: Number(event.t),
+    id: match ? Number(match[1]) : Number(event.value),
+    name: match ? match[2] : "#" + Number(event.value),
+    result: match ? match[3].trim() : "stored",
+    detail: match ? match[4] : message,
+  };
+}
+function schedulerRenderPersistentEvents(error) {
   var events = document.getElementById("schedulerEvents");
-  if (!data.events || !data.events.length) {
+  var status = document.getElementById("schedulerLogStatus");
+  var loadMore = document.getElementById("schedulerLoadMore");
+  if (!schedulerLogEvents.length) {
     events.innerHTML =
-      "<tr><td colspan='4' class='scheduler-empty'>No executions since boot.</td></tr>";
+      "<tr><td colspan='4' class='scheduler-empty'>" +
+      schedulerEscape(
+        error ||
+          (schedulerLogBusy
+            ? "Reading scheduler executions from SD card ..."
+            : "No scheduler executions stored on SD card."),
+      ) +
+      "</td></tr>";
   } else {
-    events.innerHTML = data.events
+    events.innerHTML = schedulerLogEvents
       .map(function (event) {
-        var resultClass = String(event.result).replace(/\s+/g, "-");
+        var resultClass = String(event.result)
+          .toLowerCase()
+          .replace(/[^a-z0-9_-]+/g, "-");
         return (
           '<tr><td class="scheduler-mono">' +
-          schedulerEscape(event.time) +
+          schedulerEscape(hmFormatDateTime24(event.t * 1000)) +
           "</td><td>" +
           schedulerEscape(event.name || "#" + event.id) +
           '</td><td class="scheduler-event-result ' +
@@ -392,6 +433,63 @@ function schedulerRender(data) {
       })
       .join("");
   }
+  if (status) {
+    status.textContent = error
+      ? error
+      : schedulerLogBusy
+        ? "Reading SD card ..."
+        : "Showing " +
+          schedulerLogEvents.length +
+          " of " +
+          schedulerLogTotal +
+          " stored executions";
+  }
+  if (loadMore) {
+    loadMore.disabled = schedulerLogBusy;
+    loadMore.hidden =
+      !schedulerLogBusy && schedulerLogOffset >= schedulerLogTotal;
+    loadMore.textContent = schedulerLogBusy ? "Loading ..." : "Load more";
+  }
+}
+function schedulerLoadEvents(reset) {
+  if (schedulerLogBusy) return Promise.resolve();
+  if (reset) {
+    schedulerLogEvents = [];
+    schedulerLogOffset = 0;
+    schedulerLogTotal = 0;
+  }
+  schedulerLogBusy = true;
+  schedulerRenderPersistentEvents();
+  return fetch(
+    "/schedulerlogapi?offset=" +
+      schedulerLogOffset +
+      "&limit=" +
+      schedulerLogPageSize,
+    { cache: "no-store" },
+  )
+    .then(function (response) {
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      return response.json();
+    })
+    .then(function (data) {
+      if (data.error) throw new Error(data.error);
+      if (data.source !== "sd") throw new Error("Unexpected log source");
+      var page = (data.events || []).map(schedulerParsePersistentEvent);
+      schedulerLogEvents = schedulerLogEvents.concat(page);
+      schedulerLogOffset += page.length;
+      schedulerLogTotal = Number(data.eventCount) || 0;
+      schedulerLogBusy = false;
+      schedulerRenderPersistentEvents();
+    })
+    .catch(function (error) {
+      schedulerLogBusy = false;
+      schedulerRenderPersistentEvents(
+        "Could not read scheduler log from SD card: " + error.message,
+      );
+    });
+}
+function schedulerLoadMoreEvents() {
+  return schedulerLoadEvents(false);
 }
 function schedulerRefresh() {
   if (schedulerRefreshPromise) return schedulerRefreshPromise;
@@ -795,5 +893,6 @@ document.addEventListener("keydown", function (event) {
 });
 document.addEventListener("DOMContentLoaded", function () {
   schedulerRefresh();
+  schedulerLoadEvents(true);
   window.setInterval(schedulerRefresh, 10000);
 });

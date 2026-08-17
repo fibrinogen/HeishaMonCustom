@@ -53,6 +53,7 @@ constexpr uint8_t ROUTE_HISTORY_COMMAND = 33;
 constexpr uint8_t ROUTE_CYCLES_API = 34;
 constexpr uint8_t ROUTE_PERSISTENT_EVENTS_API = 38;
 constexpr uint8_t ROUTE_PERSISTENT_EVENTS_CSV = 39;
+constexpr uint8_t ROUTE_PERSISTENT_SCHEDULER_EVENTS_API = 41;
 
 constexpr uint8_t TOP_HEATPUMP_STATE = 0;
 constexpr uint8_t TOP_FLOW = 1;
@@ -108,7 +109,9 @@ struct HistoryRequest {
   uint32_t rangeSeconds;
   uint32_t startTimestamp;
   uint32_t endTimestamp;
+  uint32_t eventOffset;
   uint16_t maxPoints;
+  uint16_t eventLimit;
   bool persistentStorage;
   char response[128];
 };
@@ -1869,6 +1872,108 @@ static void handlePersistentEventLog(struct webserver_t *client, uint32_t lowerT
   xSemaphoreGive(sdFilesystemMutex);
   if (!written) log_message((char *)"[SD] Persistent event-log read stopped early");
 }
+
+static bool isPersistentSchedulerExecution(const PersistentEventLine &event) {
+  return strcmp(event.type, "scheduler") == 0 && event.message[0] == '#';
+}
+
+struct PersistentSchedulerEventCount {
+  uint32_t count = 0;
+};
+
+static bool countPersistentSchedulerEvent(const PersistentEventLine &event,
+    void *context) {
+  if (isPersistentSchedulerExecution(event)) {
+    ((PersistentSchedulerEventCount *)context)->count++;
+  }
+  return true;
+}
+
+struct PersistentSchedulerEventPage {
+  PersistentEventLine *events;
+  uint32_t firstIndex;
+  uint32_t endIndex;
+  uint32_t index = 0;
+  uint16_t count = 0;
+};
+
+static bool collectPersistentSchedulerEvent(const PersistentEventLine &event,
+    void *context) {
+  if (!isPersistentSchedulerExecution(event)) return true;
+  PersistentSchedulerEventPage &page = *(PersistentSchedulerEventPage *)context;
+  uint32_t index = page.index++;
+  if (index >= page.firstIndex && index < page.endIndex) {
+    page.events[page.count++] = event;
+  }
+  return true;
+}
+
+static void handlePersistentSchedulerEventLog(struct webserver_t *client,
+    uint32_t offset, uint16_t limit) {
+  if (!sdState.active || sdFilesystemMutex == nullptr || storedArchivePaths == nullptr) {
+    webserver_send(client, 503, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"Persistent SD event log is unavailable\"}");
+    return;
+  }
+  if (xSemaphoreTake(sdFilesystemMutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+    webserver_send(client, 503, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"SD card is busy writing history\"}");
+    return;
+  }
+  sdHistoryReaderBusy = true;
+  PersistentSchedulerEventCount total;
+  bool counted = visitPersistentEventLog(0, UINT32_MAX,
+    countPersistentSchedulerEvent, &total);
+  if (!counted) {
+    sdHistoryReaderBusy = false;
+    xSemaphoreGive(sdFilesystemMutex);
+    webserver_send(client, 500, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"Could not read persistent scheduler log\"}");
+    return;
+  }
+
+  uint32_t endIndex = offset < total.count ? total.count - offset : 0;
+  uint16_t returned = (uint16_t)min<uint32_t>(limit, endIndex);
+  PersistentEventLine *pageEvents = returned == 0 ? nullptr :
+    (PersistentEventLine *)malloc(sizeof(PersistentEventLine) * returned);
+  if (returned != 0 && pageEvents == nullptr) {
+    sdHistoryReaderBusy = false;
+    xSemaphoreGive(sdFilesystemMutex);
+    webserver_send(client, 503, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"Insufficient memory for scheduler log\"}");
+    return;
+  }
+
+  PersistentSchedulerEventPage page = {};
+  page.events = pageEvents;
+  page.firstIndex = endIndex - returned;
+  page.endIndex = endIndex;
+  bool read = returned == 0 || visitPersistentEventLog(0, UINT32_MAX,
+    collectPersistentSchedulerEvent, &page);
+  if (!read) {
+    free(pageEvents);
+    sdHistoryReaderBusy = false;
+    xSemaphoreGive(sdFilesystemMutex);
+    webserver_send(client, 500, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"Could not read persistent scheduler log\"}");
+    return;
+  }
+
+  webserver_send(client, 200, (char *)"application/json", 0);
+  appendFmt(client,
+    "{\"source\":\"sd\",\"eventCount\":%lu,\"offset\":%lu,\"limit\":%u,\"events\":[",
+    (unsigned long)total.count, (unsigned long)offset, limit);
+  for (uint16_t index = page.count; index > 0; index--) {
+    const PersistentEventLine &event = page.events[index - 1];
+    if (index < page.count) appendText(client, ",");
+    appendFmt(client, "{\"t\":%lu,\"message\":\"%s\",\"value\":%ld}",
+      (unsigned long)event.timestamp, event.message, (long)event.value);
+  }
+  appendText(client, "]}");
+  free(pageEvents);
+  sdHistoryReaderBusy = false;
+  xSemaphoreGive(sdFilesystemMutex);
+}
 #endif
 
 static void pruneSdDirectory(const char *directory, time_t cutoff) {
@@ -2802,13 +2907,18 @@ bool diagnosticsHistoryHandleUri(struct webserver_t *client, const char *uri) {
   else if (strcmp(uri, "/eventlogapi") == 0 ||
       strcmp(uri, "/api/eventlog") == 0) client->route = ROUTE_PERSISTENT_EVENTS_API;
   else if (strcmp(uri, "/eventlogcsv") == 0) client->route = ROUTE_PERSISTENT_EVENTS_CSV;
+  else if (strcmp(uri, "/schedulerlogapi") == 0 ||
+      strcmp(uri, "/api/schedulerlog") == 0) {
+    client->route = ROUTE_PERSISTENT_SCHEDULER_EVENTS_API;
+  }
   else if (strcmp(uri, "/historycommand") == 0) client->route = ROUTE_HISTORY_COMMAND;
   else if (strcmp(uri, "/cycles") == 0 || strcmp(uri, "/api/cycles") == 0) client->route = ROUTE_CYCLES_API;
   else return false;
 
   if (client->route == ROUTE_HISTORY_API || client->route == ROUTE_HISTORY_COMMAND ||
       client->route == ROUTE_PERSISTENT_EVENTS_API ||
-      client->route == ROUTE_PERSISTENT_EVENTS_CSV) {
+      client->route == ROUTE_PERSISTENT_EVENTS_CSV ||
+      client->route == ROUTE_PERSISTENT_SCHEDULER_EVENTS_API) {
     HistoryRequest *request = new HistoryRequest();
     if (request == nullptr) {
       log_message((char *)"[HISTORY] Out of memory while creating request");
@@ -2818,7 +2928,9 @@ bool diagnosticsHistoryHandleUri(struct webserver_t *client, const char *uri) {
     request->rangeSeconds = 0;
     request->startTimestamp = 0;
     request->endTimestamp = 0;
+    request->eventOffset = 0;
     request->maxPoints = 600;
+    request->eventLimit = 20;
     request->persistentStorage = false;
     request->response[0] = '\0';
     client->userdata = request;
@@ -2830,7 +2942,8 @@ bool diagnosticsHistoryHandleArgs(struct webserver_t *client,
     struct arguments_t *args) {
   if (client->route == ROUTE_HISTORY_API ||
       client->route == ROUTE_PERSISTENT_EVENTS_API ||
-      client->route == ROUTE_PERSISTENT_EVENTS_CSV) {
+      client->route == ROUTE_PERSISTENT_EVENTS_CSV ||
+      client->route == ROUTE_PERSISTENT_SCHEDULER_EVENTS_API) {
     HistoryRequest *request = requestContext(client);
     if (request == nullptr) return true;
     if (strcmp((char *)args->name, "range") == 0) {
@@ -2859,6 +2972,20 @@ bool diagnosticsHistoryHandleArgs(struct webserver_t *client,
     } else if (strcmp((char *)args->name, "storage") == 0) {
       request->persistentStorage = args->len == 2 &&
         strncmp((char *)args->value, "sd", 2) == 0;
+    } else if (client->route == ROUTE_PERSISTENT_SCHEDULER_EVENTS_API &&
+        (strcmp((char *)args->name, "offset") == 0 ||
+          strcmp((char *)args->name, "limit") == 0)) {
+      char value[args->len + 1];
+      snprintf(value, sizeof(value), "%.*s", args->len, args->value);
+      char *end = nullptr;
+      unsigned long parsed = strtoul(value, &end, 10);
+      if (end != value && *end == '\0') {
+        if (strcmp((char *)args->name, "offset") == 0) {
+          request->eventOffset = (uint32_t)parsed;
+        } else if (parsed >= 1 && parsed <= 100) {
+          request->eventLimit = (uint16_t)parsed;
+        }
+      }
     }
     return true;
   }
@@ -2983,6 +3110,21 @@ bool diagnosticsHistoryHandleWrite(struct webserver_t *client) {
         client->userdata = nullptr;
       }
       return true;
+    case ROUTE_PERSISTENT_SCHEDULER_EVENTS_API:
+      if (client->content == 0) {
+        HistoryRequest *request = requestContext(client);
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+        handlePersistentSchedulerEventLog(client,
+          request == nullptr ? 0 : request->eventOffset,
+          request == nullptr ? 20 : request->eventLimit);
+#else
+        webserver_send(client, 503, (char *)"application/json", 0);
+        appendText(client, "{\"error\":\"Persistent SD events are disabled\"}");
+#endif
+        delete request;
+        client->userdata = nullptr;
+      }
+      return true;
     case ROUTE_CYCLES_API:
       if (client->content == 0) {
         webserver_send(client, 200, (char *)"application/json", 0);
@@ -3008,7 +3150,8 @@ bool diagnosticsHistoryHandleWrite(struct webserver_t *client) {
 bool diagnosticsHistoryHandleClose(struct webserver_t *client) {
   if (client->route == ROUTE_HISTORY_API || client->route == ROUTE_HISTORY_COMMAND ||
       client->route == ROUTE_PERSISTENT_EVENTS_API ||
-      client->route == ROUTE_PERSISTENT_EVENTS_CSV) {
+      client->route == ROUTE_PERSISTENT_EVENTS_CSV ||
+      client->route == ROUTE_PERSISTENT_SCHEDULER_EVENTS_API) {
     if (client->userdata != nullptr) {
       delete requestContext(client);
       client->userdata = nullptr;

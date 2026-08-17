@@ -386,6 +386,7 @@ input:disabled + .theme-slider-compact {
 .scheduler-panel{background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:14px}
 .scheduler-panel-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 15px;border-bottom:1px solid var(--border)}
 .scheduler-panel-header h2{margin:0;color:var(--text-primary);font-size:14px}
+.scheduler-panel-actions{display:flex;align-items:center;gap:14px}
 .scheduler-table-wrap{overflow:auto;max-height:420px;position:relative}
 .scheduler-table{width:100%;border-collapse:collapse;min-width:850px}
 .scheduler-table thead{position:sticky;top:0;z-index:5;background:var(--bg-surface)}
@@ -401,6 +402,9 @@ input:disabled + .theme-slider-compact {
 .scheduler-sync-good{color:var(--green)}
 .scheduler-sync-bad{color:var(--red)}
 .scheduler-command-status{min-height:18px;margin:4px 2px 10px;color:var(--text-muted);font-size:11px;text-align:right}
+.scheduler-log-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 15px;border-top:1px solid var(--border)}
+.scheduler-log-footer .btn{height:29px;padding:5px 11px;font-size:10px}
+.scheduler-log-footer .btn[hidden]{display:none}
 .scheduler-modal{display:none;position:fixed;z-index:1200;inset:0;padding:20px;background:rgba(4,7,12,.7);align-items:center;justify-content:center}
 .scheduler-modal.open{display:flex}
 .scheduler-editor{width:min(720px,100%);max-height:calc(100vh - 40px);overflow:auto;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:0 20px 70px rgba(0,0,0,.45)}
@@ -440,7 +444,7 @@ input:disabled + .theme-slider-compact {
 @media(max-width:1250px){.wp-settings-columns{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:680px){.wp-settings-columns{grid-template-columns:1fr}.wp-settings-slider{width:120px}}
 @media(max-width:1000px){.dashboard-columns{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:680px){.main-content{padding-left:12px;padding-right:12px}.dashboard-columns{grid-template-columns:1fr}.scheduler-heading{align-items:stretch;flex-direction:column}.scheduler-status{grid-template-columns:repeat(2,minmax(0,1fr))}.scheduler-form-grid{grid-template-columns:1fr}.scheduler-field.full{grid-column:auto}.scheduler-modal{padding:8px}.scheduler-editor{max-height:calc(100vh - 16px)}}
+@media(max-width:680px){.main-content{padding-left:12px;padding-right:12px}.dashboard-columns{grid-template-columns:1fr}.scheduler-heading{align-items:stretch;flex-direction:column}.scheduler-status{grid-template-columns:repeat(2,minmax(0,1fr))}.scheduler-panel-header{align-items:stretch;flex-direction:column}.scheduler-panel-actions{justify-content:space-between;flex-wrap:wrap}.scheduler-form-grid{grid-template-columns:1fr}.scheduler-field.full{grid-column:auto}.scheduler-modal{padding:8px}.scheduler-editor{max-height:calc(100vh - 16px)}}
 .settings-grid{
   display:grid;
   gap:0;
