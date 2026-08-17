@@ -410,7 +410,9 @@ static int webserver_parse_post(struct webserver_t *client, uint16_t size) {
         args.name = &client->buffer[0];
         if(d == ' ') {
           args.value = &client->buffer[pos+1];
-          args.len = size - (pos + 1);
+          // The final GET argument ends at the space before HTTP/1.1, not at
+          // the end of the buffered request (which also contains headers).
+          args.len = pos1 - (pos + 1);
           if(pos3 > -1) {
             args.len = pos3 - 1;
           }
