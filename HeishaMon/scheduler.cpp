@@ -564,6 +564,15 @@ bool SchedulerManager::parseEntry(JsonObjectConst object, SchedulerEntry &entry,
 bool SchedulerManager::upsert(JsonObjectConst object, char *message, size_t messageSize) {
   SchedulerEntry entry;
   if (!parseEntry(object, entry, message, messageSize)) return false;
+  for (uint8_t actionIndex = 0; actionIndex < entry.actionCount; actionIndex++) {
+    if (entry.actions[actionIndex].type == SCHEDULER_ACTION_SET_Z1_ROOM_TARGET ||
+        entry.actions[actionIndex].type == SCHEDULER_ACTION_SET_Z1_REQUEST) {
+      snprintf(message, messageSize,
+        "Action %u uses an unsupported legacy Zone 1 request",
+        actionIndex + 1);
+      return false;
+    }
+  }
   int8_t index = entry.id == 0 ? -1 : findIndex(entry.id);
   if (entry.id != 0 && index < 0) {
     snprintf(message, messageSize, "Schedule ID not found"); return false;
@@ -704,9 +713,10 @@ bool SchedulerManager::load() {
       continue;
     }
     for (uint8_t actionIndex = 0; actionIndex < entry.actionCount; actionIndex++) {
-      if (entry.actions[actionIndex].type == SCHEDULER_ACTION_SET_Z1_REQUEST) {
+      if (entry.actions[actionIndex].type == SCHEDULER_ACTION_SET_Z1_ROOM_TARGET ||
+          entry.actions[actionIndex].type == SCHEDULER_ACTION_SET_Z1_REQUEST) {
         entry.enabled = false;
-        log("[SCHED] legacy set_z1_request disabled; edit it to choose a semantic Zone 1 action");
+        log("[SCHED] unsupported legacy Zone 1 request disabled; edit the schedule");
         break;
       }
     }
@@ -884,7 +894,7 @@ void SchedulerManager::describeAction(const SchedulerAction &action,
     case SCHEDULER_ACTION_SET_Z1_HEATING_WATER_TARGET:
       snprintf(description, descriptionSize, "Set heating water target to %d C", action.value); break;
     case SCHEDULER_ACTION_SET_Z1_ROOM_TARGET:
-      snprintf(description, descriptionSize, "Set room target to %d C", action.value); break;
+      snprintf(description, descriptionSize, "Unsupported legacy room target %d", action.value); break;
     case SCHEDULER_ACTION_SET_Z1_REQUEST:
       snprintf(description, descriptionSize, "Legacy Zone 1 request %d", action.value); break;
     case SCHEDULER_ACTION_SET_QUIET_MODE:

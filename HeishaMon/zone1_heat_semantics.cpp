@@ -7,7 +7,6 @@
 
 static const uint8_t ZONE1_HEAT_REQUEST_TOPIC = 27;
 static const uint8_t ZONE1_HEATING_MODE_TOPIC = 76;
-static const uint8_t ZONE1_SENSOR_SETTINGS_TOPIC = 111;
 
 static bool parseFinite(const String &text, float *value) {
   if (value == nullptr || text.length() == 0) return false;
@@ -54,51 +53,37 @@ bool resolveZone1HeatRequestSemantic(char *data, int16_t waterMin,
     0,
     1,
     false,
-    -1,
     -1
   };
   if (data == nullptr || data[0] != 0x71 || data[1] != (char)0xC8 ||
       data[2] != 0x01 || data[3] != 0x10 || waterMin > waterMax) return false;
 
   int heatingMode = 0;
-  int sensorSetting = 0;
   if (!readIntegerTopic(data, ZONE1_HEATING_MODE_TOPIC, &heatingMode) ||
-      !readIntegerTopic(data, ZONE1_SENSOR_SETTINGS_TOPIC, &sensorSetting)) {
-    return false;
-  }
-  if ((heatingMode != 0 && heatingMode != 1) ||
-      sensorSetting < 0 || sensorSetting > 3) return false;
+      (heatingMode != 0 && heatingMode != 1)) return false;
 
   result->heatingMode = (int8_t)heatingMode;
-  result->sensorSetting = (int8_t)sensorSetting;
   result->step = 1;
   result->writable = true;
 
-  // TOP111=0 is Panasonic's water-temperature control. With TOP76=0,
-  // TOP27 is the parallel shift of the compensation curve; with TOP76=1,
-  // it is an absolute requested water temperature. All thermostat/thermistor
-  // selections use a room request, regardless of the TOP76 water-mode bit.
-  if (sensorSetting == 0 && heatingMode == 0) {
+  // Panasonic defines TOP27 by the Zone 1 heating mode: it is the native
+  // parallel shift in compensation-curve mode and an absolute requested water
+  // temperature in direct mode. The selected zone sensor does not change this
+  // protocol field into a room setpoint.
+  if (heatingMode == 0) {
     result->type = ZONE1_HEAT_CURVE_SHIFT;
     result->name = zone1HeatRequestSemanticName(result->type);
     result->label = "Heating curve shift";
     result->unit = "K";
     result->minValue = -5;
     result->maxValue = 5;
-  } else if (sensorSetting == 0 && heatingMode == 1) {
+  } else {
     result->type = ZONE1_HEATING_WATER_TARGET;
     result->name = zone1HeatRequestSemanticName(result->type);
     result->label = "Heating water target";
     result->unit = "\xC2\xB0" "C";
     result->minValue = waterMin;
     result->maxValue = waterMax;
-  } else {
-    result->type = ZONE1_ROOM_TARGET;
-    result->name = zone1HeatRequestSemanticName(result->type);
-    result->label = "Room target";
-    result->unit = "\xC2\xB0" "C";
-    result->minValue = 10;
-    result->maxValue = 35;
   }
   return true;
 }
@@ -129,13 +114,8 @@ void zone1HeatRequestSemanticToJson(JsonObject object, char *data,
   object["step"] = semantic.step;
   object["writable"] = resolved && semantic.writable;
   object["heatingMode"] = semantic.heatingMode;
-  object["sensorSetting"] = semantic.sensorSetting;
   object["heatingModeLabel"] = semantic.heatingMode == 0 ? "Compensation curve" :
     semantic.heatingMode == 1 ? "Direct" : "Unknown";
-  object["sensorSettingLabel"] = semantic.sensorSetting == 0 ? "Water temperature" :
-    semantic.sensorSetting == 1 ? "External thermostat" :
-    semantic.sensorSetting == 2 ? "Internal thermostat" :
-    semantic.sensorSetting == 3 ? "Thermistor" : "Unknown";
   bool valueValid = resolved && rawValid && zone1HeatRequestValueValid(semantic, raw);
   if (valueValid) object["value"] = raw;
   else object["value"] = nullptr;

@@ -7,6 +7,7 @@ enum Zone1HeatRequestSemanticType : uint8_t {
   ZONE1_HEAT_SEMANTIC_UNKNOWN = 0,
   ZONE1_HEAT_CURVE_SHIFT,
   ZONE1_HEATING_WATER_TARGET,
+  // Retained only to decode history written by the removed custom semantic.
   ZONE1_ROOM_TARGET
 };
 
@@ -20,7 +21,6 @@ struct Zone1HeatRequestSemantic {
   int16_t step;
   bool writable;
   int8_t heatingMode;
-  int8_t sensorSetting;
 };
 
 bool resolveZone1HeatRequestSemantic(char *data, int16_t waterMin,

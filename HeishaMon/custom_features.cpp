@@ -350,18 +350,24 @@ static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType actio
     char response[160] = {0};
     bool accepted = heatingCurveShiftSet(desired, response, sizeof(response));
     strlcpy(detail, response, detailSize);
-    return accepted ? SCHEDULER_DISPATCH_EXECUTED : SCHEDULER_DISPATCH_FAILED;
+    return accepted ?
+      (strstr(response, "already has requested value") != nullptr ?
+        SCHEDULER_DISPATCH_NO_CHANGE : SCHEDULER_DISPATCH_EXECUTED) :
+      SCHEDULER_DISPATCH_FAILED;
   }
 
-  if (action == SCHEDULER_ACTION_SET_Z1_HEATING_WATER_TARGET ||
-      action == SCHEDULER_ACTION_SET_Z1_ROOM_TARGET) {
-    Zone1HeatRequestSemanticType expectedType = ZONE1_HEAT_SEMANTIC_UNKNOWN;
-    if (action == SCHEDULER_ACTION_SET_Z1_HEATING_WATER_TARGET) expectedType = ZONE1_HEATING_WATER_TARGET;
-    else expectedType = ZONE1_ROOM_TARGET;
+  if (action == SCHEDULER_ACTION_SET_Z1_ROOM_TARGET) {
+    snprintf(detail, detailSize,
+      "Unsupported room target action is disabled; TOP27 is not a room setpoint");
+    return SCHEDULER_DISPATCH_FAILED;
+  }
+
+  if (action == SCHEDULER_ACTION_SET_Z1_HEATING_WATER_TARGET) {
     char valueString[16] = {0};
     snprintf(valueString, sizeof(valueString), "%d", desired);
     bool accepted = dispatchZone1HeatSemanticCommand(
-      SchedulerManager::actionName(action), valueString, expectedType,
+      SchedulerManager::actionName(action), valueString,
+      ZONE1_HEATING_WATER_TARGET,
       detail, detailSize);
   return accepted ? (strstr(detail, "already has requested value") != nullptr ?
       SCHEDULER_DISPATCH_NO_CHANGE : SCHEDULER_DISPATCH_EXECUTED) :
@@ -858,20 +864,12 @@ bool customFeaturesHandleCommandArgument(struct webserver_t *client, struct argu
     return true;
   }
 
-  if (strcmp((char *)args->name, "SetHeatingCurveShift") == 0 ||
-      strcmp((char *)args->name, "SetZ1HeatCurveBaseHigh") == 0 ||
-      strcmp((char *)args->name, "SetZ1HeatCurveBaseLow") == 0) {
+  if (strcmp((char *)args->name, "SetHeatingCurveShift") == 0) {
     char *end = nullptr;
     long parsed = strtol(value, &end, 10);
     char response[192] = {0};
     bool accepted = end != value && *end == '\0' && parsed >= -32768 && parsed <= 32767;
-    if (accepted && strcmp((char *)args->name, "SetHeatingCurveShift") == 0) {
-      accepted = heatingCurveShiftSet((int)parsed, response, sizeof(response));
-    } else if (accepted) {
-      accepted = heatingCurveShiftSetBase(
-        strcmp((char *)args->name, "SetZ1HeatCurveBaseHigh") == 0,
-        (int)parsed, response, sizeof(response));
-    }
+    if (accepted) accepted = heatingCurveShiftSet((int)parsed, response, sizeof(response));
     if (!accepted && response[0] == '\0') snprintf(response, sizeof(response), "Invalid curve value");
     appendCustomResponse(client, response);
     log_message(response);
@@ -882,7 +880,11 @@ bool customFeaturesHandleCommandArgument(struct webserver_t *client, struct argu
   if (strcmp((char *)args->name, "SetZ1HeatingWaterTarget") == 0) {
     expectedType = ZONE1_HEATING_WATER_TARGET;
   } else if (strcmp((char *)args->name, "SetZ1RoomTarget") == 0) {
-    expectedType = ZONE1_ROOM_TARGET;
+    char response[192] =
+      "Unsupported room target command; TOP27 is not a room setpoint";
+    appendCustomResponse(client, response);
+    log_message(response);
+    return true;
   }
   if (expectedType != ZONE1_HEAT_SEMANTIC_UNKNOWN) {
     char response[192] = {0};
@@ -996,7 +998,6 @@ void customFeaturesLoop(PubSubClient &mqttClient, const char *mqttBase) {
     externalSensors.subscribe(mqttClient, mqttBase);
   }
   processDashboardWorkflow();
-  heatingCurveShiftLoop();
   schedulerManager.loop();
   diagnosticsHistoryLoop();
   sdWebUiLoop();

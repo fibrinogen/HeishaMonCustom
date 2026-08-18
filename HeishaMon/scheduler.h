@@ -21,6 +21,7 @@ enum SchedulerActionType : uint8_t {
   SCHEDULER_ACTION_SET_DHW_TARGET,
   SCHEDULER_ACTION_SET_HEAT_CURVE_SHIFT,
   SCHEDULER_ACTION_SET_Z1_HEATING_WATER_TARGET,
+  // Kept only so old files can be read and safely marked for review.
   SCHEDULER_ACTION_SET_Z1_ROOM_TARGET,
   // Kept only so old files can be read and safely marked for review.
   SCHEDULER_ACTION_SET_Z1_REQUEST,

@@ -245,23 +245,10 @@ void loadSettings(settingsStruct *heishamonSettings) {
           if ( jsonDoc[F("timezone")]) heishamonSettings->timezone = jsonDoc[F("timezone")];
           if ( jsonDoc[F("wp_heat_min")]) heishamonSettings->wpHeatMin = jsonDoc[F("wp_heat_min")];
           if ( jsonDoc[F("wp_heat_max")]) heishamonSettings->wpHeatMax = jsonDoc[F("wp_heat_max")];
-          if ( jsonDoc[F("wp_curve_base_high")]) heishamonSettings->wpCurveBaseHigh = jsonDoc[F("wp_curve_base_high")];
-          if ( jsonDoc[F("wp_curve_base_low")]) heishamonSettings->wpCurveBaseLow = jsonDoc[F("wp_curve_base_low")];
-          if ( jsonDoc[F("wp_curve_outside_high")]) heishamonSettings->wpCurveOutsideHigh = jsonDoc[F("wp_curve_outside_high")];
-          if ( jsonDoc[F("wp_curve_outside_low")]) heishamonSettings->wpCurveOutsideLow = jsonDoc[F("wp_curve_outside_low")];
-          if ( jsonDoc[F("wp_curve_shift")]) heishamonSettings->wpCurveShift = jsonDoc[F("wp_curve_shift")];
-          if ( jsonDoc[F("wp_curve_baseline_valid")]) heishamonSettings->wpCurveBaselineValid = jsonDoc[F("wp_curve_baseline_valid")];
           if (heishamonSettings->wpHeatMin < 20 || heishamonSettings->wpHeatMin > 100) heishamonSettings->wpHeatMin = 20;
           if (heishamonSettings->wpHeatMax < heishamonSettings->wpHeatMin || heishamonSettings->wpHeatMax > 100) {
             heishamonSettings->wpHeatMin = 20;
             heishamonSettings->wpHeatMax = 65;
-          }
-          if (heishamonSettings->wpCurveShift < -5 || heishamonSettings->wpCurveShift > 5) heishamonSettings->wpCurveShift = 0;
-          if (heishamonSettings->wpCurveBaseHigh < -50 || heishamonSettings->wpCurveBaseHigh > 100 ||
-              heishamonSettings->wpCurveBaseLow < -50 || heishamonSettings->wpCurveBaseLow > 100 ||
-              heishamonSettings->wpCurveOutsideHigh < -100 || heishamonSettings->wpCurveOutsideHigh > 100 ||
-              heishamonSettings->wpCurveOutsideLow < -100 || heishamonSettings->wpCurveOutsideLow > 100) {
-            heishamonSettings->wpCurveBaselineValid = false;
           }
 #ifdef TLS_SUPPORT
           heishamonSettings->mqtt_tls_enabled = ( jsonDoc[F("mqtt_tls_enabled")] == "enabled" ) ? true : false; 
@@ -507,12 +494,6 @@ void settingsToJson(JsonDocument &jsonDoc, settingsStruct *heishamonSettings) {
   jsonDoc[F("waitTime")] = heishamonSettings->waitTime;
   jsonDoc[F("wp_heat_min")] = heishamonSettings->wpHeatMin;
   jsonDoc[F("wp_heat_max")] = heishamonSettings->wpHeatMax;
-  jsonDoc[F("wp_curve_base_high")] = heishamonSettings->wpCurveBaseHigh;
-  jsonDoc[F("wp_curve_base_low")] = heishamonSettings->wpCurveBaseLow;
-  jsonDoc[F("wp_curve_outside_high")] = heishamonSettings->wpCurveOutsideHigh;
-  jsonDoc[F("wp_curve_outside_low")] = heishamonSettings->wpCurveOutsideLow;
-  jsonDoc[F("wp_curve_shift")] = heishamonSettings->wpCurveShift;
-  jsonDoc[F("wp_curve_baseline_valid")] = heishamonSettings->wpCurveBaselineValid;
   jsonDoc[F("waitDallasTime")] = heishamonSettings->waitDallasTime;
   jsonDoc[F("dallasResolution")] = heishamonSettings->dallasResolution;
   jsonDoc[F("updateAllTime")] = heishamonSettings->updateAllTime;

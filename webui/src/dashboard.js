@@ -390,9 +390,7 @@ function stepZone1Heat(delta) {
       ? "SetHeatingCurveShift"
       : dashboardSemantic.semantic === "heatingWaterTarget"
         ? "SetZ1HeatingWaterTarget"
-        : dashboardSemantic.semantic === "roomTarget"
-          ? "SetZ1RoomTarget"
-          : null;
+        : null;
   if (command === null) {
     setDashboardStatus("Unknown Zone 1 request semantics", true);
     return;
@@ -440,9 +438,7 @@ function recoverZone1Heat() {
       ? "SetHeatingCurveShift"
       : dashboardSemantic.semantic === "heatingWaterTarget"
         ? "SetZ1HeatingWaterTarget"
-        : dashboardSemantic.semantic === "roomTarget"
-          ? "SetZ1RoomTarget"
-          : null;
+        : null;
   if (command === null) return;
   dashboardSemantic.rawValue = next;
   dashboardSemantic.rawValidForSemantic = true;

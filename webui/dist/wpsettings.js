@@ -116,20 +116,9 @@ function wpSync() {
       });
 }
 function wpCurveSource() {
-  var targetAtCold = Number(wpValues.TOP29);
-  var targetAtWarm = Number(wpValues.TOP30);
-  if (
-    wpCurveShift &&
-    wpCurveShift.implementation === "curveEndpoints" &&
-    Number.isFinite(Number(wpCurveShift.baseTargetHigh)) &&
-    Number.isFinite(Number(wpCurveShift.baseTargetLow))
-  ) {
-    targetAtCold = Number(wpCurveShift.baseTargetHigh);
-    targetAtWarm = Number(wpCurveShift.baseTargetLow);
-  }
   return {
-    targetAtCold: targetAtCold,
-    targetAtWarm: targetAtWarm,
+    targetAtCold: Number(wpValues.TOP29),
+    targetAtWarm: Number(wpValues.TOP30),
     // SetCurves outside.low is TOP32 (cold); outside.high is TOP31 (warm).
     outsideCold: Number(wpValues.TOP32),
     outsideWarm: Number(wpValues.TOP31),
@@ -409,7 +398,10 @@ function wpApplyCurve() {
   wpSend("SetZ1HeatCurve", JSON.stringify(curve))
     .then(function (response) {
       if (!response) return;
-      if (response.indexOf("Zone 1 heating curve queued:") !== 0) {
+      if (
+        response.indexOf("Zone 1 heating curve queued:") !== 0 &&
+        response.indexOf("Zone 1 heating curve already has requested values") !== 0
+      ) {
         wpStatus(response, true);
         return;
       }

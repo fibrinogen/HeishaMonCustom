@@ -234,10 +234,6 @@
               val(z1.value, z1.unit ? " " + z1.unit : ""),
             ),
             row("Heating mode", val(z1.heatingModeLabel || c.heatingMode)),
-            row(
-              "Zone 1 sensor setting",
-              val(z1.sensorSettingLabel || z1.sensorSetting),
-            ),
             row("Heating-off outdoor temp", val(c.heatingOffOutside, " °C")),
             row("Room temperature", val(c.roomTemperature, " °C")),
           ]) +
@@ -264,11 +260,7 @@
           card("HEATING CURVE SHIFT", [
             row("Requested shift", val(cs.shift, " K")),
             row("Implementation", val(cs.implementationLabel)),
-            row("Base high", val(cs.baseTargetHigh, " °C")),
-            row("Base low", val(cs.baseTargetLow, " °C")),
-            row("Effective high", val(cs.effectiveTargetHigh, " °C")),
-            row("Effective low", val(cs.effectiveTargetLow, " °C")),
-            row("External mismatch", cs.externalMismatch ? "Yes" : "No"),
+            row("Writable", cs.writable ? "Yes" : "No"),
           ]) +
           hardwareDiagnosticsCards();
         document.getElementById("espCards").innerHTML =
