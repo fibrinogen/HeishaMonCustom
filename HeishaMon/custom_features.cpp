@@ -834,6 +834,30 @@ bool customFeaturesHandleCommandArgument(struct webserver_t *client, struct argu
     return true;
   }
 
+  if (strcmp((char *)args->name, "SetZ1HeatCurve") == 0) {
+    JsonDocument document;
+    DeserializationError error = deserializeJson(document, value);
+    JsonVariantConst targetAtCold = document["targetAtCold"];
+    JsonVariantConst targetAtWarm = document["targetAtWarm"];
+    JsonVariantConst outsideCold = document["outsideCold"];
+    JsonVariantConst outsideWarm = document["outsideWarm"];
+    char response[224] = {0};
+    bool accepted = !error && document.is<JsonObject>() &&
+      targetAtCold.is<int>() && targetAtWarm.is<int>() &&
+      outsideCold.is<int>() && outsideWarm.is<int>();
+    if (accepted) {
+      accepted = heatingCurveSettingsSet(targetAtCold.as<int>(),
+        targetAtWarm.as<int>(), outsideCold.as<int>(), outsideWarm.as<int>(),
+        response, sizeof(response));
+    } else {
+      snprintf(response, sizeof(response),
+        "Heating curve requires four integer endpoint values");
+    }
+    appendCustomResponse(client, response);
+    log_message(response);
+    return true;
+  }
+
   if (strcmp((char *)args->name, "SetHeatingCurveShift") == 0 ||
       strcmp((char *)args->name, "SetZ1HeatCurveBaseHigh") == 0 ||
       strcmp((char *)args->name, "SetZ1HeatCurveBaseLow") == 0) {

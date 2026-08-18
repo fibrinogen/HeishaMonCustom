@@ -47,6 +47,120 @@
       document.title = "WP Configuration - HeishaMon";
     </script>
     <main class="main-content wp-settings-page">
+      <section class="wp-heat-curve-panel">
+        <div class="wp-heat-curve-header">
+          <div>
+            <h2>Zone 1 heating curve</h2>
+            <p>
+              Define the requested water temperature at a cold and a warm
+              outside-temperature point. Panasonic interpolates between them.
+            </p>
+          </div>
+          <span id="wpCurveMode" class="wp-curve-mode">Loading ...</span>
+        </div>
+        <div class="wp-heat-curve-layout">
+          <div class="wp-curve-editor">
+            <div class="wp-curve-endpoint">
+              <h3>Cold-weather point</h3>
+              <label for="wpCurveOutsideCold">
+                Outside temperature
+                <span
+                  ><input
+                    id="wpCurveOutsideCold"
+                    type="number"
+                    min="-50"
+                    max="100"
+                    step="1"
+                    oninput="wpCurveInputChanged()"
+                  />
+                  &deg;C</span
+                >
+              </label>
+              <label for="wpCurveTargetCold">
+                Water target
+                <span
+                  ><input
+                    id="wpCurveTargetCold"
+                    type="number"
+                    min="-50"
+                    max="100"
+                    step="1"
+                    oninput="wpCurveInputChanged()"
+                  />
+                  &deg;C</span
+                >
+              </label>
+            </div>
+            <div class="wp-curve-endpoint">
+              <h3>Warm-weather point</h3>
+              <label for="wpCurveOutsideWarm">
+                Outside temperature
+                <span
+                  ><input
+                    id="wpCurveOutsideWarm"
+                    type="number"
+                    min="-50"
+                    max="100"
+                    step="1"
+                    oninput="wpCurveInputChanged()"
+                  />
+                  &deg;C</span
+                >
+              </label>
+              <label for="wpCurveTargetWarm">
+                Water target
+                <span
+                  ><input
+                    id="wpCurveTargetWarm"
+                    type="number"
+                    min="-50"
+                    max="100"
+                    step="1"
+                    oninput="wpCurveInputChanged()"
+                  />
+                  &deg;C</span
+                >
+              </label>
+            </div>
+            <div id="wpCurveValidation" class="wp-curve-validation"></div>
+            <div class="wp-curve-actions">
+              <button class="btn btn-ghost" onclick="wpResetCurveDraft()">
+                Reset
+              </button>
+              <button
+                id="wpCurveApply"
+                class="btn btn-primary"
+                onclick="wpApplyCurve()"
+              >
+                Apply curve
+              </button>
+            </div>
+          </div>
+          <div class="wp-curve-figure">
+            <svg
+              id="wpCurveGraph"
+              viewBox="0 0 640 300"
+              role="img"
+              aria-label="Zone 1 heating curve preview"
+            ></svg>
+            <div class="wp-curve-legend">
+              <span><i class="wp-curve-legend-base"></i>Configured curve</span>
+              <span id="wpCurveEffectiveLegend" hidden
+                ><i class="wp-curve-legend-effective"></i>Effective shifted
+                curve</span
+              >
+            </div>
+            <div id="wpCurveCaption" class="wp-curve-caption">
+              Waiting for heat-pump curve data ...
+            </div>
+          </div>
+        </div>
+        <div class="wp-settings-note wp-curve-note">
+          Applying these values immediately changes the Panasonic Zone 1 curve.
+          When a curve shift is active, the graph also shows the effective
+          shifted curve.
+        </div>
+      </section>
       <div class="wp-settings-columns">
         <section class="dashboard-column">
           <h2 class="dashboard-title wp-settings-service-title">
@@ -317,60 +431,6 @@
             <div class="wp-settings-note">
               These limits constrain direct Zone 1 water-temperature changes on
               Dashboard.
-            </div>
-            <div class="dashboard-section-title" id="wpCurveTitle">
-              Heating curve endpoints
-            </div>
-            <div id="wpCurveUnavailable" class="wp-settings-note">
-              Loading heating-curve configuration…
-            </div>
-            <div class="dashboard-row wp-curve-row">
-              <span>Curve base high</span>
-              <div class="dashboard-control">
-                <button
-                  class="dashboard-step"
-                  onclick="wpStepCurveBase('high',-1)"
-                >
-                  &#8964;</button
-                ><span class="dashboard-value"
-                  ><span id="wpCurveBaseHigh">--</span> &deg;C</span
-                ><button
-                  class="dashboard-step"
-                  onclick="wpStepCurveBase('high',1)"
-                >
-                  &#8963;
-                </button>
-              </div>
-            </div>
-            <div class="dashboard-row wp-curve-row">
-              <span>Curve base low</span>
-              <div class="dashboard-control">
-                <button
-                  class="dashboard-step"
-                  onclick="wpStepCurveBase('low',-1)"
-                >
-                  &#8964;</button
-                ><span class="dashboard-value"
-                  ><span id="wpCurveBaseLow">--</span> &deg;C</span
-                ><button
-                  class="dashboard-step"
-                  onclick="wpStepCurveBase('low',1)"
-                >
-                  &#8963;
-                </button>
-              </div>
-            </div>
-            <div class="dashboard-row wp-curve-row">
-              <span>Effective high</span
-              ><span class="dashboard-value"
-                ><span id="wpCurveEffectiveHigh">--</span> &deg;C</span
-              >
-            </div>
-            <div class="dashboard-row wp-curve-row">
-              <span>Effective low</span
-              ><span class="dashboard-value"
-                ><span id="wpCurveEffectiveLow">--</span> &deg;C</span
-              >
             </div>
           </div>
         </section>

@@ -35,4 +35,6 @@ void heatingCurveShiftToJson(JsonObject object);
 bool heatingCurveShiftSet(int value, char *response, size_t responseSize);
 bool heatingCurveShiftSetBase(bool high, int value, char *response,
   size_t responseSize);
+bool heatingCurveSettingsSet(int targetAtCold, int targetAtWarm,
+  int outsideCold, int outsideWarm, char *response, size_t responseSize);
 void heatingCurveShiftLoop();

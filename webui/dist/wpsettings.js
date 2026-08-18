@@ -1,6 +1,8 @@
 var wpValues = {};
 var wpConfig = { heatMin: 20, heatMax: 65 };
 var wpCurveShift = null;
+var wpCurveDraft = null;
+var wpCurveDirty = false;
 var wpRefreshPromise = null;
 var wpCommandBusy = false;
 var wpStepTimers = {};
@@ -66,27 +68,7 @@ function wpSync() {
   }
   updCell("wpHeatMinValue", String(wpConfig.heatMin));
   updCell("wpHeatMaxValue", String(wpConfig.heatMax));
-  var curveAvailable = !!(
-    wpCurveShift &&
-    wpCurveShift.implementation === "curveEndpoints" &&
-    wpCurveShift.writable === true
-  );
-  document.querySelectorAll(".wp-curve-row").forEach(function (row) {
-    row.style.display = curveAvailable ? "flex" : "none";
-  });
-  var curveNote = document.getElementById("wpCurveUnavailable");
-  if (curveNote) curveNote.style.display = curveAvailable ? "none" : "block";
-  if (curveNote && !curveAvailable)
-    curveNote.textContent =
-      wpCurveShift && wpCurveShift.available
-        ? "This sensor configuration does not adjust curve endpoints directly."
-        : "Heating-curve endpoint configuration is unavailable for the current heat-pump data.";
-  if (curveAvailable) {
-    updCell("wpCurveBaseHigh", String(wpCurveShift.baseTargetHigh));
-    updCell("wpCurveBaseLow", String(wpCurveShift.baseTargetLow));
-    updCell("wpCurveEffectiveHigh", String(wpCurveShift.effectiveTargetHigh));
-    updCell("wpCurveEffectiveLow", String(wpCurveShift.effectiveTargetLow));
-  }
+  wpSyncCurve();
   if (wpCommandBusy)
     document
       .querySelectorAll(
@@ -95,6 +77,310 @@ function wpSync() {
       .forEach(function (control) {
         control.disabled = true;
       });
+}
+function wpCurveSource() {
+  var targetAtCold = Number(wpValues.TOP29);
+  var targetAtWarm = Number(wpValues.TOP30);
+  if (
+    wpCurveShift &&
+    wpCurveShift.implementation === "curveEndpoints" &&
+    Number.isFinite(Number(wpCurveShift.baseTargetHigh)) &&
+    Number.isFinite(Number(wpCurveShift.baseTargetLow))
+  ) {
+    targetAtCold = Number(wpCurveShift.baseTargetHigh);
+    targetAtWarm = Number(wpCurveShift.baseTargetLow);
+  }
+  return {
+    targetAtCold: targetAtCold,
+    targetAtWarm: targetAtWarm,
+    // SetCurves outside.low is TOP32 (cold); outside.high is TOP31 (warm).
+    outsideCold: Number(wpValues.TOP32),
+    outsideWarm: Number(wpValues.TOP31),
+  };
+}
+function wpCurveDataAvailable(curve) {
+  return [
+    curve.targetAtCold,
+    curve.targetAtWarm,
+    curve.outsideCold,
+    curve.outsideWarm,
+  ].every(function (value) {
+    return Number.isFinite(value) && value >= -50 && value <= 100;
+  });
+}
+function wpCurveReadInputs() {
+  function value(id) {
+    var input = document.getElementById(id).value.trim();
+    return input === "" ? NaN : Number(input);
+  }
+  return {
+    outsideCold: value("wpCurveOutsideCold"),
+    targetAtCold: value("wpCurveTargetCold"),
+    outsideWarm: value("wpCurveOutsideWarm"),
+    targetAtWarm: value("wpCurveTargetWarm"),
+  };
+}
+function wpCurveValidation(curve) {
+  var values = [
+    curve.targetAtCold,
+    curve.targetAtWarm,
+    curve.outsideCold,
+    curve.outsideWarm,
+  ];
+  if (
+    !values.every(function (value) {
+      return Number.isInteger(value) && value >= -50 && value <= 100;
+    })
+  )
+    return "All curve values must be whole degrees between -50 and 100 °C.";
+  if (curve.outsideCold >= curve.outsideWarm)
+    return "The cold outside point must be below the warm outside point.";
+  if (curve.targetAtCold < curve.targetAtWarm)
+    return "The cold-weather water target must not be below the warm-weather target.";
+  var shift = Number(wpCurveShift && wpCurveShift.shift);
+  if (
+    Number.isFinite(shift) &&
+    (curve.targetAtCold + shift > 100 || curve.targetAtWarm + shift < -50)
+  )
+    return "The curve plus the active shift exceeds the supported range.";
+  return "";
+}
+function wpCurveSetInputs(curve) {
+  document.getElementById("wpCurveOutsideCold").value = String(
+    curve.outsideCold,
+  );
+  document.getElementById("wpCurveTargetCold").value = String(
+    curve.targetAtCold,
+  );
+  document.getElementById("wpCurveOutsideWarm").value = String(
+    curve.outsideWarm,
+  );
+  document.getElementById("wpCurveTargetWarm").value = String(
+    curve.targetAtWarm,
+  );
+}
+function wpSyncCurve() {
+  var source = wpCurveSource();
+  var available = wpCurveDataAvailable(source);
+  var active = document.activeElement;
+  var editing = active && active.closest && active.closest(".wp-curve-editor");
+  if (available && !wpCurveDirty && !editing) {
+    wpCurveDraft = source;
+    wpCurveSetInputs(source);
+  }
+  if (!wpCurveDraft && available) {
+    wpCurveDraft = source;
+    wpCurveSetInputs(source);
+  }
+
+  var mode = document.getElementById("wpCurveMode");
+  if (mode) {
+    if (!available) mode.textContent = "Curve data unavailable";
+    else if (Number(wpValues.TOP76) === 0)
+      mode.textContent = "Compensation curve active";
+    else if (Number(wpValues.TOP76) === 1)
+      mode.textContent = "Direct mode · curve inactive";
+    else mode.textContent = "Operating mode unknown";
+  }
+  document
+    .querySelectorAll(".wp-curve-editor input,.wp-curve-editor button")
+    .forEach(function (control) {
+      control.disabled = !available || wpCommandBusy;
+    });
+  var curve = wpCurveDraft || source;
+  var validation = available
+    ? wpCurveValidation(curve)
+    : "Waiting for valid Panasonic TOP29–TOP32 values.";
+  var validationElement = document.getElementById("wpCurveValidation");
+  if (validationElement) {
+    validationElement.textContent =
+      validation ||
+      (wpCurveDirty
+        ? "Curve has unsaved changes."
+        : "Curve matches the stored Panasonic values.");
+    validationElement.className =
+      "wp-curve-validation " +
+      (validation ? "invalid" : wpCurveDirty ? "dirty" : "valid");
+  }
+  var apply = document.getElementById("wpCurveApply");
+  if (apply)
+    apply.disabled =
+      !available || !!validation || !wpCurveDirty || wpCommandBusy;
+  wpRenderCurveGraph(curve, available);
+}
+function wpCurveInputChanged() {
+  wpCurveDraft = wpCurveReadInputs();
+  wpCurveDirty = true;
+  wpSyncCurve();
+}
+function wpResetCurveDraft() {
+  var source = wpCurveSource();
+  if (!wpCurveDataAvailable(source)) return;
+  wpCurveDraft = source;
+  wpCurveDirty = false;
+  wpCurveSetInputs(source);
+  wpSyncCurve();
+}
+function wpCurveSvgLine(x1, y1, x2, y2, className) {
+  return (
+    '<line x1="' +
+    x1 +
+    '" y1="' +
+    y1 +
+    '" x2="' +
+    x2 +
+    '" y2="' +
+    y2 +
+    '" class="' +
+    className +
+    '"></line>'
+  );
+}
+function wpRenderCurveGraph(curve, available) {
+  var svg = document.getElementById("wpCurveGraph");
+  var caption = document.getElementById("wpCurveCaption");
+  var effectiveLegend = document.getElementById("wpCurveEffectiveLegend");
+  if (!svg) return;
+  if (!available || !curve || !wpCurveDataAvailable(curve)) {
+    svg.innerHTML =
+      '<text x="320" y="150" text-anchor="middle" class="wp-curve-empty">Curve data unavailable</text>';
+    if (caption) caption.textContent = "Waiting for heat-pump curve data ...";
+    if (effectiveLegend) effectiveLegend.hidden = true;
+    return;
+  }
+  var shift = Number(wpCurveShift && wpCurveShift.shift);
+  if (!Number.isFinite(shift)) shift = 0;
+  if (effectiveLegend) effectiveLegend.hidden = shift === 0;
+  var xMin =
+    Math.floor((Math.min(curve.outsideCold, curve.outsideWarm) - 5) / 5) * 5;
+  var xMax =
+    Math.ceil((Math.max(curve.outsideCold, curve.outsideWarm) + 5) / 5) * 5;
+  var yMin =
+    Math.floor(
+      (Math.min(
+        curve.targetAtCold,
+        curve.targetAtWarm,
+        curve.targetAtCold + shift,
+        curve.targetAtWarm + shift,
+      ) -
+        5) /
+        5,
+    ) * 5;
+  var yMax =
+    Math.ceil(
+      (Math.max(
+        curve.targetAtCold,
+        curve.targetAtWarm,
+        curve.targetAtCold + shift,
+        curve.targetAtWarm + shift,
+      ) +
+        5) /
+        5,
+    ) * 5;
+  if (xMax === xMin) xMax = xMin + 10;
+  if (yMax === yMin) yMax = yMin + 10;
+  var left = 64,
+    right = 616,
+    top = 20,
+    bottom = 250;
+  function x(value) {
+    return left + ((value - xMin) / (xMax - xMin)) * (right - left);
+  }
+  function y(value) {
+    return bottom - ((value - yMin) / (yMax - yMin)) * (bottom - top);
+  }
+  var content = "";
+  for (var tick = 0; tick <= 5; tick++) {
+    var xValue = xMin + ((xMax - xMin) * tick) / 5;
+    var yValue = yMin + ((yMax - yMin) * tick) / 5;
+    var px = x(xValue),
+      py = y(yValue);
+    content += wpCurveSvgLine(px, top, px, bottom, "wp-curve-grid");
+    content += wpCurveSvgLine(left, py, right, py, "wp-curve-grid");
+    content +=
+      '<text x="' +
+      px +
+      '" y="272" text-anchor="middle" class="wp-curve-axis-text">' +
+      Math.round(xValue) +
+      "</text>";
+    content +=
+      '<text x="52" y="' +
+      (py + 4) +
+      '" text-anchor="end" class="wp-curve-axis-text">' +
+      Math.round(yValue) +
+      "</text>";
+  }
+  content += wpCurveSvgLine(left, top, left, bottom, "wp-curve-axis");
+  content += wpCurveSvgLine(left, bottom, right, bottom, "wp-curve-axis");
+  content +=
+    '<text x="340" y="296" text-anchor="middle" class="wp-curve-axis-label">Outside temperature (°C)</text>' +
+    '<text x="15" y="135" text-anchor="middle" transform="rotate(-90 15 135)" class="wp-curve-axis-label">Water target (°C)</text>';
+  content += wpCurveSvgLine(
+    x(curve.outsideCold),
+    y(curve.targetAtCold),
+    x(curve.outsideWarm),
+    y(curve.targetAtWarm),
+    "wp-curve-line",
+  );
+  [
+    [curve.outsideCold, curve.targetAtCold],
+    [curve.outsideWarm, curve.targetAtWarm],
+  ].forEach(function (point) {
+    content +=
+      '<circle cx="' +
+      x(point[0]) +
+      '" cy="' +
+      y(point[1]) +
+      '" r="5" class="wp-curve-point"></circle>';
+  });
+  if (shift !== 0) {
+    content += wpCurveSvgLine(
+      x(curve.outsideCold),
+      y(curve.targetAtCold + shift),
+      x(curve.outsideWarm),
+      y(curve.targetAtWarm + shift),
+      "wp-curve-effective-line",
+    );
+  }
+  svg.innerHTML = content;
+  if (caption) {
+    caption.textContent =
+      curve.outsideCold +
+      " °C outside → " +
+      curve.targetAtCold +
+      " °C water · " +
+      curve.outsideWarm +
+      " °C outside → " +
+      curve.targetAtWarm +
+      " °C water" +
+      (shift ? " · effective shift " + (shift > 0 ? "+" : "") + shift + " K" : "");
+  }
+}
+function wpApplyCurve() {
+  var curve = wpCurveReadInputs();
+  var validation = wpCurveValidation(curve);
+  if (validation) {
+    wpStatus(validation, true);
+    return;
+  }
+  if (
+    !window.confirm(
+      "Apply the Zone 1 heating curve to the Panasonic controller now?",
+    )
+  )
+    return;
+  wpSend("SetZ1HeatCurve", JSON.stringify(curve))
+    .then(function (response) {
+      if (!response) return;
+      if (response.indexOf("Zone 1 heating curve queued:") !== 0) {
+        wpStatus(response, true);
+        return;
+      }
+      wpCurveDirty = false;
+      wpCurveDraft = curve;
+      wpSyncCurve();
+    })
+    .catch(function () {});
 }
 function wpRefresh() {
   if (wpRefreshPromise) return wpRefreshPromise;
@@ -151,16 +437,19 @@ function wpSend(command, value) {
       return r.text();
     })
     .then(function (message) {
-      wpStatus(message.trim() || "Command sent", false);
+      var response = message.trim() || "Command sent";
+      wpStatus(response, false);
       return new Promise(function (resolve) {
-        window.setTimeout(resolve, 1400);
+        window.setTimeout(function () {
+          resolve(response);
+        }, 1400);
       });
     })
-    .then(function () {
+    .then(function (response) {
       wpCommandBusy = false;
       wpSync();
       wpRefresh();
-      return true;
+      return response;
     })
     .catch(function (e) {
       wpCommandBusy = false;
@@ -240,30 +529,6 @@ function wpConfigStep(field, delta) {
   wpConfig[field] = next;
   wpSync();
   wpQueueStep("config:" + field, command, next);
-}
-function wpStepCurveBase(which, delta) {
-  if (
-    !wpCurveShift ||
-    wpCurveShift.implementation !== "curveEndpoints" ||
-    wpCurveShift.writable !== true
-  ) {
-    wpStatus("Heating-curve endpoint configuration is unavailable", true);
-    return;
-  }
-  var key = which === "high" ? "baseTargetHigh" : "baseTargetLow",
-    current = Number(wpCurveShift[key]);
-  if (!Number.isFinite(current)) return;
-  wpCurveShift[key] = Math.round(current + delta);
-  wpCurveShift.effectiveTargetHigh =
-    Number(wpCurveShift.baseTargetHigh) + Number(wpCurveShift.shift);
-  wpCurveShift.effectiveTargetLow =
-    Number(wpCurveShift.baseTargetLow) + Number(wpCurveShift.shift);
-  wpSync();
-  wpQueueStep(
-    "curve:" + which,
-    which === "high" ? "SetZ1HeatCurveBaseHigh" : "SetZ1HeatCurveBaseLow",
-    wpCurveShift[key],
-  );
 }
 document.addEventListener("DOMContentLoaded", function () {
   wpRefresh();

@@ -25,8 +25,15 @@ static constexpr uint8_t TOP76 = 76;
 static constexpr uint8_t TOP111 = 111;
 static constexpr int16_t CURVE_VALUE_MIN = -50;
 static constexpr int16_t CURVE_VALUE_MAX = 100;
+static constexpr unsigned long CURVE_WRITE_SETTLE_MS = 60000UL;
 
 static bool startupSyncAttempted = false;
+static bool curveWritePending = false;
+static unsigned long curveWriteQueuedAt = 0;
+static int16_t pendingTargetHigh = 0;
+static int16_t pendingTargetLow = 0;
+static int16_t pendingOutsideHigh = 0;
+static int16_t pendingOutsideLow = 0;
 
 static bool freshFrame() {
   if (actData[0] != 0x71 || actData[1] != (char)0xC8 ||
@@ -107,7 +114,8 @@ static bool ensureBaseline() {
       heishamonSettings.wpCurveOutsideHigh >= CURVE_VALUE_MIN &&
       heishamonSettings.wpCurveOutsideHigh <= CURVE_VALUE_MAX &&
       heishamonSettings.wpCurveOutsideLow >= CURVE_VALUE_MIN &&
-      heishamonSettings.wpCurveOutsideLow <= CURVE_VALUE_MAX;
+      heishamonSettings.wpCurveOutsideLow <= CURVE_VALUE_MAX &&
+      heishamonSettings.wpCurveOutsideLow < heishamonSettings.wpCurveOutsideHigh;
   }
 
   int16_t high = 0, low = 0, outsideHigh = 0, outsideLow = 0;
@@ -128,9 +136,18 @@ static bool sendCurveTargets(int16_t high, int16_t low, int16_t outsideHigh,
     snprintf(response, responseSize, "Heating curve target values are outside the safe range");
     return false;
   }
+  if (outsideHigh < CURVE_VALUE_MIN || outsideHigh > CURVE_VALUE_MAX ||
+      outsideLow < CURVE_VALUE_MIN || outsideLow > CURVE_VALUE_MAX ||
+      outsideLow >= outsideHigh) {
+    snprintf(response, responseSize,
+      "Heating curve cold outside temperature must be below the warm temperature");
+    return false;
+  }
   JsonDocument document;
   document["zone1"]["heat"]["target"]["high"] = high;
   document["zone1"]["heat"]["target"]["low"] = low;
+  // The SetCurves names describe outside temperature: high is the warm
+  // endpoint (TOP31) and low is the cold endpoint (TOP32).
   document["zone1"]["heat"]["outside"]["high"] = outsideHigh;
   document["zone1"]["heat"]["outside"]["low"] = outsideLow;
   String payload;
@@ -143,6 +160,12 @@ static bool sendCurveTargets(int16_t high, int16_t low, int16_t outsideHigh,
     snprintf(response, responseSize, "SetCurves command queue rejected");
     return false;
   }
+  curveWritePending = true;
+  curveWriteQueuedAt = millis();
+  pendingTargetHigh = high;
+  pendingTargetLow = low;
+  pendingOutsideHigh = outsideHigh;
+  pendingOutsideLow = outsideLow;
   snprintf(response, responseSize, "SetCurves: %s", commandLog);
   log_message(commandLog);
   return true;
@@ -176,10 +199,18 @@ bool heatingCurveShiftGetStatus(HeatingCurveShiftStatus *status) {
     status->baseTargetLow, status->requestedShift);
   int16_t currentHigh = 0, currentLow = 0, currentOutsideHigh = 0, currentOutsideLow = 0;
   if (curveFrame(&currentHigh, &currentLow, &currentOutsideHigh, &currentOutsideLow)) {
+    bool pendingMatches = currentHigh == pendingTargetHigh &&
+      currentLow == pendingTargetLow && currentOutsideHigh == pendingOutsideHigh &&
+      currentOutsideLow == pendingOutsideLow;
+    if (curveWritePending && pendingMatches) curveWritePending = false;
+    bool pendingSettling = curveWritePending &&
+      (unsigned long)(millis() - curveWriteQueuedAt) <= CURVE_WRITE_SETTLE_MS;
+    if (curveWritePending && !pendingSettling) curveWritePending = false;
     // With no requested shift, a deliberate Panasonic curve edit is the new
     // base. Once a non-zero shift is active, never absorb the effective values
-    // back into the base because that would cause cumulative drift.
-    if (status->requestedShift == 0 && currentHigh >= currentLow &&
+    // back into the base because that would cause cumulative drift. A frame
+    // received just after our own write may still contain the old values.
+    if (!pendingSettling && status->requestedShift == 0 && currentHigh >= currentLow &&
         (currentHigh != status->baseTargetHigh || currentLow != status->baseTargetLow ||
          currentOutsideHigh != status->outsideHigh || currentOutsideLow != status->outsideLow)) {
       heishamonSettings.wpCurveBaseHigh = currentHigh;
@@ -194,8 +225,9 @@ bool heatingCurveShiftGetStatus(HeatingCurveShiftStatus *status) {
     }
     status->panasonicTargetHigh = currentHigh;
     status->panasonicTargetLow = currentLow;
-    status->externalMismatch = currentHigh != status->effectiveTargetHigh ||
-      currentLow != status->effectiveTargetLow;
+    status->externalMismatch = !pendingSettling &&
+      (currentHigh != status->effectiveTargetHigh ||
+       currentLow != status->effectiveTargetLow);
   }
   return true;
 }
@@ -313,6 +345,55 @@ bool heatingCurveShiftSetBase(bool high, int value, char *response,
   heishamonSettings.wpCurveBaseHigh = newHigh;
   heishamonSettings.wpCurveBaseLow = newLow;
   persistCurveSettings();
+  return true;
+}
+
+bool heatingCurveSettingsSet(int targetAtCold, int targetAtWarm,
+    int outsideCold, int outsideWarm, char *response, size_t responseSize) {
+  if (response == nullptr || responseSize == 0) return false;
+  if (heishamonSettings.listenonly) {
+    snprintf(response, responseSize, "Listen-only mode");
+    return false;
+  }
+  if (!freshFrame()) {
+    snprintf(response, responseSize, "Fresh heat-pump curve data is unavailable");
+    return false;
+  }
+  if (!targetPairValid(targetAtCold, targetAtWarm, 0)) {
+    snprintf(response, responseSize,
+      "Cold-weather water target must be at least the warm-weather target");
+    return false;
+  }
+  if (outsideCold < CURVE_VALUE_MIN || outsideCold > CURVE_VALUE_MAX ||
+      outsideWarm < CURVE_VALUE_MIN || outsideWarm > CURVE_VALUE_MAX ||
+      outsideCold >= outsideWarm) {
+    snprintf(response, responseSize,
+      "Cold outside temperature must be below the warm outside temperature");
+    return false;
+  }
+
+  HeatingCurveShiftStatus status;
+  bool endpointShift = heatingCurveShiftGetStatus(&status) && status.available &&
+    status.implementation == HEATING_CURVE_SHIFT_CURVE_ENDPOINTS;
+  int shift = endpointShift ? status.requestedShift : 0;
+  if (!targetPairValid(targetAtCold, targetAtWarm, shift)) {
+    snprintf(response, responseSize,
+      "Heating curve plus the active shift exceeds the supported range");
+    return false;
+  }
+  if (!sendCurveTargets(targetAtCold + shift, targetAtWarm + shift,
+      outsideWarm, outsideCold, response, responseSize)) return false;
+
+  heishamonSettings.wpCurveBaseHigh = targetAtCold;
+  heishamonSettings.wpCurveBaseLow = targetAtWarm;
+  heishamonSettings.wpCurveOutsideHigh = outsideWarm;
+  heishamonSettings.wpCurveOutsideLow = outsideCold;
+  heishamonSettings.wpCurveShift = endpointShift ? (int8_t)shift : 0;
+  heishamonSettings.wpCurveBaselineValid = true;
+  persistCurveSettings();
+  snprintf(response, responseSize,
+    "Zone 1 heating curve queued: %d C at %d C outside, %d C at %d C outside",
+    targetAtCold, outsideCold, targetAtWarm, outsideWarm);
   return true;
 }
 
