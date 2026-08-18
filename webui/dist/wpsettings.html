@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Heisha Monitor</title>
-    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.24" />
-    <script src="/webui/common.js?v=0.2.7-web.24"></script>
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.25" />
+    <script src="/webui/common.js?v=0.2.7-web.25"></script>
   </head>
   <body>
     <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
@@ -47,6 +47,11 @@
       document.title = "WP Configuration - HeishaMon";
     </script>
     <main class="main-content wp-settings-page">
+      <div
+        id="wpSettingsStatus"
+        class="dashboard-command-status wp-settings-status"
+        role="status"
+      ></div>
       <section class="wp-heat-curve-panel">
         <div class="wp-heat-curve-header">
           <div>
@@ -457,13 +462,11 @@
                 </button>
               </div>
             </div>
-            <div class="dashboard-section-title">Limits</div>
-            <div id="wpSettingsStatus" class="dashboard-command-status"></div>
           </div>
         </section>
       </div>
     </main>
-    <script src="/webui/websocket.js?v=0.2.7-web.24"></script>
-    <script src="/webui/wpsettings.js?v=0.2.7-web.24"></script>
+    <script src="/webui/websocket.js?v=0.2.7-web.25"></script>
+    <script src="/webui/wpsettings.js?v=0.2.7-web.25"></script>
   </body>
 </html>

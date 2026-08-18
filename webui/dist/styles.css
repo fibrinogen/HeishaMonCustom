@@ -374,6 +374,8 @@ input:disabled + .theme-slider-compact {
 .wp-settings-button{min-width:82px}
 .wp-settings-note{padding:8px 6px;color:var(--text-muted);font-size:10.5px;line-height:1.4}
 .wp-settings-service-title{color:var(--red)}
+.wp-settings-status{margin:0 4px 10px;text-align:left}
+.wp-settings-status:empty{display:none}
 .wp-heat-curve-panel{margin-bottom:14px;padding:17px 19px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg)}
 .wp-heat-curve-header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:16px}
 .wp-heat-curve-header h2{margin:0 0 5px;color:var(--text-primary);font-size:17px}

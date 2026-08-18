@@ -47,6 +47,11 @@
       document.title = "WP Configuration - HeishaMon";
     </script>
     <main class="main-content wp-settings-page">
+      <div
+        id="wpSettingsStatus"
+        class="dashboard-command-status wp-settings-status"
+        role="status"
+      ></div>
       <section class="wp-heat-curve-panel">
         <div class="wp-heat-curve-header">
           <div>
@@ -457,8 +462,6 @@
                 </button>
               </div>
             </div>
-            <div class="dashboard-section-title">Limits</div>
-            <div id="wpSettingsStatus" class="dashboard-command-status"></div>
           </div>
         </section>
       </div>

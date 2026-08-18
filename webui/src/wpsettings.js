@@ -21,6 +21,43 @@ function wpStatus(message, isError) {
     el.style.color = isError ? "var(--red)" : "var(--text-muted)";
   }
 }
+function wpClearUpdateError() {
+  var el = document.getElementById("wpSettingsStatus");
+  if (el && el.textContent.indexOf("Update failed:") === 0) wpStatus("", false);
+}
+function wpFetchJson(path, label, retryInvalidJson) {
+  return fetch(path, { cache: "no-store" })
+    .then(function (response) {
+      if (!response.ok)
+        throw new Error(label + " request failed: HTTP " + response.status);
+      return response.text();
+    })
+    .then(function (body) {
+      try {
+        if (!body.trim()) throw new Error("empty response");
+        return JSON.parse(body);
+      } catch (parseError) {
+        var error = new Error(
+          label +
+            " returned invalid or incomplete JSON (" +
+            body.length +
+            " bytes)",
+        );
+        error.invalidJson = true;
+        throw error;
+      }
+    })
+    .catch(function (error) {
+      if (retryInvalidJson !== false && error.invalidJson) {
+        return new Promise(function (resolve) {
+          window.setTimeout(resolve, 250);
+        }).then(function () {
+          return wpFetchJson(path, label, false);
+        });
+      }
+      throw error;
+    });
+}
 function wpSetSelect(id, topic) {
   var el = document.getElementById(id);
   if (el && document.activeElement !== el && wpValues[topic] !== undefined)
@@ -384,35 +421,24 @@ function wpApplyCurve() {
 }
 function wpRefresh() {
   if (wpRefreshPromise) return wpRefreshPromise;
-  wpRefreshPromise = fetch("/json", { cache: "no-store" })
-    .then(function (r) {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.json();
-    })
+  wpRefreshPromise = wpFetchJson("/json", "Heat-pump data")
     .then(function (data) {
       wpItems(data).forEach(function (item) {
         wpValues[item.Topic] = item.Value;
         updCell(item.Topic + "-Value", String(item.Value));
         updCell(item.Topic + "-Description", String(item.Description));
       });
-      return fetch("/wpsettingsconfig", { cache: "no-store" });
-    })
-    .then(function (r) {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.json();
+      return wpFetchJson("/wpsettingsconfig", "WP configuration");
     })
     .then(function (data) {
       wpConfig = data;
-      return fetch("/heatingcurveshift", { cache: "no-store" });
-    })
-    .then(function (r) {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.json();
+      return wpFetchJson("/heatingcurveshift", "Heating-curve state");
     })
     .then(function (data) {
       wpCurveShift = data;
       wpRefreshPromise = null;
       wpSync();
+      wpClearUpdateError();
     })
     .catch(function (e) {
       wpRefreshPromise = null;
