@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Heisha Monitor</title>
-    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.26" />
-    <script src="/webui/common.js?v=0.2.7-web.26"></script>
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.28" />
+    <script src="/webui/common.js?v=0.2.7-web.28"></script>
   </head>
   <body>
     <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
@@ -59,6 +59,8 @@
             <p>
               Define the requested water temperature at a cold and a warm
               outside-temperature point. Panasonic interpolates between them.
+              The control type is read from the Panasonic installer settings
+              and cannot be changed by HeishaMon.
             </p>
           </div>
           <span id="wpCurveMode" class="wp-curve-mode">Loading ...</span>
@@ -466,7 +468,7 @@
         </section>
       </div>
     </main>
-    <script src="/webui/websocket.js?v=0.2.7-web.26"></script>
-    <script src="/webui/wpsettings.js?v=0.2.7-web.26"></script>
+    <script src="/webui/websocket.js?v=0.2.7-web.28"></script>
+    <script src="/webui/wpsettings.js?v=0.2.7-web.28"></script>
   </body>
 </html>

@@ -894,7 +894,7 @@ void SchedulerManager::describeAction(const SchedulerAction &action,
     case SCHEDULER_ACTION_SET_Z1_HEATING_WATER_TARGET:
       snprintf(description, descriptionSize, "Set heating water target to %d C", action.value); break;
     case SCHEDULER_ACTION_SET_Z1_ROOM_TARGET:
-      snprintf(description, descriptionSize, "Unsupported legacy room target %d", action.value); break;
+      snprintf(description, descriptionSize, "Set room target to %d C", action.value); break;
     case SCHEDULER_ACTION_SET_Z1_REQUEST:
       snprintf(description, descriptionSize, "Legacy Zone 1 request %d", action.value); break;
     case SCHEDULER_ACTION_SET_QUIET_MODE:

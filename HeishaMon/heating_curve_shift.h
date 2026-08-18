@@ -10,6 +10,7 @@ struct HeatingCurveShiftStatus {
   int8_t minShift;
   int8_t maxShift;
   uint8_t heatingMode;
+  uint8_t sensorSetting;
 };
 
 bool heatingCurveShiftGetStatus(HeatingCurveShiftStatus *status);

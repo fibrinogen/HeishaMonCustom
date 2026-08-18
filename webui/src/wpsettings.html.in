@@ -59,6 +59,8 @@
             <p>
               Define the requested water temperature at a cold and a warm
               outside-temperature point. Panasonic interpolates between them.
+              The control type is read from the Panasonic installer settings
+              and cannot be changed by HeishaMon.
             </p>
           </div>
           <span id="wpCurveMode" class="wp-curve-mode">Loading ...</span>

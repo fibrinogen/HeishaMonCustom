@@ -1,6 +1,7 @@
 var wpValues = {};
 var wpConfig = { heatMin: 20, heatMax: 65 };
 var wpCurveShift = null;
+var wpZone1Semantic = null;
 var wpCurveDraft = null;
 var wpCurveDirty = false;
 var wpRefreshPromise = null;
@@ -202,11 +203,19 @@ function wpSyncCurve() {
   var mode = document.getElementById("wpCurveMode");
   if (mode) {
     if (!available) mode.textContent = "Curve data unavailable";
-    else if (Number(wpValues.TOP76) === 0)
-      mode.textContent = "Compensation curve active";
-    else if (Number(wpValues.TOP76) === 1)
-      mode.textContent = "Direct mode · curve inactive";
-    else mode.textContent = "Operating mode unknown";
+    else if (wpZone1Semantic && wpZone1Semantic.semanticKnown === true) {
+      var modeLabel = wpZone1Semantic.heatingModeLabel || "Unknown mode";
+      var sensorLabel = wpZone1Semantic.sensorSettingLabel || "Unknown sensor";
+      var valueLabel =
+        wpZone1Semantic.semantic === "heatCurveShift"
+          ? "TOP27 is curve shift"
+          : wpZone1Semantic.semantic === "heatingWaterTarget"
+            ? "TOP27 is water target"
+            : wpZone1Semantic.semantic === "roomTarget"
+              ? "TOP27 is room target"
+              : "TOP27 meaning unknown";
+      mode.textContent = modeLabel + " · " + sensorLabel + " · " + valueLabel;
+    } else mode.textContent = "Operating configuration unknown";
   }
   document
     .querySelectorAll(".wp-curve-editor input,.wp-curve-editor button")
@@ -424,6 +433,10 @@ function wpRefresh() {
     })
     .then(function (data) {
       wpConfig = data;
+      return wpFetchJson("/zone1heatsemantic", "Zone 1 control state");
+    })
+    .then(function (data) {
+      wpZone1Semantic = data;
       return wpFetchJson("/heatingcurveshift", "Heating-curve state");
     })
     .then(function (data) {

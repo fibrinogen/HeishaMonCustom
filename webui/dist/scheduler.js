@@ -17,7 +17,7 @@ var schedulerActionLabels = {
   set_dhw_target: "Set DHW target",
   set_heat_curve_shift: "Set heating curve shift",
   set_z1_heating_water_target: "Set heating water target",
-  set_z1_room_target: "Unsupported legacy room target",
+  set_z1_room_target: "Set room target",
   set_z1_request: "Legacy Zone 1 request",
   set_quiet_mode: "Set quiet mode",
 };
@@ -49,7 +49,10 @@ function schedulerSemanticMatches(action) {
       schedulerCurveShift.writable === true) ||
     (action === "set_z1_heating_water_target" &&
       schedulerSemantic &&
-      schedulerSemantic.semantic === "heatingWaterTarget")
+      schedulerSemantic.semantic === "heatingWaterTarget") ||
+    (action === "set_z1_room_target" &&
+      schedulerSemantic &&
+      schedulerSemantic.semantic === "roomTarget")
   );
 }
 function schedulerEntryActions(entry) {
@@ -104,7 +107,13 @@ function schedulerActionText(action) {
       (schedulerSemanticMatches(action.action) ? "" : " [INCOMPATIBLE]")
     );
   if (action.action === "set_z1_room_target")
-    return label + ": " + value + " [REVIEW REQUIRED]";
+    return (
+      label +
+      ": " +
+      value +
+      " °C" +
+      (schedulerSemanticMatches(action.action) ? "" : " [INCOMPATIBLE]")
+    );
   if (action.action === "set_z1_request")
     return label + ": " + value + " [REVIEW REQUIRED]";
   return label;
@@ -612,8 +621,8 @@ function schedulerCloseEditor() {
 }
 function schedulerActionOptions(select, selectedAction) {
   select.innerHTML =
-    '<option value="force_dhw_on">Force DHW on</option><option value="force_dhw_off">Force DHW off</option><option value="heatpump_on">Heat pump on</option><option value="heatpump_off">Heat pump off</option><option value="set_operation_mode">Set operating mode</option><option value="set_dhw_target">Set DHW target</option><option value="set_heat_curve_shift">Set heating curve shift</option><option value="set_z1_heating_water_target">Set heating water target</option><option value="set_z1_room_target" disabled>Unsupported room target (review required)</option><option value="set_z1_request" disabled>Legacy Zone 1 request (review required)</option><option value="set_quiet_mode">Set quiet mode</option>';
-  ["set_heat_curve_shift", "set_z1_heating_water_target"].forEach(function (action) {
+    '<option value="force_dhw_on">Force DHW on</option><option value="force_dhw_off">Force DHW off</option><option value="heatpump_on">Heat pump on</option><option value="heatpump_off">Heat pump off</option><option value="set_operation_mode">Set operating mode</option><option value="set_dhw_target">Set DHW target</option><option value="set_heat_curve_shift">Set heating curve shift</option><option value="set_z1_heating_water_target">Set heating water target</option><option value="set_z1_room_target">Set room target</option><option value="set_z1_request" disabled>Legacy Zone 1 request (review required)</option><option value="set_quiet_mode">Set quiet mode</option>';
+  ["set_heat_curve_shift", "set_z1_heating_water_target", "set_z1_room_target"].forEach(function (action) {
     var option = select.querySelector('option[value="' + action + '"]');
     option.disabled = !schedulerSemanticMatches(action);
   });
@@ -799,6 +808,7 @@ function schedulerSaveEditor() {
     "set_dhw_target",
     "set_heat_curve_shift",
     "set_z1_heating_water_target",
+    "set_z1_room_target",
     "set_quiet_mode",
   ];
   if (!actions.length || actions.length > 4) {
@@ -819,6 +829,8 @@ function schedulerSaveEditor() {
         (actionValue < Number(schedulerSemantic ? schedulerSemantic.min : 20) ||
           actionValue >
             Number(schedulerSemantic ? schedulerSemantic.max : 65))) ||
+      (action === "set_z1_room_target" &&
+        (actionValue < 10 || actionValue > 35)) ||
       (action === "set_operation_mode" &&
         (actionValue < 0 || actionValue > 6)) ||
       (action === "set_dhw_target" &&
@@ -834,7 +846,8 @@ function schedulerSaveEditor() {
     }
     if (
       (action === "set_heat_curve_shift" ||
-        action === "set_z1_heating_water_target") &&
+        action === "set_z1_heating_water_target" ||
+        action === "set_z1_room_target") &&
       !schedulerSemanticMatches(action)
     ) {
       schedulerSetStatus(

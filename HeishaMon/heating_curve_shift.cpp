@@ -21,6 +21,7 @@ static constexpr uint8_t TOP30 = 30;
 static constexpr uint8_t TOP31 = 31;
 static constexpr uint8_t TOP32 = 32;
 static constexpr uint8_t TOP76 = 76;
+static constexpr uint8_t TOP111 = 111;
 static constexpr int16_t CURVE_VALUE_MIN = -50;
 static constexpr int16_t CURVE_VALUE_MAX = 100;
 
@@ -72,6 +73,7 @@ static void statusDefaults(HeatingCurveShiftStatus *status) {
   status->minShift = -5;
   status->maxShift = 5;
   status->heatingMode = UINT8_MAX;
+  status->sensorSetting = UINT8_MAX;
 }
 
 static bool sendCurveTargets(int16_t targetAtCold, int16_t targetAtWarm,
@@ -132,9 +134,12 @@ bool heatingCurveShiftGetStatus(HeatingCurveShiftStatus *status) {
   if (!freshFrame()) return false;
 
   int mode = 0;
-  if (!readInteger(TOP76, &mode) || (mode != 0 && mode != 1)) return false;
+  int sensor = 0;
+  if (!readInteger(TOP76, &mode) || !readInteger(TOP111, &sensor) ||
+      (mode != 0 && mode != 1) || sensor < 0 || sensor > 3) return false;
   status->heatingMode = (uint8_t)mode;
-  if (mode != 0) return true;
+  status->sensorSetting = (uint8_t)sensor;
+  if (mode != 0 || sensor != 0) return true;
 
   int raw = 0;
   if (!readInteger(TOP27, &raw) || raw < -128 || raw > 127) return false;
@@ -170,6 +175,11 @@ void heatingCurveShiftToJson(JsonObject object) {
   } else {
     object["heatingMode"] = nullptr;
   }
+  if (resolved && status.sensorSetting != UINT8_MAX) {
+    object["sensorSetting"] = status.sensorSetting;
+  } else {
+    object["sensorSetting"] = nullptr;
+  }
 }
 
 bool heatingCurveShiftSet(int value, char *response, size_t responseSize) {
@@ -187,7 +197,7 @@ bool heatingCurveShiftSet(int value, char *response, size_t responseSize) {
   HeatingCurveShiftStatus status;
   if (!heatingCurveShiftGetStatus(&status) || !status.available) {
     snprintf(response, responseSize,
-      "Heating curve shift is unavailable outside compensation-curve mode");
+      "Heating curve shift requires compensation mode with water-temperature control");
     return false;
   }
   if (status.valueValid && status.requestedShift == value) {

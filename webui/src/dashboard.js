@@ -27,6 +27,35 @@ var dashboardTemperatureTopics = {
   TOP56: 1,
   TOP70: 1,
 };
+function dashboardFetchJson(path, label, retriesRemaining) {
+  if (retriesRemaining === undefined) retriesRemaining = 2;
+  return fetch(path, { cache: "no-store" })
+    .then(function (response) {
+      if (!response.ok)
+        throw new Error(label + " request failed: HTTP " + response.status);
+      return response.text();
+    })
+    .then(function (body) {
+      try {
+        if (!body.trim()) throw new Error("empty response");
+        return JSON.parse(body);
+      } catch (parseError) {
+        if (retriesRemaining > 0) {
+          return new Promise(function (resolve) {
+            window.setTimeout(resolve, 250);
+          }).then(function () {
+            return dashboardFetchJson(path, label, retriesRemaining - 1);
+          });
+        }
+        throw new Error(
+          label +
+            " returned invalid or incomplete JSON (" +
+            body.length +
+            " bytes)",
+        );
+      }
+    });
+}
 function dashboardDisplayValue(topic, value) {
   if (dashboardTemperatureTopics[topic]) {
     var numeric = Number(value);
@@ -115,27 +144,21 @@ function renderDashboard(data) {
 }
 function refreshDashboard() {
   if (dashboardRefreshPromise) return dashboardRefreshPromise;
-  dashboardRefreshPromise = fetch("/json", { cache: "no-store" })
-    .then(function (response) {
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      return response.json();
-    })
+  dashboardRefreshPromise = dashboardFetchJson("/json", "Heat-pump data")
     .then(renderDashboard)
     .then(function () {
-      return fetch("/zone1heatsemantic", { cache: "no-store" });
-    })
-    .then(function (response) {
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      return response.json();
+      return dashboardFetchJson(
+        "/zone1heatsemantic",
+        "Zone 1 control state",
+      );
     })
     .then(function (data) {
       dashboardSemantic = data;
       renderDashboardHeatRequest();
-      return fetch("/heatingcurveshift", { cache: "no-store" });
-    })
-    .then(function (response) {
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      return response.json();
+      return dashboardFetchJson(
+        "/heatingcurveshift",
+        "Heating-curve state",
+      );
     })
     .then(function (data) {
       dashboardCurveShift = data;
@@ -153,11 +176,7 @@ function refreshDashboard() {
   return dashboardRefreshPromise;
 }
 function refreshDashboardWorkflow() {
-  return fetch("/dashboardworkflow", { cache: "no-store" })
-    .then(function (response) {
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      return response.json();
-    })
+  return dashboardFetchJson("/dashboardworkflow", "Workflow status")
     .then(function (data) {
       dashboardWorkflow = data;
       syncDashboardControls();
@@ -390,7 +409,9 @@ function stepZone1Heat(delta) {
       ? "SetHeatingCurveShift"
       : dashboardSemantic.semantic === "heatingWaterTarget"
         ? "SetZ1HeatingWaterTarget"
-        : null;
+        : dashboardSemantic.semantic === "roomTarget"
+          ? "SetZ1RoomTarget"
+          : null;
   if (command === null) {
     setDashboardStatus("Unknown Zone 1 request semantics", true);
     return;
@@ -438,7 +459,9 @@ function recoverZone1Heat() {
       ? "SetHeatingCurveShift"
       : dashboardSemantic.semantic === "heatingWaterTarget"
         ? "SetZ1HeatingWaterTarget"
-        : null;
+        : dashboardSemantic.semantic === "roomTarget"
+          ? "SetZ1RoomTarget"
+          : null;
   if (command === null) return;
   dashboardSemantic.rawValue = next;
   dashboardSemantic.rawValidForSemantic = true;

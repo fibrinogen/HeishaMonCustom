@@ -357,9 +357,15 @@ static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType actio
   }
 
   if (action == SCHEDULER_ACTION_SET_Z1_ROOM_TARGET) {
-    snprintf(detail, detailSize,
-      "Unsupported room target action is disabled; TOP27 is not a room setpoint");
-    return SCHEDULER_DISPATCH_FAILED;
+    char valueString[16] = {0};
+    snprintf(valueString, sizeof(valueString), "%d", desired);
+    bool accepted = dispatchZone1HeatSemanticCommand(
+      SchedulerManager::actionName(action), valueString,
+      ZONE1_ROOM_TARGET, detail, detailSize);
+    return accepted ?
+      (strstr(detail, "already has requested value") != nullptr ?
+        SCHEDULER_DISPATCH_NO_CHANGE : SCHEDULER_DISPATCH_EXECUTED) :
+      SCHEDULER_DISPATCH_FAILED;
   }
 
   if (action == SCHEDULER_ACTION_SET_Z1_HEATING_WATER_TARGET) {
@@ -880,11 +886,7 @@ bool customFeaturesHandleCommandArgument(struct webserver_t *client, struct argu
   if (strcmp((char *)args->name, "SetZ1HeatingWaterTarget") == 0) {
     expectedType = ZONE1_HEATING_WATER_TARGET;
   } else if (strcmp((char *)args->name, "SetZ1RoomTarget") == 0) {
-    char response[192] =
-      "Unsupported room target command; TOP27 is not a room setpoint";
-    appendCustomResponse(client, response);
-    log_message(response);
-    return true;
+    expectedType = ZONE1_ROOM_TARGET;
   }
   if (expectedType != ZONE1_HEAT_SEMANTIC_UNKNOWN) {
     char response[192] = {0};
