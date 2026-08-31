@@ -50,12 +50,19 @@
       </div>
       <nav class="tabnav history-tabs" aria-label="History sections">
         <button
-          id="historyChartsTab"
+          id="historyTemperaturesTab"
           class="active"
           type="button"
-          onclick="showHistoryTab('charts')"
+          onclick="showHistoryTab('temperatures')"
         >
-          Charts
+          Temperatures
+        </button>
+        <button
+          id="historyEfficiencyTab"
+          type="button"
+          onclick="showHistoryTab('efficiency')"
+        >
+          Efficiency
         </button>
         <button
           id="historyStorageTab"
@@ -132,68 +139,126 @@
           values. Hover over a line to inspect its time and value. Drag across
           a chart to zoom all charts into that time range.
         </div>
-        <section class="panel history-card">
-          <div class="panel-header"><h3>Temperatures</h3></div>
-          <div class="history-card-body">
-            <canvas id="temps" class="history-chart"></canvas>
-            <div id="tempsLegend" class="history-legend"></div>
-            <div class="history-note">
-              All values are in °C. The colored legend identifies every line.
+        <div id="historyTemperaturesView">
+          <section class="panel history-card">
+            <div class="panel-header"><h3>Temperatures</h3></div>
+            <div class="history-card-body">
+              <canvas id="temps" class="history-chart"></canvas>
+              <div id="tempsLegend" class="history-legend"></div>
+              <div class="history-note">
+                All values are in °C. The colored legend identifies every line.
+              </div>
             </div>
-          </div>
-        </section>
-        <section class="panel history-card">
-          <div class="panel-header"><h3>Zone 1 request</h3></div>
-          <div class="history-card-body">
-            <canvas id="zone1Request" class="history-chart"></canvas>
-            <div id="zone1RequestLegend" class="history-legend"></div>
-            <div class="history-note">
-              Only the semantic series matching each sample is drawn. Heating
-              curve shift (K), heating water target (°C) and room target (°C)
-              are never merged into one line.
+          </section>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>Zone 1 request</h3></div>
+            <div class="history-card-body">
+              <canvas id="zone1Request" class="history-chart"></canvas>
+              <div id="zone1RequestLegend" class="history-legend"></div>
+              <div class="history-note">
+                Only the semantic series matching each sample is drawn. Heating
+                curve shift (K), heating water target (°C) and room target (°C)
+                are never merged into one line.
+              </div>
             </div>
-          </div>
-        </section>
-        <section class="panel history-card">
-          <div class="panel-header"><h3>Compressor / hydraulics</h3></div>
-          <div class="history-card-body">
-            <canvas id="hydraulics" class="history-chart"></canvas>
-            <div id="hydraulicsLegend" class="history-legend"></div>
-            <div class="history-note">
-              The series use their native units: Hz, l/min and kW.
+          </section>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>DHW</h3></div>
+            <div class="history-card-body">
+              <canvas id="dhw" class="history-chart"></canvas>
+              <div id="dhwLegend" class="history-legend"></div>
+              <canvas
+                id="dhwSources"
+                class="history-source-timeline"
+                aria-label="DHW heat source activity"
+              ></canvas>
+              <div id="dhwSourceStatus" class="history-note"></div>
             </div>
-          </div>
-        </section>
-        <section class="panel history-card">
-          <div class="panel-header"><h3>Efficiency / COP</h3></div>
-          <div class="history-card-body">
-            <div
-              id="efficiencySummary"
-              class="history-note"
-              style="margin-top: 0"
-            ></div>
-            <canvas id="efficiency" class="history-chart"></canvas>
-            <div id="efficiencyLegend" class="history-legend"></div>
-            <div class="history-note">
-              Estimated COP is calculated from thermal and electrical source
-              values. Aggregated ranges use energy totals, not averaged COP
-              samples.
+          </section>
+        </div>
+        <div id="historyEfficiencyView" hidden>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>Compressor / hydraulics</h3></div>
+            <div class="history-card-body">
+              <canvas id="hydraulics" class="history-chart"></canvas>
+              <div id="hydraulicsLegend" class="history-legend"></div>
+              <div class="history-note">
+                The series use their native units: Hz, l/min and kW.
+              </div>
             </div>
+          </section>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>Efficiency / COP</h3></div>
+            <div class="history-card-body">
+              <div
+                id="efficiencySummary"
+                class="history-note"
+                style="margin-top: 0"
+              ></div>
+              <canvas id="efficiency" class="history-chart"></canvas>
+              <div id="efficiencyLegend" class="history-legend"></div>
+              <div class="history-note">
+                Estimated COP is calculated from thermal and electrical source
+                values. Aggregated ranges use energy totals, not averaged COP
+                samples.
+              </div>
+            </div>
+          </section>
+          <div class="history-aggregate-heading">
+            <h2>Energy statistics</h2>
+            <span id="efficiencyArchiveStatus" class="history-status"
+              >Loading…</span
+            >
           </div>
-        </section>
-        <section class="panel history-card">
-          <div class="panel-header"><h3>DHW</h3></div>
-          <div class="history-card-body">
-            <canvas id="dhw" class="history-chart"></canvas>
-            <div id="dhwLegend" class="history-legend"></div>
-            <canvas
-              id="dhwSources"
-              class="history-source-timeline"
-              aria-label="DHW heat source activity"
-            ></canvas>
-            <div id="dhwSourceStatus" class="history-note"></div>
+          <div class="history-aggregate-grid">
+            <section class="panel history-card">
+              <div class="panel-header"><h3>Monthly production</h3></div>
+              <div class="history-card-body">
+                <canvas
+                  id="monthlyProduction"
+                  class="history-bar-chart"
+                ></canvas>
+                <div id="monthlyProductionLegend" class="history-legend"></div>
+                <div class="history-note">
+                  Thermal energy in kWh for the last 12 calendar months.
+                </div>
+              </div>
+            </section>
+            <section class="panel history-card">
+              <div class="panel-header"><h3>Monthly COP</h3></div>
+              <div class="history-card-body">
+                <canvas id="monthlyCop" class="history-bar-chart"></canvas>
+                <div id="monthlyCopLegend" class="history-legend"></div>
+                <div class="history-note">
+                  COP from monthly thermal and electrical energy totals.
+                </div>
+              </div>
+            </section>
+            <section class="panel history-card">
+              <div class="panel-header"><h3>Yearly production</h3></div>
+              <div class="history-card-body">
+                <canvas
+                  id="yearlyProduction"
+                  class="history-bar-chart"
+                ></canvas>
+                <div id="yearlyProductionLegend" class="history-legend"></div>
+                <div class="history-note">
+                  Thermal energy in kWh, grouped by calendar year.
+                </div>
+              </div>
+            </section>
+            <section class="panel history-card">
+              <div class="panel-header"><h3>Yearly COP</h3></div>
+              <div class="history-card-body">
+                <canvas id="yearlyCop" class="history-bar-chart"></canvas>
+                <div id="yearlyCopLegend" class="history-legend"></div>
+                <div class="history-note">
+                  COP from yearly thermal and electrical energy totals.
+                </div>
+              </div>
+            </section>
           </div>
-        </section>
+        </div>
       </div>
       <section
         id="historyStorageView"
@@ -305,6 +370,212 @@
             );
           })
           .join("");
+      }
+      var efficiencyBarSeries = {
+          production: [
+            {
+              key: "heatProductionKWh",
+              label: "Heat",
+              color: "#ef6c00",
+            },
+            {
+              key: "dhwProductionKWh",
+              label: "DHW",
+              color: "#1565c0",
+            },
+          ],
+          cop: [
+            { key: "heatCop", label: "Heat", color: "#ef6c00" },
+            { key: "dhwCop", label: "DHW", color: "#1565c0" },
+          ],
+        },
+        barChartViews = {};
+      function barPeriodLabel(period) {
+        if (period.length !== 7) return period;
+        return period.slice(5) + "/" + period.slice(2, 4);
+      }
+      function barValue(item, series) {
+        var value = Number(item && item[series.key]);
+        return item && item[series.key] !== null && Number.isFinite(value)
+          ? value
+          : null;
+      }
+      function setupBarChartInteraction(canvas) {
+        if (canvas._historyBarInteractionReady) return;
+        canvas._historyBarInteractionReady = true;
+        canvas.addEventListener("pointermove", function (event) {
+          var view = barChartViews[canvas.id];
+          if (!view) return;
+          var point = chartPointerPosition(canvas, event),
+            closest = null;
+          view.bars.forEach(function (bar) {
+            if (
+              point.x >= bar.x &&
+              point.x <= bar.x + bar.width &&
+              point.y >= bar.y &&
+              point.y <= bar.bottom
+            )
+              closest = bar;
+          });
+          if (view.hover !== closest) {
+            view.hover = closest;
+            paintBarChart(view);
+          }
+        });
+        canvas.addEventListener("pointerleave", function () {
+          var view = barChartViews[canvas.id];
+          if (!view || !view.hover) return;
+          view.hover = null;
+          paintBarChart(view);
+        });
+      }
+      function paintBarChart(view) {
+        var ctx = view.ctx,
+          width = view.width,
+          height = view.height,
+          left = view.left,
+          top = view.top,
+          plotWidth = view.plotWidth,
+          plotHeight = view.plotHeight,
+          max = view.max;
+        ctx.clearRect(0, 0, width, height);
+        ctx.font = "11px Arial";
+        ctx.fillStyle = "#75818a";
+        ctx.strokeStyle = "rgba(117,129,138,.22)";
+        ctx.lineWidth = 1;
+        for (var tick = 0; tick <= 4; tick++) {
+          var value = max - (max * tick) / 4,
+            y = top + (plotHeight * tick) / 4;
+          ctx.beginPath();
+          ctx.moveTo(left, y);
+          ctx.lineTo(left + plotWidth, y);
+          ctx.stroke();
+          ctx.fillText(
+            value >= 100 ? value.toFixed(0) : value.toFixed(1),
+            3,
+            y + 4,
+          );
+        }
+        ctx.strokeStyle = "#75818a";
+        ctx.beginPath();
+        ctx.moveTo(left, top);
+        ctx.lineTo(left, top + plotHeight);
+        ctx.lineTo(left + plotWidth, top + plotHeight);
+        ctx.stroke();
+        ctx.fillText(view.unit, 3, top - 6);
+        view.bars = [];
+        var groupWidth = plotWidth / Math.max(1, view.items.length),
+          barWidth = Math.max(
+            3,
+            Math.min(28, (groupWidth * 0.72) / view.series.length),
+          );
+        view.items.forEach(function (item, itemIndex) {
+          var center = left + groupWidth * (itemIndex + 0.5),
+            barsWidth = barWidth * view.series.length;
+          view.series.forEach(function (series, seriesIndex) {
+            var value = barValue(item, series);
+            if (value === null) return;
+            var barHeight = (plotHeight * Math.max(0, value)) / max,
+              x = center - barsWidth / 2 + seriesIndex * barWidth,
+              y = top + plotHeight - barHeight;
+            ctx.fillStyle = series.color;
+            ctx.fillRect(x + 1, y, Math.max(1, barWidth - 2), barHeight);
+            view.bars.push({
+              x: x + 1,
+              y: y,
+              width: Math.max(1, barWidth - 2),
+              bottom: top + plotHeight,
+              value: value,
+              item: item,
+              series: series,
+            });
+          });
+          ctx.save();
+          ctx.fillStyle = "#75818a";
+          ctx.textAlign = view.items.length > 8 ? "right" : "center";
+          ctx.translate(center, top + plotHeight + 13);
+          if (view.items.length > 8) ctx.rotate(-Math.PI / 4);
+          ctx.fillText(barPeriodLabel(item.period), 0, 0);
+          ctx.restore();
+        });
+        if (view.hover) {
+          var hover = view.hover,
+            text =
+              hover.series.label +
+              " · " +
+              hover.item.period +
+              " · " +
+              hover.value.toFixed(view.unit === "COP" ? 2 : 1) +
+              " " +
+              view.unit,
+            styles = getComputedStyle(document.documentElement),
+            background =
+              styles.getPropertyValue("--bg-elevated").trim() || "#fff",
+            foreground =
+              styles.getPropertyValue("--text-primary").trim() || "#222",
+            padding = 7,
+            boxWidth;
+          ctx.font = "12px Arial";
+          boxWidth = ctx.measureText(text).width + padding * 2;
+          var boxX = Math.max(
+              2,
+              Math.min(width - boxWidth - 2, hover.x + hover.width / 2 + 8),
+            ),
+            boxY = Math.max(2, hover.y - 32);
+          ctx.fillStyle = background;
+          ctx.strokeStyle = "rgba(117,129,138,.55)";
+          ctx.fillRect(boxX, boxY, boxWidth, 25);
+          ctx.strokeRect(boxX, boxY, boxWidth, 25);
+          ctx.fillStyle = foreground;
+          ctx.fillText(text, boxX + padding, boxY + 17);
+        }
+      }
+      function drawBarChart(id, items, series, unit) {
+        var canvas = document.getElementById(id),
+          context = canvas.getContext("2d"),
+          width = canvas.clientWidth || 600,
+          height = 280,
+          density = devicePixelRatio || 1,
+          values = [];
+        series.forEach(function (entry) {
+          items.forEach(function (item) {
+            var value = barValue(item, entry);
+            if (value !== null) values.push(value);
+          });
+        });
+        canvas.width = width * density;
+        canvas.height = height * density;
+        context.scale(density, density);
+        if (!items.length || !values.length) {
+          barChartViews[id] = null;
+          context.clearRect(0, 0, width, height);
+          context.fillStyle = "#75818a";
+          context.font = "12px Arial";
+          context.fillText("No stored efficiency data is available.", 12, 24);
+          return;
+        }
+        var max = Math.max.apply(null, values);
+        if (!Number.isFinite(max) || max <= 0) max = 1;
+        max *= 1.1;
+        var view = {
+          canvas: canvas,
+          ctx: context,
+          width: width,
+          height: height,
+          left: 52,
+          top: 20,
+          plotWidth: Math.max(1, width - 66),
+          plotHeight: 210,
+          max: max,
+          items: items,
+          series: series,
+          unit: unit,
+          bars: [],
+          hover: null,
+        };
+        barChartViews[id] = view;
+        setupBarChartInteraction(canvas);
+        paintBarChart(view);
       }
       function val(v, unit) {
         return v === null || v === undefined
@@ -744,6 +1015,7 @@
         }
       }
       var renderedHistory = null,
+        renderedEfficiencyArchive = null,
         historyDisplayRangeSeconds = 0,
         historyRequestStart = 0,
         historyRequestEnd = 0,
@@ -803,6 +1075,63 @@
           " display points · " +
           (d.intervalSeconds || 0) +
           " s interval";
+      }
+      function renderEfficiencyArchive(data) {
+        renderedEfficiencyArchive = data;
+        var monthly = data.monthly || [],
+          yearly = data.yearly || [];
+        drawBarChart(
+          "monthlyProduction",
+          monthly,
+          efficiencyBarSeries.production,
+          "kWh",
+        );
+        lineLegend(
+          "monthlyProductionLegend",
+          efficiencyBarSeries.production,
+        );
+        drawBarChart("monthlyCop", monthly, efficiencyBarSeries.cop, "COP");
+        lineLegend("monthlyCopLegend", efficiencyBarSeries.cop);
+        drawBarChart(
+          "yearlyProduction",
+          yearly,
+          efficiencyBarSeries.production,
+          "kWh",
+        );
+        lineLegend(
+          "yearlyProductionLegend",
+          efficiencyBarSeries.production,
+        );
+        drawBarChart("yearlyCop", yearly, efficiencyBarSeries.cop, "COP");
+        lineLegend("yearlyCopLegend", efficiencyBarSeries.cop);
+        document.getElementById("efficiencyArchiveStatus").textContent =
+          "Last 12 months · " + yearly.length + " stored year(s)";
+      }
+      function loadEfficiencyArchive() {
+        var status = document.getElementById("efficiencyArchiveStatus");
+        status.textContent = "Reading daily SD summaries…";
+        fetch("/efficiencyapi", { cache: "no-store" })
+          .then(function (response) {
+            return response.text().then(function (body) {
+              var data = {};
+              try {
+                data = JSON.parse(body);
+              } catch (error) {}
+              if (!response.ok)
+                throw Error(
+                  (data.error || body || "HTTP " + response.status).slice(
+                    0,
+                    160,
+                  ),
+                );
+              return data;
+            });
+          })
+          .then(renderEfficiencyArchive)
+          .catch(function (error) {
+            status.textContent =
+              "Efficiency statistics unavailable: " + error.message;
+          });
       }
       function z(value) {
         return String(value).padStart(2, "0");
@@ -966,16 +1295,26 @@
         ).then(refresh);
       }
       function showHistoryTab(tab) {
-        var charts = tab === "charts";
+        var charts = tab !== "storage",
+          temperatures = tab === "temperatures",
+          efficiency = tab === "efficiency";
         document.getElementById("historyChartsView").hidden = !charts;
-        document.getElementById("historyStorageView").hidden = charts;
+        document.getElementById("historyTemperaturesView").hidden =
+          !temperatures;
+        document.getElementById("historyEfficiencyView").hidden = !efficiency;
+        document.getElementById("historyStorageView").hidden = tab !== "storage";
         document
-          .getElementById("historyChartsTab")
-          .classList.toggle("active", charts);
+          .getElementById("historyTemperaturesTab")
+          .classList.toggle("active", temperatures);
+        document
+          .getElementById("historyEfficiencyTab")
+          .classList.toggle("active", efficiency);
         document
           .getElementById("historyStorageTab")
-          .classList.toggle("active", !charts);
+          .classList.toggle("active", tab === "storage");
         if (charts && renderedHistory) render(renderedHistory);
+        if (efficiency && renderedEfficiencyArchive)
+          renderEfficiencyArchive(renderedEfficiencyArchive);
       }
       function loadElectricalSources() {
         fetch("/externalsensorsapi", { cache: "no-store" })
@@ -1051,6 +1390,7 @@
       applyHistoryPreset(false);
       loadElectricalSources();
       loadHistoryStorageStatus();
+      loadEfficiencyArchive();
       document.title = "History - HeishaMon";
       refresh();
       window.addEventListener("resize", function () {
@@ -1059,6 +1399,11 @@
           !document.getElementById("historyChartsView").hidden
         )
           render(renderedHistory);
+        if (
+          renderedEfficiencyArchive &&
+          !document.getElementById("historyEfficiencyView").hidden
+        )
+          renderEfficiencyArchive(renderedEfficiencyArchive);
       });
     </script>
   </body>

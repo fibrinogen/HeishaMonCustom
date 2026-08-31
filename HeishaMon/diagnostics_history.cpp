@@ -54,6 +54,7 @@ constexpr uint8_t ROUTE_CYCLES_API = 34;
 constexpr uint8_t ROUTE_PERSISTENT_EVENTS_API = 38;
 constexpr uint8_t ROUTE_PERSISTENT_EVENTS_CSV = 39;
 constexpr uint8_t ROUTE_PERSISTENT_SCHEDULER_EVENTS_API = 41;
+constexpr uint8_t ROUTE_EFFICIENCY_API = 42;
 
 constexpr uint8_t TOP_HEATPUMP_STATE = 0;
 constexpr uint8_t TOP_FLOW = 1;
@@ -1548,6 +1549,228 @@ static bool visitStoredHistory(uint32_t lowerTimestamp, uint32_t upperTimestamp,
   return true;
 }
 
+constexpr uint8_t EFFICIENCY_MONTH_COUNT = 12;
+constexpr uint8_t EFFICIENCY_YEAR_COUNT = 12;
+
+struct EfficiencyPeriod {
+  int16_t year = 0;
+  int8_t month = 0;
+  EnergyTotals heating;
+  EnergyTotals dhw;
+  uint16_t days = 0;
+};
+
+struct EfficiencyArchive {
+  EfficiencyPeriod months[EFFICIENCY_MONTH_COUNT];
+  EfficiencyPeriod years[EFFICIENCY_YEAR_COUNT];
+};
+
+static bool parseCsvDouble(const char *text, double &value) {
+  if (text == nullptr || *text == '\0') return false;
+  char *end = nullptr;
+  value = strtod(text, &end);
+  return end != text && *end == '\0' && isfinite(value) && value >= 0.0;
+}
+
+static bool parseDailySummaryLine(char *line, uint32_t &dayStart,
+    EnergyTotals &heating, EnergyTotals &dhw) {
+  if (line == nullptr || strncmp(line, "day,", 4) == 0) return false;
+  char *fields[7] = {};
+  char *cursor = line;
+  for (uint8_t index = 0; index < 7; index++) {
+    fields[index] = cursor;
+    char *separator = strchr(cursor, ',');
+    if (separator == nullptr) {
+      if (index != 6) return false;
+      break;
+    }
+    *separator = '\0';
+    cursor = separator + 1;
+  }
+  uint32_t parsedDay = 0;
+  double heatingThermal = 0.0, heatingElectrical = 0.0;
+  double dhwThermal = 0.0, dhwElectrical = 0.0;
+  if (!parseCsvUnsigned(fields[0], UINT32_MAX, parsedDay) ||
+      parsedDay < 1577836800UL ||
+      !parseCsvDouble(fields[1], heatingThermal) ||
+      !parseCsvDouble(fields[2], heatingElectrical) ||
+      !parseCsvDouble(fields[4], dhwThermal) ||
+      !parseCsvDouble(fields[5], dhwElectrical)) {
+    return false;
+  }
+  dayStart = parsedDay;
+  heating.thermalKWh = heatingThermal;
+  heating.electricalKWh = heatingElectrical;
+  heating.intervals = heatingThermal > 0.0 && heatingElectrical > 0.0 ? 1 : 0;
+  dhw.thermalKWh = dhwThermal;
+  dhw.electricalKWh = dhwElectrical;
+  dhw.intervals = dhwThermal > 0.0 && dhwElectrical > 0.0 ? 1 : 0;
+  return true;
+}
+
+static void initializeEfficiencyArchive(EfficiencyArchive &archive,
+    const struct tm &now) {
+  memset(&archive, 0, sizeof(archive));
+  int absoluteMonth = (now.tm_year + 1900) * 12 + now.tm_mon;
+  for (uint8_t index = 0; index < EFFICIENCY_MONTH_COUNT; index++) {
+    int periodMonth = absoluteMonth - (EFFICIENCY_MONTH_COUNT - 1 - index);
+    archive.months[index].year = periodMonth / 12;
+    archive.months[index].month = (int8_t)(periodMonth % 12 + 1);
+  }
+  int currentYear = now.tm_year + 1900;
+  for (uint8_t index = 0; index < EFFICIENCY_YEAR_COUNT; index++) {
+    archive.years[index].year = currentYear -
+      (EFFICIENCY_YEAR_COUNT - 1 - index);
+  }
+}
+
+static void addEfficiencyTotals(EfficiencyPeriod &period,
+    const EnergyTotals &heating, const EnergyTotals &dhw) {
+  period.heating.thermalKWh += heating.thermalKWh;
+  period.heating.electricalKWh += heating.electricalKWh;
+  period.heating.intervals += heating.intervals;
+  period.dhw.thermalKWh += dhw.thermalKWh;
+  period.dhw.electricalKWh += dhw.electricalKWh;
+  period.dhw.intervals += dhw.intervals;
+  period.days++;
+}
+
+static void addEfficiencyDay(EfficiencyArchive &archive, uint32_t dayStart,
+    const EnergyTotals &heating, const EnergyTotals &dhw) {
+  time_t value = (time_t)dayStart;
+  struct tm local = {};
+  if (localtime_r(&value, &local) == nullptr) return;
+  int year = local.tm_year + 1900;
+  int month = local.tm_mon + 1;
+  for (uint8_t index = 0; index < EFFICIENCY_MONTH_COUNT; index++) {
+    if (archive.months[index].year == year &&
+        archive.months[index].month == month) {
+      addEfficiencyTotals(archive.months[index], heating, dhw);
+      break;
+    }
+  }
+  for (uint8_t index = 0; index < EFFICIENCY_YEAR_COUNT; index++) {
+    if (archive.years[index].year == year) {
+      addEfficiencyTotals(archive.years[index], heating, dhw);
+      break;
+    }
+  }
+}
+
+static bool readEfficiencyArchive(EfficiencyArchive &archive) {
+  File root = SD_MMC.open("/daily");
+  if (!root) return false;
+  while (true) {
+    File entry = root.openNextFile();
+    if (!entry) break;
+    char name[72] = {};
+    snprintf(name, sizeof(name), "%s", entry.name());
+    bool directoryEntry = entry.isDirectory();
+    entry.close();
+    int year = 0, month = 0, day = 0;
+    if (directoryEntry || !parseSdDate(name, year, month, day)) continue;
+    char path[72];
+    snprintf(path, sizeof(path), "/sd/daily/%04d-%02d-%02d.csv", year, month,
+      day);
+    FILE *file = fopen(path, "r");
+    if (file == nullptr) continue;
+    while (fgets(storedArchiveCsvLine, sizeof(storedArchiveCsvLine), file) !=
+        nullptr) {
+      size_t length = strlen(storedArchiveCsvLine);
+      while (length > 0 && (storedArchiveCsvLine[length - 1] == '\n' ||
+          storedArchiveCsvLine[length - 1] == '\r')) {
+        storedArchiveCsvLine[--length] = '\0';
+      }
+      uint32_t dayStart = 0;
+      EnergyTotals heating;
+      EnergyTotals dhw;
+      if (parseDailySummaryLine(storedArchiveCsvLine, dayStart, heating, dhw)) {
+        addEfficiencyDay(archive, dayStart, heating, dhw);
+      }
+    }
+    fclose(file);
+    delay(0);
+  }
+  root.close();
+  if (dailySummary.valid) {
+    addEfficiencyDay(archive, dailySummary.dayStart, dailySummary.heating,
+      dailySummary.dhw);
+  }
+  return true;
+}
+
+static void appendEfficiencyPeriodJson(struct webserver_t *client,
+    const EfficiencyPeriod &period, bool includeMonth) {
+  float heatingCop = NAN, dhwCop = NAN;
+  totalsCop(period.heating, heatingCop);
+  totalsCop(period.dhw, dhwCop);
+  if (includeMonth) {
+    appendFmt(client,
+      "{\"period\":\"%04d-%02d\",\"days\":%u,\"heatProductionKWh\":%.4f,\"dhwProductionKWh\":%.4f,\"heatCop\":",
+      period.year, period.month, period.days, period.heating.thermalKWh,
+      period.dhw.thermalKWh);
+  } else {
+    appendFmt(client,
+      "{\"period\":\"%04d\",\"days\":%u,\"heatProductionKWh\":%.4f,\"dhwProductionKWh\":%.4f,\"heatCop\":",
+      period.year, period.days, period.heating.thermalKWh,
+      period.dhw.thermalKWh);
+  }
+  appendJsonFloat(client, isfinite(heatingCop), heatingCop);
+  appendText(client, ",\"dhwCop\":");
+  appendJsonFloat(client, isfinite(dhwCop), dhwCop);
+  appendText(client, "}");
+}
+
+static void handleEfficiencyApi(struct webserver_t *client) {
+  if (!sdState.active) {
+    webserver_send(client, 503, (char *)"application/json", 0);
+    appendFmt(client, "{\"error\":\"Persistent SD history is inactive: %s\"}",
+      sdState.lastError);
+    return;
+  }
+  time_t nowValue = 0;
+  struct tm now = {};
+  if (!validClock(&nowValue) || localtime_r(&nowValue, &now) == nullptr) {
+    webserver_send(client, 503, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"Controller clock is not synchronized\"}");
+    return;
+  }
+  if (sdFilesystemMutex == nullptr || sdHistoryReaderBusy ||
+      xSemaphoreTake(sdFilesystemMutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+    webserver_send(client, 429, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"SD history is busy; retry shortly\"}");
+    return;
+  }
+  sdHistoryReaderBusy = true;
+  EfficiencyArchive archive;
+  initializeEfficiencyArchive(archive, now);
+  bool read = readEfficiencyArchive(archive);
+  if (!read) {
+    sdHistoryReaderBusy = false;
+    xSemaphoreGive(sdFilesystemMutex);
+    webserver_send(client, 500, (char *)"application/json", 0);
+    appendText(client, "{\"error\":\"Could not read daily efficiency history\"}");
+    return;
+  }
+  webserver_send(client, 200, (char *)"application/json", 0);
+  appendText(client, "{\"monthly\":[");
+  for (uint8_t index = 0; index < EFFICIENCY_MONTH_COUNT; index++) {
+    if (index > 0) appendText(client, ",");
+    appendEfficiencyPeriodJson(client, archive.months[index], true);
+  }
+  appendText(client, "],\"yearly\":[");
+  bool first = true;
+  for (uint8_t index = 0; index < EFFICIENCY_YEAR_COUNT; index++) {
+    if (archive.years[index].days == 0) continue;
+    if (!first) appendText(client, ",");
+    appendEfficiencyPeriodJson(client, archive.years[index], false);
+    first = false;
+  }
+  appendText(client, "]}");
+  sdHistoryReaderBusy = false;
+  xSemaphoreGive(sdFilesystemMutex);
+}
+
 static void appendStoredSampleJson(struct webserver_t *client,
     const HistorySample &sample, float aggregatedCop) {
   char outside[12], inlet[12], outlet[12], target[12], dhw[12], dhwTarget[12];
@@ -2949,6 +3172,10 @@ bool diagnosticsHistoryHandleUri(struct webserver_t *client, const char *uri) {
       strcmp(uri, "/api/history/status") == 0) client->route = ROUTE_HISTORY_STATUS;
   else if (strcmp(uri, "/historyapi") == 0 ||
       strcmp(uri, "/api/history") == 0) client->route = ROUTE_HISTORY_API;
+  else if (strcmp(uri, "/efficiencyapi") == 0 ||
+      strcmp(uri, "/api/history/efficiency") == 0) {
+    client->route = ROUTE_EFFICIENCY_API;
+  }
   else if (strcmp(uri, "/events") == 0 ||
       strcmp(uri, "/api/events") == 0) client->route = ROUTE_EVENTS_API;
   else if (strcmp(uri, "/eventlogapi") == 0 ||
@@ -3101,6 +3328,16 @@ bool diagnosticsHistoryHandleWrite(struct webserver_t *client) {
       return true;
     case ROUTE_HISTORY_STATUS:
       if (client->content == 0) handleHistoryStatus(client);
+      return true;
+    case ROUTE_EFFICIENCY_API:
+      if (client->content == 0) {
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+        handleEfficiencyApi(client);
+#else
+        webserver_send(client, 503, (char *)"application/json", 0);
+        appendText(client, "{\"error\":\"Persistent SD history is disabled\"}");
+#endif
+      }
       return true;
     case ROUTE_HISTORY_API: {
       if (client->content == 0) {
