@@ -1582,6 +1582,8 @@ static bool visitStoredHistory(uint32_t lowerTimestamp, uint32_t upperTimestamp,
 
 constexpr uint8_t EFFICIENCY_MONTH_COUNT = 12;
 constexpr uint8_t EFFICIENCY_YEAR_COUNT = 12;
+constexpr uint8_t DEMAND_DAY_COUNT = 31;
+constexpr uint8_t DEMAND_HOUR_COUNT = 24;
 
 struct EfficiencyPeriod {
   int16_t year = 0;
@@ -1591,10 +1593,37 @@ struct EfficiencyPeriod {
   uint16_t days = 0;
 };
 
+struct DailyDemandPeriod {
+  uint32_t start = 0;
+  double heatingDegreeDays = NAN;
+  double heatingElectricalKWh = 0.0;
+  double dhwElectricalKWh = 0.0;
+};
+
 struct EfficiencyArchive {
   EfficiencyPeriod months[EFFICIENCY_MONTH_COUNT];
   EfficiencyPeriod years[EFFICIENCY_YEAR_COUNT];
+  DailyDemandPeriod demandDays[DEMAND_DAY_COUNT];
 };
+
+struct HourlyDemandPeriod {
+  uint32_t start = 0;
+  double outsideSum = 0.0;
+  uint16_t outsideSamples = 0;
+  double heatingElectricalKWh = 0.0;
+  double dhwElectricalKWh = 0.0;
+};
+
+struct HourlyDemandArchive {
+  HourlyDemandPeriod hours[DEMAND_HOUR_COUNT];
+  HistorySample previous = {};
+  bool previousValid = false;
+};
+
+// The HTTP loop task has a small stack. These response workspaces are safe to
+// share because the efficiency route is serialized by sdFilesystemMutex.
+static EfficiencyArchive efficiencyArchiveResponse;
+static HourlyDemandArchive hourlyDemandResponse;
 
 static bool parseCsvDouble(const char *text, double &value) {
   if (text == nullptr || *text == '\0') return false;
@@ -1604,20 +1633,19 @@ static bool parseCsvDouble(const char *text, double &value) {
 }
 
 static bool parseDailySummaryLine(char *line, uint32_t &dayStart,
-    EnergyTotals &heating, EnergyTotals &dhw) {
+    EnergyTotals &heating, EnergyTotals &dhw, double &heatingDegreeDays) {
   if (line == nullptr || strncmp(line, "day,", 4) == 0) return false;
-  char *fields[7] = {};
+  char *fields[13] = {};
   char *cursor = line;
-  for (uint8_t index = 0; index < 7; index++) {
-    fields[index] = cursor;
+  uint8_t fieldCount = 0;
+  while (fieldCount < 13) {
+    fields[fieldCount++] = cursor;
     char *separator = strchr(cursor, ',');
-    if (separator == nullptr) {
-      if (index != 6) return false;
-      break;
-    }
+    if (separator == nullptr) break;
     *separator = '\0';
     cursor = separator + 1;
   }
+  if (fieldCount < 7) return false;
   uint32_t parsedDay = 0;
   double heatingThermal = 0.0, heatingElectrical = 0.0;
   double dhwThermal = 0.0, dhwElectrical = 0.0;
@@ -1636,6 +1664,8 @@ static bool parseDailySummaryLine(char *line, uint32_t &dayStart,
   dhw.thermalKWh = dhwThermal;
   dhw.electricalKWh = dhwElectrical;
   dhw.intervals = dhwThermal > 0.0 && dhwElectrical > 0.0 ? 1 : 0;
+  heatingDegreeDays = NAN;
+  if (fieldCount > 7) parseCsvDouble(fields[7], heatingDegreeDays);
   return true;
 }
 
@@ -1653,6 +1683,17 @@ static void initializeEfficiencyArchive(EfficiencyArchive &archive,
     archive.years[index].year = currentYear -
       (EFFICIENCY_YEAR_COUNT - 1 - index);
   }
+  struct tm currentDay = now;
+  currentDay.tm_hour = 0;
+  currentDay.tm_min = 0;
+  currentDay.tm_sec = 0;
+  for (uint8_t index = 0; index < DEMAND_DAY_COUNT; index++) {
+    struct tm period = currentDay;
+    period.tm_mday -= DEMAND_DAY_COUNT - 1 - index;
+    period.tm_isdst = -1;
+    archive.demandDays[index].start = (uint32_t)mktime(&period);
+    archive.demandDays[index].heatingDegreeDays = NAN;
+  }
 }
 
 static void addEfficiencyTotals(EfficiencyPeriod &period,
@@ -1667,7 +1708,8 @@ static void addEfficiencyTotals(EfficiencyPeriod &period,
 }
 
 static void addEfficiencyDay(EfficiencyArchive &archive, uint32_t dayStart,
-    const EnergyTotals &heating, const EnergyTotals &dhw) {
+    const EnergyTotals &heating, const EnergyTotals &dhw,
+    double heatingDegreeDays) {
   time_t value = (time_t)dayStart;
   struct tm local = {};
   if (localtime_r(&value, &local) == nullptr) return;
@@ -1685,6 +1727,15 @@ static void addEfficiencyDay(EfficiencyArchive &archive, uint32_t dayStart,
       addEfficiencyTotals(archive.years[index], heating, dhw);
       break;
     }
+  }
+  for (uint8_t index = 0; index < DEMAND_DAY_COUNT; index++) {
+    if (archive.demandDays[index].start != dayStart) continue;
+    archive.demandDays[index].heatingElectricalKWh += heating.electricalKWh;
+    archive.demandDays[index].dhwElectricalKWh += dhw.electricalKWh;
+    if (isfinite(heatingDegreeDays)) {
+      archive.demandDays[index].heatingDegreeDays = heatingDegreeDays;
+    }
+    break;
   }
 }
 
@@ -1715,8 +1766,10 @@ static bool readEfficiencyArchive(EfficiencyArchive &archive) {
       uint32_t dayStart = 0;
       EnergyTotals heating;
       EnergyTotals dhw;
-      if (parseDailySummaryLine(storedArchiveCsvLine, dayStart, heating, dhw)) {
-        addEfficiencyDay(archive, dayStart, heating, dhw);
+      double heatingDegreeDays = NAN;
+      if (parseDailySummaryLine(storedArchiveCsvLine, dayStart, heating, dhw,
+          heatingDegreeDays)) {
+        addEfficiencyDay(archive, dayStart, heating, dhw, heatingDegreeDays);
       }
     }
     fclose(file);
@@ -1725,9 +1778,107 @@ static bool readEfficiencyArchive(EfficiencyArchive &archive) {
   root.close();
   if (dailySummary.valid) {
     addEfficiencyDay(archive, dailySummary.dayStart, dailySummary.heating,
-      dailySummary.dhw);
+      dailySummary.dhw, dailySummary.outsideSamples > 0 ?
+        dailySummary.heatingDegreeDays : NAN);
   }
   return true;
+}
+
+static void initializeHourlyDemandArchive(HourlyDemandArchive &archive,
+    const struct tm &now) {
+  memset(&archive, 0, sizeof(archive));
+  struct tm currentHour = now;
+  currentHour.tm_min = 0;
+  currentHour.tm_sec = 0;
+  for (uint8_t index = 0; index < DEMAND_HOUR_COUNT; index++) {
+    struct tm period = currentHour;
+    period.tm_hour -= DEMAND_HOUR_COUNT - 1 - index;
+    period.tm_isdst = -1;
+    archive.hours[index].start = (uint32_t)mktime(&period);
+  }
+}
+
+static int hourlyDemandIndex(const HourlyDemandArchive &archive,
+    uint32_t timestamp) {
+  for (int index = DEMAND_HOUR_COUNT - 1; index >= 0; index--) {
+    if (timestamp >= archive.hours[index].start) return index;
+  }
+  return -1;
+}
+
+static bool addHourlyDemandSample(const HistorySample &sample, void *context) {
+  HourlyDemandArchive &archive = *(HourlyDemandArchive *)context;
+  int sampleIndex = hourlyDemandIndex(archive, sample.timestamp);
+  if (sampleIndex >= 0 &&
+      (sample.validFields & HISTORY_FIELD_OUTSIDE) != 0) {
+    archive.hours[sampleIndex].outsideSum += sample.outsideTemp10 / 10.0f;
+    archive.hours[sampleIndex].outsideSamples++;
+  }
+  if (archive.previousValid) {
+    uint32_t previousTime = archive.previous.timestamp;
+    uint32_t currentTime = sample.timestamp;
+    if (currentTime > previousTime && currentTime - previousTime <= 600UL) {
+      EnergyTotals interval;
+      if (addEnergyPair(archive.previous, sample, 0, 0, UINT32_MAX,
+          interval)) {
+        int intervalIndex = hourlyDemandIndex(archive,
+          previousTime + (currentTime - previousTime) / 2);
+        int group = efficiencyGroup(sample);
+        if (intervalIndex >= 0 && group == 1) {
+          archive.hours[intervalIndex].heatingElectricalKWh +=
+            interval.electricalKWh;
+        } else if (intervalIndex >= 0 && group == 2) {
+          archive.hours[intervalIndex].dhwElectricalKWh +=
+            interval.electricalKWh;
+        }
+      }
+    }
+  }
+  archive.previous = sample;
+  archive.previousValid = true;
+  return true;
+}
+
+static bool readHourlyDemandArchive(HourlyDemandArchive &archive,
+    uint32_t now) {
+  return visitStoredHistory(archive.hours[0].start, now,
+    addHourlyDemandSample, &archive);
+}
+
+static void appendDailyDemandJson(struct webserver_t *client,
+    const DailyDemandPeriod &period) {
+  time_t value = (time_t)period.start;
+  struct tm local = {};
+  if (localtime_r(&value, &local) == nullptr) {
+    appendText(client, "null");
+    return;
+  }
+  appendFmt(client,
+    "{\"period\":\"%04d-%02d-%02d\",\"heatConsumptionKWh\":%.4f,\"dhwConsumptionKWh\":%.4f,\"heatingDegreeDays\":",
+    local.tm_year + 1900, local.tm_mon + 1, local.tm_mday,
+    period.heatingElectricalKWh, period.dhwElectricalKWh);
+  appendJsonFloat(client, isfinite(period.heatingDegreeDays),
+    (float)period.heatingDegreeDays);
+  appendText(client, "}");
+}
+
+static void appendHourlyDemandJson(struct webserver_t *client,
+    const HourlyDemandPeriod &period) {
+  time_t value = (time_t)period.start;
+  struct tm local = {};
+  if (localtime_r(&value, &local) == nullptr) {
+    appendText(client, "null");
+    return;
+  }
+  float degreeDifference = period.outsideSamples == 0 ? NAN :
+    max(0.0f, heatingDegreeDayBase -
+      (float)(period.outsideSum / period.outsideSamples));
+  appendFmt(client,
+    "{\"period\":\"%04d-%02d-%02d %02d:00\",\"heatConsumptionKWh\":%.4f,\"dhwConsumptionKWh\":%.4f,\"heatingDegreeDifference\":",
+    local.tm_year + 1900, local.tm_mon + 1, local.tm_mday, local.tm_hour,
+    period.heatingElectricalKWh, period.dhwElectricalKWh);
+  appendJsonFloat(client, isfinite(degreeDifference), degreeDifference);
+  appendText(client, "}");
 }
 
 static void appendEfficiencyPeriodJson(struct webserver_t *client,
@@ -1781,10 +1932,14 @@ static void handleEfficiencyApi(struct webserver_t *client) {
     return;
   }
   sdHistoryReaderBusy = true;
-  EfficiencyArchive archive;
+  EfficiencyArchive &archive = efficiencyArchiveResponse;
   initializeEfficiencyArchive(archive, now);
   bool read = readEfficiencyArchive(archive);
-  if (!read) {
+  HourlyDemandArchive &hourlyDemand = hourlyDemandResponse;
+  initializeHourlyDemandArchive(hourlyDemand, now);
+  bool hourlyRead = readHourlyDemandArchive(hourlyDemand,
+    (uint32_t)nowValue);
+  if (!read || !hourlyRead) {
     sdHistoryReaderBusy = false;
     xSemaphoreGive(sdFilesystemMutex);
     webserver_send(client, 500, (char *)"application/json", 0);
@@ -1805,7 +1960,18 @@ static void handleEfficiencyApi(struct webserver_t *client) {
     appendEfficiencyPeriodJson(client, archive.years[index], false);
     first = false;
   }
-  appendText(client, "]}");
+  appendText(client, "],\"demandDaily\":[");
+  for (uint8_t index = 0; index < DEMAND_DAY_COUNT; index++) {
+    if (index > 0) appendText(client, ",");
+    appendDailyDemandJson(client, archive.demandDays[index]);
+  }
+  appendText(client, "],\"demandHourly\":[");
+  for (uint8_t index = 0; index < DEMAND_HOUR_COUNT; index++) {
+    if (index > 0) appendText(client, ",");
+    appendHourlyDemandJson(client, hourlyDemand.hours[index]);
+  }
+  appendFmt(client, "],\"heatingDegreeDayBase\":%.1f}",
+    heatingDegreeDayBase);
   sdHistoryReaderBusy = false;
   xSemaphoreGive(sdFilesystemMutex);
 }

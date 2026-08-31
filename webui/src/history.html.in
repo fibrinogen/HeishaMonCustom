@@ -237,6 +237,35 @@
             </div>
           </section>
           <div class="history-aggregate-heading">
+            <h2>Heating demand &amp; energy use</h2>
+          </div>
+          <div class="history-aggregate-grid">
+            <section class="panel history-card" style="grid-column: 1 / -1">
+              <div class="panel-header"><h3>Daily demand — last 31 days</h3></div>
+              <div class="history-card-body">
+                <canvas id="dailyDemand" class="history-bar-chart"></canvas>
+                <div id="dailyDemandLegend" class="history-legend"></div>
+                <div class="history-note">
+                  Heating degree days (K·d) use a configurable reference of
+                  <span id="degreeDayBaseLabel">18.0 °C</span>. Heat and DHW
+                  show electrical energy consumption in kWh.
+                </div>
+              </div>
+            </section>
+            <section class="panel history-card" style="grid-column: 1 / -1">
+              <div class="panel-header"><h3>Hourly demand — last 24 hours</h3></div>
+              <div class="history-card-body">
+                <canvas id="hourlyDemand" class="history-bar-chart"></canvas>
+                <div id="hourlyDemandLegend" class="history-legend"></div>
+                <div class="history-note">
+                  The weather value is the hourly heating degree difference
+                  (K), not a degree day. Heat and DHW show electrical energy
+                  consumption per hour in kWh.
+                </div>
+              </div>
+            </section>
+          </div>
+          <div class="history-aggregate-heading">
             <h2>Energy statistics</h2>
             <span id="efficiencyArchiveStatus" class="history-status"
               >Loading…</span
@@ -522,9 +551,51 @@
             { key: "dhwCop", label: "DHW", color: "#1565c0" },
             { key: "totalCop", label: "Total", color: "#2e7d32" },
           ],
+          demandDaily: [
+            {
+              key: "heatingDegreeDays",
+              label: "Heating degree days",
+              color: "#00897b",
+              unit: "K·d",
+            },
+            {
+              key: "heatConsumptionKWh",
+              label: "Heat consumption",
+              color: "#d81b60",
+              unit: "kWh",
+            },
+            {
+              key: "dhwConsumptionKWh",
+              label: "DHW consumption",
+              color: "#fb8c00",
+              unit: "kWh",
+            },
+          ],
+          demandHourly: [
+            {
+              key: "heatingDegreeDifference",
+              label: "Heating degree difference",
+              color: "#00897b",
+              unit: "K",
+            },
+            {
+              key: "heatConsumptionKWh",
+              label: "Heat consumption",
+              color: "#d81b60",
+              unit: "kWh",
+            },
+            {
+              key: "dhwConsumptionKWh",
+              label: "DHW consumption",
+              color: "#fb8c00",
+              unit: "kWh",
+            },
+          ],
         },
         barChartViews = {};
       function barPeriodLabel(period) {
+        if (period.length === 10) return period.slice(5);
+        if (period.length === 16) return period.slice(11);
         if (period.length !== 7) return period;
         return period.slice(5) + "/" + period.slice(2, 4);
       }
@@ -641,7 +712,7 @@
               " · " +
               hover.value.toFixed(view.unit === "COP" ? 2 : 1) +
               " " +
-              view.unit,
+              (hover.series.unit || view.unit),
             styles = getComputedStyle(document.documentElement),
             background =
               styles.getPropertyValue("--bg-elevated").trim() || "#fff",
@@ -1276,7 +1347,25 @@
       function renderEfficiencyArchive(data) {
         renderedEfficiencyArchive = data;
         var monthly = data.monthly || [],
-          yearly = data.yearly || [];
+          yearly = data.yearly || [],
+          demandDaily = data.demandDaily || [],
+          demandHourly = data.demandHourly || [];
+        drawBarChart(
+          "dailyDemand",
+          demandDaily,
+          efficiencyBarSeries.demandDaily,
+          "K·d / kWh",
+        );
+        lineLegend("dailyDemandLegend", efficiencyBarSeries.demandDaily);
+        drawBarChart(
+          "hourlyDemand",
+          demandHourly,
+          efficiencyBarSeries.demandHourly,
+          "K / kWh",
+        );
+        lineLegend("hourlyDemandLegend", efficiencyBarSeries.demandHourly);
+        document.getElementById("degreeDayBaseLabel").textContent =
+          val(data.heatingDegreeDayBase) + " °C";
         drawBarChart(
           "monthlyProduction",
           monthly,
@@ -1302,7 +1391,9 @@
         drawBarChart("yearlyCop", yearly, efficiencyBarSeries.cop, "COP");
         lineLegend("yearlyCopLegend", efficiencyBarSeries.cop);
         document.getElementById("efficiencyArchiveStatus").textContent =
-          "Last 12 months · " + yearly.length + " stored year(s)";
+          "Last 31 days · last 24 hours · last 12 months · " +
+          yearly.length +
+          " stored year(s)";
       }
       function loadEfficiencyArchive() {
         var status = document.getElementById("efficiencyArchiveStatus");
