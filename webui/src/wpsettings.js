@@ -15,6 +15,16 @@ function wpItems(data) {
     data["heatpump optional"] || [],
   );
 }
+function wpRenderHeatpumpData(data) {
+  wpItems(data).forEach(function (item) {
+    wpValues[item.Topic] = item.Value;
+    updCell(item.Topic + "-Value", String(item.Value));
+    updCell(item.Topic + "-Description", String(item.Description));
+  });
+}
+function wpHandleTopicUpdate(topic, value) {
+  wpValues[topic] = value;
+}
 function wpStatus(message, isError) {
   var el = document.getElementById("wpSettingsStatus");
   if (el) {
@@ -24,7 +34,12 @@ function wpStatus(message, isError) {
 }
 function wpClearUpdateError() {
   var el = document.getElementById("wpSettingsStatus");
-  if (el && el.textContent.indexOf("Update failed:") === 0) wpStatus("", false);
+  if (
+    el &&
+    (el.textContent.indexOf("Update failed:") === 0 ||
+      el.textContent.indexOf("Showing last values;") === 0)
+  )
+    wpStatus("", false);
 }
 function wpFetchJson(path, label, retryInvalidJson) {
   return fetch(path, { cache: "no-store" })
@@ -424,11 +439,8 @@ function wpRefresh() {
   if (wpRefreshPromise) return wpRefreshPromise;
   wpRefreshPromise = wpFetchJson("/json", "Heat-pump data")
     .then(function (data) {
-      wpItems(data).forEach(function (item) {
-        wpValues[item.Topic] = item.Value;
-        updCell(item.Topic + "-Value", String(item.Value));
-        updCell(item.Topic + "-Description", String(item.Description));
-      });
+      hmStoreHeatpumpSnapshot(data);
+      wpRenderHeatpumpData(data);
       return wpFetchJson("/wpsettingsconfig", "WP configuration");
     })
     .then(function (data) {
@@ -562,6 +574,12 @@ function wpConfigStep(field, delta) {
   wpQueueStep("config:" + field, command, next);
 }
 document.addEventListener("DOMContentLoaded", function () {
+  var cached = hmReadHeatpumpSnapshot();
+  if (cached) {
+    wpRenderHeatpumpData(cached);
+    wpSync();
+    wpStatus("Showing last values; refreshing ...", false);
+  }
   wpRefresh();
   startWebsockets();
   monitorWebSocket();

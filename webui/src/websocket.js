@@ -73,8 +73,19 @@ function startWebsockets() {
             updStat("uptime", j.data.stats.uptime);
             updStat("rules", j.data.stats.rules);
           } else if (j.data.heishavalues) {
+            if (typeof hmUpdateHeatpumpSnapshotTopic === "function")
+              hmUpdateHeatpumpSnapshotTopic(
+                j.data.heishavalues.topic,
+                j.data.heishavalues.value,
+                j.data.heishavalues.description,
+              );
             if (typeof dashboardHandleTopicUpdate === "function")
               dashboardHandleTopicUpdate(
+                j.data.heishavalues.topic,
+                j.data.heishavalues.value,
+              );
+            if (typeof wpHandleTopicUpdate === "function")
+              wpHandleTopicUpdate(
                 j.data.heishavalues.topic,
                 j.data.heishavalues.value,
               );

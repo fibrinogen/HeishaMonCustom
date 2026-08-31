@@ -874,6 +874,49 @@ function closeMenu(){
   document.getElementById('menuOverlay').classList.remove('open');
 }
 
+var hmHeatpumpSnapshotKey='heishamon.heatpumpSnapshot.v1';
+var hmHeatpumpSnapshotMemory=null;
+var hmHeatpumpSnapshotWriteTimer=null;
+function hmHeatpumpSnapshotItems(data){
+  return data?[].concat(data.heatpump||[],data['heatpump extra']||[],data['heatpump optional']||[]):[];
+}
+function hmHeatpumpSnapshotValid(data){return!!(data&&hmHeatpumpSnapshotItems(data).length);}
+function hmWriteHeatpumpSnapshot(){
+  if(!hmHeatpumpSnapshotMemory)return;
+  try{sessionStorage.setItem(hmHeatpumpSnapshotKey,JSON.stringify(hmHeatpumpSnapshotMemory));}catch(e){}
+}
+function hmStoreHeatpumpSnapshot(data){
+  if(!hmHeatpumpSnapshotValid(data))return false;
+  hmHeatpumpSnapshotMemory={storedAt:Date.now(),data:data};
+  if(hmHeatpumpSnapshotWriteTimer){clearTimeout(hmHeatpumpSnapshotWriteTimer);hmHeatpumpSnapshotWriteTimer=null;}
+  hmWriteHeatpumpSnapshot();
+  return true;
+}
+function hmReadHeatpumpSnapshot(){
+  if(!hmHeatpumpSnapshotMemory){
+    try{hmHeatpumpSnapshotMemory=JSON.parse(sessionStorage.getItem(hmHeatpumpSnapshotKey)||'null');}catch(e){hmHeatpumpSnapshotMemory=null;}
+  }
+  return hmHeatpumpSnapshotMemory&&hmHeatpumpSnapshotValid(hmHeatpumpSnapshotMemory.data)?hmHeatpumpSnapshotMemory.data:null;
+}
+function hmUpdateHeatpumpSnapshotTopic(topic,value,description){
+  var data=hmReadHeatpumpSnapshot();if(!data)return;
+  var items=hmHeatpumpSnapshotItems(data);
+  for(var i=0;i<items.length;i++){
+    if(items[i].Topic!==topic)continue;
+    items[i].Value=value;
+    if(description!==undefined)items[i].Description=description;
+    hmHeatpumpSnapshotMemory.storedAt=Date.now();
+    if(hmHeatpumpSnapshotWriteTimer)clearTimeout(hmHeatpumpSnapshotWriteTimer);
+    hmHeatpumpSnapshotWriteTimer=setTimeout(function(){hmHeatpumpSnapshotWriteTimer=null;hmWriteHeatpumpSnapshot();},250);
+    return;
+  }
+}
+function hmFlushHeatpumpSnapshot(){
+  if(!hmHeatpumpSnapshotWriteTimer)return;
+  clearTimeout(hmHeatpumpSnapshotWriteTimer);hmHeatpumpSnapshotWriteTimer=null;hmWriteHeatpumpSnapshot();
+}
+window.addEventListener('pagehide',hmFlushHeatpumpSnapshot);
+
 function setCookie(name, value, days) {
   var expires = "";
   if (days) {
@@ -1080,6 +1123,7 @@ function startWebsockets(){
             updStat('uptime',j.data.stats.uptime);
             updStat('rules',j.data.stats.rules);
           } else if(j.data.heishavalues){
+            if(typeof hmUpdateHeatpumpSnapshotTopic==='function')hmUpdateHeatpumpSnapshotTopic(j.data.heishavalues.topic,j.data.heishavalues.value,j.data.heishavalues.description);
             updCell(j.data.heishavalues.topic+'-Value',j.data.heishavalues.value);
             updCell(j.data.heishavalues.topic+'-Description',j.data.heishavalues.description);
           } else if(j.data.dallasvalues){
@@ -1242,6 +1286,8 @@ document.body.onload=function(){
   document.getElementById('cli').value='';
   startWebsockets();
   monitorWebSocket();
+  var cached=hmReadHeatpumpSnapshot();
+  if(cached)renderTableData(cached);
   refreshTable();
 };
 var dallasAliasEdit=function(){
@@ -1315,38 +1361,42 @@ async function refreshDallasTable(){
     renderDallasTable(d);
   }catch(e){}
 }
+function renderTableData(d){
+  if(d&&d.heatpump&&Array.isArray(d.heatpump)){
+    var tb=document.getElementById('heishavalues');tb.innerHTML='';
+    d.heatpump.forEach(function(item){tb.appendChild(buildRow(item,'Topic'));});
+  }
+  if(d&&d['heatpump extra']&&Array.isArray(d['heatpump extra'])){
+    var tb=document.getElementById('heishavalues');
+    d['heatpump extra'].forEach(function(item){tb.appendChild(buildRow(item,'Topic'));});
+  }
+  if(d&&d['heatpump optional']&&Array.isArray(d['heatpump optional'])){
+    var tb=document.getElementById('heishavalues');
+    d['heatpump optional'].forEach(function(item){tb.appendChild(buildRow(item,'Topic'));});
+  }
+  renderDallasTable(d);
+  if(d&&d.s0&&Array.isArray(d.s0)){
+    var tb=document.getElementById('s0values');tb.innerHTML='';
+    d.s0.forEach(function(item){
+      var row=document.createElement('tr');
+      var port=item['S0 port'];
+      for(var k in item){if(Object.hasOwn(item,k)){
+        var cell=document.createElement('td');
+        cell.id='s0port-'+port+'-'+k;
+        cell.textContent=item[k];
+        row.appendChild(cell);
+      }}
+      tb.appendChild(row);
+    });
+  }
+}
 async function refreshTable(){
   try{
     if(isEditing)return;
     var res=await fetch('/json');
     var d=await res.json();
-    if(d&&d.heatpump&&Array.isArray(d.heatpump)){
-      var tb=document.getElementById('heishavalues');tb.innerHTML='';
-      d.heatpump.forEach(function(item){tb.appendChild(buildRow(item,'Topic'));});
-    }
-    if(d&&d['heatpump extra']&&Array.isArray(d['heatpump extra'])){
-      var tb=document.getElementById('heishavalues');
-      d['heatpump extra'].forEach(function(item){tb.appendChild(buildRow(item,'Topic'));});
-    }
-    if(d&&d['heatpump optional']&&Array.isArray(d['heatpump optional'])){
-      var tb=document.getElementById('heishavalues');
-      d['heatpump optional'].forEach(function(item){tb.appendChild(buildRow(item,'Topic'));});
-    }
-    renderDallasTable(d);
-    if(d&&d.s0&&Array.isArray(d.s0)){
-      var tb=document.getElementById('s0values');tb.innerHTML='';
-      d.s0.forEach(function(item){
-        var row=document.createElement('tr');
-        var port=item['S0 port'];
-        for(var k in item){if(Object.hasOwn(item,k)){
-          var cell=document.createElement('td');
-          cell.id='s0port-'+port+'-'+k;
-          cell.textContent=item[k];
-          row.appendChild(cell);
-        }}
-        tb.appendChild(row);
-      });
-    }
+    hmStoreHeatpumpSnapshot(d);
+    renderTableData(d);
   } catch(e){console.error(e);}
 }
 function buildRow(item,idKey){

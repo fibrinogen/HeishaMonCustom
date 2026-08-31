@@ -53,6 +53,80 @@ function hmFormatDateTime24(value) {
     hourCycle: "h23",
   });
 }
+var hmHeatpumpSnapshotKey = "heishamon.heatpumpSnapshot.v1";
+var hmHeatpumpSnapshotMemory = null;
+var hmHeatpumpSnapshotWriteTimer = null;
+function hmHeatpumpSnapshotItems(data) {
+  return data
+    ? [].concat(
+        data.heatpump || [],
+        data["heatpump extra"] || [],
+        data["heatpump optional"] || [],
+      )
+    : [];
+}
+function hmHeatpumpSnapshotValid(data) {
+  return !!(data && hmHeatpumpSnapshotItems(data).length);
+}
+function hmWriteHeatpumpSnapshot() {
+  if (!hmHeatpumpSnapshotMemory) return;
+  try {
+    window.sessionStorage.setItem(
+      hmHeatpumpSnapshotKey,
+      JSON.stringify(hmHeatpumpSnapshotMemory),
+    );
+  } catch (error) {}
+}
+function hmStoreHeatpumpSnapshot(data) {
+  if (!hmHeatpumpSnapshotValid(data)) return false;
+  hmHeatpumpSnapshotMemory = { storedAt: Date.now(), data: data };
+  if (hmHeatpumpSnapshotWriteTimer) {
+    window.clearTimeout(hmHeatpumpSnapshotWriteTimer);
+    hmHeatpumpSnapshotWriteTimer = null;
+  }
+  hmWriteHeatpumpSnapshot();
+  return true;
+}
+function hmReadHeatpumpSnapshot() {
+  if (!hmHeatpumpSnapshotMemory) {
+    try {
+      hmHeatpumpSnapshotMemory = JSON.parse(
+        window.sessionStorage.getItem(hmHeatpumpSnapshotKey) || "null",
+      );
+    } catch (error) {
+      hmHeatpumpSnapshotMemory = null;
+    }
+  }
+  return hmHeatpumpSnapshotMemory &&
+    hmHeatpumpSnapshotValid(hmHeatpumpSnapshotMemory.data)
+    ? hmHeatpumpSnapshotMemory.data
+    : null;
+}
+function hmUpdateHeatpumpSnapshotTopic(topic, value, description) {
+  var data = hmReadHeatpumpSnapshot();
+  if (!data) return;
+  var items = hmHeatpumpSnapshotItems(data);
+  for (var index = 0; index < items.length; index++) {
+    if (items[index].Topic !== topic) continue;
+    items[index].Value = value;
+    if (description !== undefined) items[index].Description = description;
+    hmHeatpumpSnapshotMemory.storedAt = Date.now();
+    if (hmHeatpumpSnapshotWriteTimer)
+      window.clearTimeout(hmHeatpumpSnapshotWriteTimer);
+    hmHeatpumpSnapshotWriteTimer = window.setTimeout(function () {
+      hmHeatpumpSnapshotWriteTimer = null;
+      hmWriteHeatpumpSnapshot();
+    }, 250);
+    return;
+  }
+}
+function hmFlushHeatpumpSnapshot() {
+  if (!hmHeatpumpSnapshotWriteTimer) return;
+  window.clearTimeout(hmHeatpumpSnapshotWriteTimer);
+  hmHeatpumpSnapshotWriteTimer = null;
+  hmWriteHeatpumpSnapshot();
+}
+window.addEventListener("pagehide", hmFlushHeatpumpSnapshot);
 (function () {
   var darkMode = hmGetCookie("darkMode");
   var wantDark =

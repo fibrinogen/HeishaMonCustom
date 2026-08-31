@@ -8,6 +8,7 @@ var dashboardWorkflow = {
 var dashboardRefreshTimer = null;
 var dashboardRefreshPromise = null;
 var dashboardCommandBusy = false;
+var dashboardDataFresh = false;
 var dashboardStepTimers = {};
 var dashboardStepDebounceMs = 1000;
 var dashboardSemantic = null;
@@ -196,7 +197,10 @@ function renderDashboard(data) {
 function refreshDashboard() {
   if (dashboardRefreshPromise) return dashboardRefreshPromise;
   dashboardRefreshPromise = dashboardFetchJson("/json", "Heat-pump data")
-    .then(renderDashboard)
+    .then(function (data) {
+      hmStoreHeatpumpSnapshot(data);
+      renderDashboard(data);
+    })
     .then(function () {
       return dashboardFetchJson(
         "/zone1heatsemantic",
@@ -217,6 +221,7 @@ function refreshDashboard() {
       return refreshDashboardWorkflow();
     })
     .then(function () {
+      dashboardDataFresh = true;
       dashboardRefreshPromise = null;
       syncDashboardControls();
     })
@@ -254,7 +259,7 @@ function setDashboardSelectValue(id, value) {
     select.value = String(value);
 }
 function syncDashboardControls() {
-  if (!dashboardCommandBusy)
+  if (!dashboardCommandBusy && dashboardDataFresh)
     document
       .querySelectorAll(
         ".dashboard-page button,.dashboard-page input,.dashboard-page select",
@@ -296,7 +301,7 @@ function syncDashboardControls() {
   if (workflowMessage) setDashboardStatus(workflowMessage, false);
   setGauge("TOP1", 35);
   setGauge("TOP8", 120);
-  if (dashboardCommandBusy)
+  if (dashboardCommandBusy || !dashboardDataFresh)
     document
       .querySelectorAll(
         ".dashboard-page button,.dashboard-page input,.dashboard-page select",
@@ -520,6 +525,18 @@ function recoverZone1Heat() {
   queueDashboardStep(command, "TOP27", next);
 }
 document.addEventListener("DOMContentLoaded", function () {
+  document
+    .querySelectorAll(
+      ".dashboard-page button,.dashboard-page input,.dashboard-page select",
+    )
+    .forEach(function (control) {
+      control.disabled = true;
+    });
+  var cached = hmReadHeatpumpSnapshot();
+  if (cached) {
+    renderDashboard(cached);
+    setDashboardStatus("Showing last values; refreshing ...", false);
+  }
   refreshDashboard();
   startWebsockets();
   monitorWebSocket();
