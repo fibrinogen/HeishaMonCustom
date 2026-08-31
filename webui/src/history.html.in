@@ -176,28 +176,22 @@
               <canvas id="room" class="history-chart"></canvas>
               <div id="roomLegend" class="history-legend"></div>
               <div class="history-note">
-                Zone 1 room setpoint and actual Zone 1 temperature. The setpoint
-                is only available when the Zone 1 request represents a room
-                target.
+                Zone 1 room setpoint, actual Zone 1 temperature and outside
+                temperature. The setpoint is supplied by the Zone 1 request
+                when it represents a room target.
               </div>
             </div>
           </section>
           <section class="panel history-card">
-            <div class="panel-header"><h3>Outside temperature</h3></div>
-            <div class="history-card-body">
-              <canvas id="outsideTemp" class="history-chart"></canvas>
-              <div id="outsideTempLegend" class="history-legend"></div>
-            </div>
-          </section>
-          <section class="panel history-card">
-            <div class="panel-header"><h3>Zone 1 request</h3></div>
+            <div class="panel-header"><h3>Zone 1 heating request</h3></div>
             <div class="history-card-body">
               <canvas id="zone1Request" class="history-chart"></canvas>
               <div id="zone1RequestLegend" class="history-legend"></div>
               <div class="history-note">
-                Only the semantic series matching each sample is drawn. Heating
-                curve shift (K), heating water target (°C) and room target (°C)
-                are never merged into one line.
+                Heating curve shift (K) and heating water target (°C) remain
+                separate from room temperatures because they describe the
+                heating controller. Room-target requests are shown above as the
+                Zone 1 room setpoint.
               </div>
             </div>
           </section>
@@ -494,13 +488,6 @@
           semantic: "heatingWaterTarget",
           label: "Heating water target (°C)",
           color: "#00838f",
-          unit: "°C",
-        },
-        zone1Room: {
-          key: "zone1Request",
-          semantic: "roomTarget",
-          label: "Room target (°C)",
-          color: "#ad1457",
           unit: "°C",
         },
       };
@@ -1048,8 +1035,7 @@
         var units =
           view.canvas.id === "dhw" ||
           view.canvas.id === "heat" ||
-          view.canvas.id === "room" ||
-          view.canvas.id === "outsideTemp"
+          view.canvas.id === "room"
             ? "°C"
             : view.canvas.id === "zone1Request"
               ? "°C / K"
@@ -1224,12 +1210,14 @@
             chartLines.heatOutlet,
             chartLines.heatTarget,
           ],
-          room = [chartLines.roomTarget, chartLines.roomActual],
-          outside = [chartLines.outside],
+          room = [
+            chartLines.roomTarget,
+            chartLines.roomActual,
+            chartLines.outside,
+          ],
           zone1 = [
             chartLines.zone1Shift,
             chartLines.zone1Water,
-            chartLines.zone1Room,
           ],
           hydraulics = [chartLines.hz, chartLines.flow, chartLines.power],
           efficiency = [
@@ -1253,8 +1241,6 @@
         lineLegend("heatLegend", heat);
         draw("room", p, room);
         lineLegend("roomLegend", room);
-        draw("outsideTemp", p, outside);
-        lineLegend("outsideTempLegend", outside);
         draw("zone1Request", p, zone1);
         lineLegend("zone1RequestLegend", zone1);
         draw("hydraulics", p, hydraulics);
