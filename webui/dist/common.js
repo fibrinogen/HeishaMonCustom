@@ -24,6 +24,17 @@ function hmEscape(value) {
 function hmPad(value) {
   return String(value).padStart(2, "0");
 }
+function hmSetupTimePicker(hourId, minuteId) {
+  var hourSelect = document.getElementById(hourId),
+    minuteSelect = document.getElementById(minuteId);
+  if (!hourSelect || !minuteSelect) return;
+  hourSelect.innerHTML = "";
+  minuteSelect.innerHTML = "";
+  for (var hour = 0; hour < 24; hour++)
+    hourSelect.add(new Option(hmPad(hour), hmPad(hour)));
+  for (var minute = 0; minute < 60; minute++)
+    minuteSelect.add(new Option(hmPad(minute), hmPad(minute)));
+}
 function hmFormatTime24(value) {
   return new Date(value).toLocaleTimeString("de-DE", {
     hour: "2-digit",

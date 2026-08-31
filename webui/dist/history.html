@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Heisha Monitor</title>
-    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.28" />
-    <script src="/webui/common.js?v=0.2.7-web.28"></script>
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.30" />
+    <script src="/webui/common.js?v=0.2.7-web.30"></script>
   </head>
   <body>
     <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
@@ -186,6 +186,12 @@
           <div class="history-card-body">
             <canvas id="dhw" class="history-chart"></canvas>
             <div id="dhwLegend" class="history-legend"></div>
+            <canvas
+              id="dhwSources"
+              class="history-source-timeline"
+              aria-label="DHW heat source activity"
+            ></canvas>
+            <div id="dhwSourceStatus" class="history-note"></div>
           </div>
         </section>
       </div>
@@ -525,6 +531,81 @@
         setupChartInteraction(c);
         paintChart(view);
       }
+      function drawDhwSources(points) {
+        var canvas = document.getElementById("dhwSources"),
+          status = document.getElementById("dhwSourceStatus"),
+          context = canvas.getContext("2d"),
+          width = canvas.clientWidth || 800,
+          height = 82,
+          density = devicePixelRatio || 1,
+          left = 112,
+          right = 12,
+          top = 6,
+          rowHeight = 19,
+          plotWidth = Math.max(1, width - left - right),
+          sources = [
+            {
+              key: "compressor",
+              label: "Compressor",
+              color: "#2e7d32",
+              alwaysKnown: true,
+            },
+            {
+              key: "internalHeater",
+              label: "Internal heater",
+              color: "#ef6c00",
+            },
+            {
+              key: "externalHeater",
+              label: "External heater",
+              color: "#c62828",
+            },
+          ];
+        canvas.width = width * density;
+        canvas.height = height * density;
+        context.scale(density, density);
+        context.clearRect(0, 0, width, height);
+        context.font = "11px Arial";
+        context.textBaseline = "middle";
+        var heaterDataAvailable = points.some(function (point) {
+          return (
+            (point.internalHeater !== null &&
+              point.internalHeater !== undefined) ||
+            (point.externalHeater !== null &&
+              point.externalHeater !== undefined)
+          );
+        });
+        sources.forEach(function (source, row) {
+          var y = top + row * (rowHeight + 4);
+          context.fillStyle = "#75818a";
+          context.fillText(source.label, 2, y + rowHeight / 2);
+          context.fillStyle = "rgba(117,129,138,.10)";
+          context.fillRect(left, y, plotWidth, rowHeight);
+          points.forEach(function (point, index) {
+            var known =
+                source.alwaysKnown ||
+                (point[source.key] !== null &&
+                  point[source.key] !== undefined),
+              active = Number(point.valve) === 1 && point[source.key] === true,
+              x1 = left + (plotWidth * index) / Math.max(1, points.length),
+              x2 =
+                left +
+                (plotWidth * (index + 1)) / Math.max(1, points.length);
+            if (active) {
+              context.fillStyle = source.color;
+              context.fillRect(x1, y, Math.max(1, x2 - x1), rowHeight);
+            } else if (!known) {
+              context.fillStyle = "rgba(117,129,138,.24)";
+              context.fillRect(x1, y, Math.max(1, x2 - x1), rowHeight);
+            }
+          });
+        });
+        status.textContent = !points.length
+          ? "No DHW source samples are available for this period."
+          : heaterDataAvailable
+            ? "Colored bands show active DHW sources. Heater bands are relay activity, not estimated wattage."
+            : "Compressor activity is available, but selected older samples predate heater-relay history.";
+      }
       function paintChart(view) {
         var ctx = view.ctx,
           w = view.width,
@@ -700,6 +781,7 @@
         lineLegend("efficiencyLegend", efficiency);
         draw("dhw", p, dhw);
         lineLegend("dhwLegend", dhw);
+        drawDhwSources(p);
         document.getElementById("efficiencySummary").innerHTML =
           "Selected SD period · Heating: <b>" +
           val(e2.heatingThermalKWh) +

@@ -747,6 +747,7 @@ bool readSerial()
 
       if (data_length == DATASIZE)  {  //receive a full data block
         if  (data[3] == 0x10) { //decode the normal data block
+          confirm_mqtt_heatpump_commands(data, log_message);
           decode_heatpump_data(data, actData, mqtt_client, log_message, heishamonSettings.mqtt_topic_base, heishamonSettings.updateAllTime);
           lastHeatpumpDataAt = millis();
           if ( (!extraDataBlockAvailable) && ((actData[0] == 0x71) && (actData[0xc7] >= 3)) ) { //do we have valid header and byte 0xc7 is more or equal 3 then assume K&L and more series
@@ -815,15 +816,16 @@ void popCommandBuffer() {
   }
 }
 
-void pushCommandBuffer(byte* command, int length) {
+bool pushCommandBuffer(byte* command, int length) {
   if (cmdnrel + 1 > MAXCOMMANDSINBUFFER) {
     log_message(_F("Too much commands already in buffer. Ignoring this commands.\n"));
-    return;
+    return false;
   }
   cmdbuffer[cmdend].length = length;
   memcpy(&cmdbuffer[cmdend].data, command, length);
   cmdend = (cmdend + 1) % (MAXCOMMANDSINBUFFER);
   cmdnrel++;
+  return true;
 }
 
 #ifdef ESP32
@@ -935,8 +937,7 @@ bool send_command(byte* command, int length) {
   }
   if ( sending ) {
     log_message(_F("Already sending data. Buffering this send request"));
-    pushCommandBuffer(command, length);
-    return false;
+    return pushCommandBuffer(command, length);
   }
   sending = true; //simple semaphore to only allow one send command at a time, semaphore ends when answered data is received
 
@@ -1000,7 +1001,11 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     } else if (strncmp(topic_command, mqtt_topic_commands, strlen(mqtt_topic_commands)) == 0)  // check for commands to heishamon
     {
       char* topic_sendcommand = topic_command + strlen(mqtt_topic_commands) + 1; //strip the first 9 "commands/" from the topic to get what we need
-      send_heatpump_command(topic_sendcommand, msg, send_command, log_message, heishamonSettings.optionalPCB);
+      if (heishamonSettings.listenonly ||
+          !queue_mqtt_heatpump_command(topic_sendcommand, msg, actData,
+            lastHeatpumpDataAt, heishamonSettings.waitTime, log_message)) {
+        send_heatpump_command(topic_sendcommand, msg, send_command, log_message, heishamonSettings.optionalPCB);
+      }
     //use this to receive valid heishamon raw data from other heishamon to debug this OT code
 #ifdef RAWDEBUG
     } else if (strcmp((char*)"panasonic_heat_pump/raw/data", topic) == 0) {  // check for raw heatpump input
@@ -1200,6 +1205,9 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
                 memcpy_P(&tmp, &commands[x], sizeof(tmp));
                 if (strcmp((char *)args->name, tmp.name) == 0) {
                   len = tmp.func(cpy, cmd, log_msg);
+                  bool hasChanges = len > 0 && heatpump_command_has_changes(
+                    tmp.name, cpy, actData, lastHeatpumpDataAt,
+                    heishamonSettings.waitTime, cmd, len, log_msg, sizeof(log_msg));
                   if ((client->userdata = realloc(client->userdata, strlen((char *)client->userdata) + strlen(log_msg) + 2)) == NULL) {
                     loggingSerial.printf(PSTR("Out of memory %s:#%d\n"), __FUNCTION__, __LINE__);
                     ESP.restart();
@@ -1208,7 +1216,7 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
                   strcat((char *)client->userdata, log_msg);
                   strcat((char *)client->userdata, "\n");
                   log_message(log_msg);
-                  send_command(cmd, len);
+                  if (hasChanges) send_command(cmd, len);
                 }
               }
 
@@ -2008,6 +2016,7 @@ void loop() {
   mqtt_client.loop();
 
   readHeatpump();
+  process_mqtt_heatpump_commands(send_command, log_message);
   customFeaturesLoop(mqtt_client, heishamonSettings.mqtt_topic_base);
 
 #ifdef ESP32

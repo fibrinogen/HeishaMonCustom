@@ -73,6 +73,11 @@ function startWebsockets() {
             updStat("uptime", j.data.stats.uptime);
             updStat("rules", j.data.stats.rules);
           } else if (j.data.heishavalues) {
+            if (typeof dashboardHandleTopicUpdate === "function")
+              dashboardHandleTopicUpdate(
+                j.data.heishavalues.topic,
+                j.data.heishavalues.value,
+              );
             updCell(
               j.data.heishavalues.topic + "-Value",
               j.data.heishavalues.value,

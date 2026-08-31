@@ -391,6 +391,15 @@
                 </div>
               </div>
             </div>
+            <div class="dashboard-row">
+              <span>Active heat source</span
+              ><span
+                id="dashboardDhwHeatSource"
+                class="dashboard-value dashboard-source-state"
+                data-state="inactive"
+                >--</span
+              >
+            </div>
             <div class="dashboard-section-title">DHW power</div>
             <div class="dashboard-row">
               <span>Production</span
@@ -399,10 +408,15 @@
               ><span id="TOP40-Description" class="dashboard-hidden"></span>
             </div>
             <div class="dashboard-row">
-              <span>Consumption</span
+              <span>Electrical consumption</span
               ><span class="dashboard-value"
                 ><span id="TOP41-Value">--</span> W</span
               ><span id="TOP41-Description" class="dashboard-hidden"></span>
+            </div>
+            <div class="wp-settings-note">
+              Heat source is derived from the DHW valve, compressor, and heater
+              relay states. Electrical consumption remains Panasonic's combined
+              DHW value; no heater wattage is estimated.
             </div>
             <div class="dashboard-section-title">Sterilization</div>
             <div class="dashboard-row">

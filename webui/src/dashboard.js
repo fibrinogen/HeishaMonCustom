@@ -120,6 +120,56 @@ function renderDashboardCurveShift() {
       button.disabled = !available || dashboardCurveShift.writable !== true;
     });
 }
+function dashboardDhwHeatSource(values) {
+  var valve = Number(values.TOP20),
+    forceDhw = Number(values.TOP2),
+    compressor = Number(values.TOP8),
+    internalHeater = Number(values.TOP60),
+    externalHeater = Number(values.TOP61);
+  if (!Number.isFinite(valve))
+    return { text: "Unavailable", state: "inactive" };
+  var dhwValveActive = valve === 1;
+  if (!dhwValveActive) {
+    return Number.isFinite(forceDhw) && forceDhw !== 0
+      ? { text: "Requested / waiting", state: "waiting" }
+      : { text: "Inactive", state: "inactive" };
+  }
+  var sources = [];
+  if (Number.isFinite(compressor) && compressor > 0.5)
+    sources.push("Heat pump compressor");
+  if (Number.isFinite(internalHeater) && internalHeater !== 0)
+    sources.push("Internal electric heater");
+  if (Number.isFinite(externalHeater) && externalHeater !== 0)
+    sources.push("External electric heater");
+  return sources.length
+    ? {
+        text: sources.join(" + "),
+        state:
+          (Number.isFinite(internalHeater) && internalHeater !== 0) ||
+          (Number.isFinite(externalHeater) && externalHeater !== 0)
+            ? "heater"
+            : "compressor",
+      }
+    : { text: "DHW circulation / waiting", state: "waiting" };
+}
+function renderDashboardDhwHeatSource() {
+  var element = document.getElementById("dashboardDhwHeatSource");
+  if (!element) return;
+  var source = dashboardDhwHeatSource(dashboardValues);
+  element.textContent = source.text;
+  element.dataset.state = source.state;
+}
+function dashboardHandleTopicUpdate(topic, value) {
+  dashboardValues[topic] = value;
+  if (
+    topic === "TOP2" ||
+    topic === "TOP8" ||
+    topic === "TOP20" ||
+    topic === "TOP60" ||
+    topic === "TOP61"
+  )
+    renderDashboardDhwHeatSource();
+}
 function dashboardItems(data) {
   return [].concat(
     data.heatpump || [],
@@ -140,6 +190,7 @@ function renderDashboard(data) {
     updCell(item.Topic + "-Description", String(item.Description));
   });
   renderDashboardHeatRequest();
+  renderDashboardDhwHeatSource();
   syncDashboardControls();
 }
 function refreshDashboard() {

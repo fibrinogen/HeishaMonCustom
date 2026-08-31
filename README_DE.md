@@ -358,18 +358,12 @@ Die PlatformIO-Konfiguration liegt in [platformio.ini](platformio.ini). Nicht di
 [Aktuelle Liste der dokumentierten MQTT-Topics findest du hier](MQTT-Topics.md)
 
 ## Kommunikationszuverlässigkeit
-Nachrichten von HeishaMon an die Wärmepumpe werden gelegentlich verworfen, besonders wenn mehrere Einstellungen in kurzer Zeit geändert werden. Es ist nicht möglich für HeishaMon, alle verworfenen Nachrichten zu wiederholen, daher sollten Benutzer ihre eigene Wiederholungslogik implementieren.
-
-Die empfohlene Wiederholungslogik ist folgende:
-1. Nachdem du eine Wärmepumpen-Einstellung über HeishaMon geändert hast, warte darauf, dass HeishaMon meldet, dass die Einstellung geändert wurde.
-2. Wenn die Einstellung nach 10 Sekunden nicht aktualisiert wurde, setze sie erneut.
-
-Dies kann im HeishaMon selbst mit Regeln implementiert werden, wie in diesem Beispiel:
+Nachrichten von HeishaMon an die Wärmepumpe können gelegentlich verworfen werden, besonders wenn mehrere Einstellungen in kurzer Zeit geändert werden. MQTT-Einstellbefehle werden deshalb mit mindestens 7 Sekunden Abstand gesendet. HeishaMon prüft den zugehörigen Panasonic-Wert und versucht den Befehl bis zu dreimal erneut, wenn der Wert nach 30 Sekunden noch abweicht. Andere Befehlsquellen werden nicht automatisch wiederholt und können bei Bedarf mit Rules anwendungsspezifisch abgeglichen werden:
 ```
 on StopExternalControl then
   if @External_Control != 0 then
     @SetExternalControl = 0;
-    settimer(9,10);
+    settimer(9,30);
   end
 end
 
@@ -382,6 +376,8 @@ end
 
 ## EEPROM-Warnung
 Bis heute wissen wir nicht, wie die an die Wärmepumpe gesendeten Befehle in der Wärmepumpe selbst verarbeitet werden. Höchstwahrscheinlich werden viele Befehle in EEPROM gespeichert, um nach einem Stromausfall verfügbar zu sein, wie z.B. das Einstellen der Warmwassertemperatur. Ein EEPROM kann viele Schreibvorgänge verarbeiten, aber es gibt eine Grenze. Und wir kennen die Grenze auch nicht. Stelle also sicher, dass du die Wärmepumpe nicht mit zu vielen Befehlen überlastest. Jede Sekunde ist viel zu häufig. Ein paar pro Stunde und Einstellung sollte wahrscheinlich in Ordnung sein. Außerdem ist eine Wärmepumpe ein langsames Heiz-(Kühl-)Gerät, sodass so häufige Änderungen wahrscheinlich ohnehin keinen Sinn machen.
+
+HeishaMon reduziert unnötige Schreibvorgänge, indem benannte Einstellbefehle aus MQTT, HTTP REST, Scheduler und Rules vor dem Senden mit einem aktuellen Panasonic-TOP-Wert verglichen werden. Befehle, die einen bereits gemeldeten Wert erneut setzen würden, werden übersprungen. Einmalbefehle ohne passenden persistenten TOP-Wert können auf diese Weise nicht geprüft werden.
 
 ## DS18b20 1-Wire-Unterstützung
 Die Software unterstützt auch das Auslesen von DS18B20 1-Wire-Temperatursensoren. Eine korrekte 1-Wire-Konfiguration (mit 4,7kOhm Pull-up-Widerstand) an GPIO4 wird alle konfigurierten Sekunden (mindestens 5) gelesen und an das Topic panasonic_heat_pump/1wire/"sensor-hex-adresse" gesendet. Auf den vorgefertigten Boards ist dieser 4,7kOhm-Widerstand bereits installiert.

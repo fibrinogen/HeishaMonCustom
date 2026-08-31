@@ -187,6 +187,10 @@ MQTT: send mqtt message to base_topic/commands/SetTopic (e.g.: panasonic_heat_pu
 
 HTTP REST API: http://x.x.x.x/command?[topic]=[value]&[topic]=[value] (e.g.: http://x.x.x.x/command?SetQuietMode=3&SetZ1HeatRequestTemperature=21_
 
+MQTT heat-pump commands are queued and sent at least 7 seconds apart. Where a corresponding Panasonic `main` value exists, HeishaMon checks the reported value and retries after 30 seconds if necessary, with at most three retries after the initial attempt. Commands without a reliable reported state are throttled but not retried. `SetCurves` is confirmed field by field, and retries contain only values that Panasonic has not yet confirmed.
+
+Before a named setting command from MQTT, HTTP REST, the scheduler, or Rules is sent, HeishaMon compares it with a fresh Panasonic TOP value. A command that would set the same value again is skipped. For `SetCurves`, unchanged fields are removed while changed fields are still sent. One-shot operations without a matching persistent TOP value, currently `SetPump` and `SetReset`, cannot use this protection.
+
  ID |Topic | Description | Value/Range
 :--- | :--- | --- | ---
 SET1  | SetHeatpump | Set heatpump on or off | 0=off, 1=on

@@ -366,6 +366,9 @@ input:disabled + .theme-slider-compact {
 .dashboard-gauge-unit{display:block;color:var(--text-muted);font-size:9px;font-weight:400}
 .dashboard-gauge-scale{display:flex;justify-content:space-between;max-width:130px;margin:3px auto 0;font-size:9px}
 .dashboard-command-status{min-height:18px;margin:8px 6px 0;color:var(--text-muted);font-size:11px;text-align:right}
+.dashboard-source-state[data-state='compressor']{color:var(--green)}
+.dashboard-source-state[data-state='heater']{color:var(--orange)}
+.dashboard-source-state[data-state='waiting']{color:var(--text-muted)}
 .dashboard-hidden{display:none}
 .wp-settings-page{max-width:1700px;margin:0 auto}
 .wp-settings-columns{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;align-items:start}
@@ -451,6 +454,8 @@ input:disabled + .theme-slider-compact {
 .scheduler-field.full{grid-column:1/-1}
 .scheduler-field label{color:var(--text-secondary);font-size:11px}
 .scheduler-input{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-elevated);color:var(--text-primary);font:12px 'JetBrains Mono',monospace}
+.scheduler-time-picker{display:flex;align-items:center;gap:7px}
+.scheduler-time-picker .scheduler-input{flex:1;min-width:0}
 .scheduler-action-row{display:flex;align-items:center;gap:6px;margin:0 0 7px;flex-wrap:wrap}.scheduler-action-row .scheduler-action-type{width:250px}.scheduler-action-row .scheduler-action-value{width:180px}.scheduler-action-row .btn{width:34px;height:32px;padding:5px}.scheduler-add-action{align-self:flex-start}.scheduler-action-note{color:var(--text-muted);font-size:10px;line-height:1.45}
 .scheduler-condition-row{display:flex;align-items:center;gap:6px;margin:0 0 7px;flex-wrap:wrap}.scheduler-condition-row .scheduler-condition-join{width:72px}.scheduler-condition-row .scheduler-condition-source{width:120px}.scheduler-condition-row .scheduler-condition-field{width:190px}.scheduler-condition-row .scheduler-condition-operator{width:72px}.scheduler-condition-row .scheduler-condition-value{width:105px}.scheduler-condition-row .btn{height:32px;padding:5px 9px}
 .scheduler-days{display:flex;flex-wrap:wrap;gap:6px}
@@ -780,6 +785,7 @@ input:checked + .theme-slider:before {
 .history-card{margin-bottom:14px}
 .history-card-body{padding:14px 20px 16px}
 .history-chart{display:block;width:100%;height:230px;cursor:crosshair;touch-action:pan-y}
+.history-source-timeline{display:block;width:100%;height:82px;margin-top:8px}
 .history-legend{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px;color:var(--text-secondary);font-size:11px}
 .history-legend-item{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .history-legend-line{display:inline-block;width:22px;height:3px;border-radius:2px}

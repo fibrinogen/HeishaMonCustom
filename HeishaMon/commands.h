@@ -198,5 +198,13 @@ const optCmdStruct optionalCommands[] PROGMEM = {
 };
 
 void send_heatpump_command(char* topic, char *msg, bool (*send_command)(byte*, int), void (*log_message)(char*), bool optionalPCB);
+bool heatpump_command_has_changes(const char* topic, const char* payload,
+  char* currentData, unsigned long currentDataAt, unsigned int waitTime,
+  unsigned char* command, unsigned int length,
+  char* status, size_t statusSize);
+bool queue_mqtt_heatpump_command(char* topic, char* msg, char* currentData,
+  unsigned long currentDataAt, unsigned int waitTime, void (*log_message)(char*));
+void confirm_mqtt_heatpump_commands(char* data, void (*log_message)(char*));
+void process_mqtt_heatpump_commands(bool (*send_command)(byte*, int), void (*log_message)(char*));
 bool saveOptionalPCB(byte* command, int length);
 bool loadOptionalPCB(byte* command, int length);

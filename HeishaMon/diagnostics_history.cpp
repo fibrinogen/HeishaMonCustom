@@ -75,6 +75,8 @@ constexpr uint8_t TOP_DHW_PRODUCTION = 40;
 constexpr uint8_t TOP_DHW_CONSUMPTION = 41;
 constexpr uint8_t TOP_HEAT_POWER_PRODUCTION = 15;
 constexpr uint8_t TOP_HEAT_POWER_CONSUMPTION = 16;
+constexpr uint8_t TOP_INTERNAL_HEATER_STATE = 60;
+constexpr uint8_t TOP_EXTERNAL_HEATER_STATE = 61;
 constexpr uint8_t TOP_HEX_OUTLET = 49;
 constexpr uint8_t TOP_DISCHARGE = 50;
 constexpr uint8_t TOP_INSIDE_PIPE = 51;
@@ -104,6 +106,8 @@ constexpr uint8_t SAMPLE_FLAG_DHW = 0x04;
 constexpr uint8_t SAMPLE_FLAG_DEFROST = 0x08;
 constexpr uint8_t SAMPLE_FLAG_TIME_VALID = 0x10;
 constexpr uint8_t SAMPLE_FLAG_EXTERNAL_ELECTRICAL = 0x20;
+constexpr uint8_t SAMPLE_FLAG_INTERNAL_HEATER = 0x40;
+constexpr uint8_t SAMPLE_FLAG_EXTERNAL_HEATER = 0x80;
 
 struct HistoryRequest {
   uint32_t rangeSeconds;
@@ -532,6 +536,14 @@ static bool makeSample(HistorySample &sample) {
   if (readNonNegative(TOP_COMPRESSOR_HZ, value) && value > 0.5f) sample.flags |= SAMPLE_FLAG_COMPRESSOR;
   if (dhwActive) sample.flags |= SAMPLE_FLAG_DHW;
   if (readTopic(TOP_DEFROST, value) && lroundf(value) != 0) sample.flags |= SAMPLE_FLAG_DEFROST;
+  if (readTopic(TOP_INTERNAL_HEATER_STATE, value)) {
+    sample.validFields |= HISTORY_FIELD_INTERNAL_HEATER_STATE;
+    if (lroundf(value) != 0) sample.flags |= SAMPLE_FLAG_INTERNAL_HEATER;
+  }
+  if (readTopic(TOP_EXTERNAL_HEATER_STATE, value)) {
+    sample.validFields |= HISTORY_FIELD_EXTERNAL_HEATER_STATE;
+    if (lroundf(value) != 0) sample.flags |= SAMPLE_FLAG_EXTERNAL_HEATER;
+  }
   Zone1HeatRequestSemantic zone1Semantic;
   float zone1Request = 0;
   if (resolveZone1HeatRequestSemantic(actData, heishamonSettings.wpHeatMin,
@@ -551,8 +563,10 @@ static bool makeSample(HistorySample &sample) {
   }
   if (timestampValid) sample.flags |= SAMPLE_FLAG_TIME_VALID;
   sample.operatingState = (sample.flags & SAMPLE_FLAG_DEFROST) ? HISTORY_STATE_DEFROST :
-    (sample.flags & SAMPLE_FLAG_COMPRESSOR) ?
-      (sample.flags & SAMPLE_FLAG_DHW ? HISTORY_STATE_DHW : HISTORY_STATE_HEATING) :
+    sample.valveState == 1 &&
+      (sample.flags & (SAMPLE_FLAG_COMPRESSOR | SAMPLE_FLAG_INTERNAL_HEATER |
+        SAMPLE_FLAG_EXTERNAL_HEATER)) ? HISTORY_STATE_DHW :
+    (sample.flags & SAMPLE_FLAG_COMPRESSOR) ? HISTORY_STATE_HEATING :
     (sample.flags & SAMPLE_FLAG_HEATPUMP) ?
       (sample.validFields & HISTORY_FIELD_FLOW) && sample.flow100 > 20 ?
         HISTORY_STATE_CIRCULATION : HISTORY_STATE_STANDBY : HISTORY_STATE_UNKNOWN;
@@ -1080,7 +1094,10 @@ static void addAggregate(SampleAggregate &aggregate, const HistorySample &sample
   aggregate.sample.uptimeSeconds = sample.uptimeSeconds;
   aggregate.sample.operatingMode = sample.operatingMode;
   aggregate.sample.valveState = sample.valveState;
-  aggregate.sample.flags = sample.flags;
+  constexpr uint8_t HEATER_FLAGS = SAMPLE_FLAG_INTERNAL_HEATER |
+    SAMPLE_FLAG_EXTERNAL_HEATER;
+  aggregate.sample.flags = (sample.flags & ~HEATER_FLAGS) |
+    (aggregate.sample.flags & HEATER_FLAGS) | (sample.flags & HEATER_FLAGS);
   aggregate.sample.operatingState = sample.operatingState;
   aggregate.sample.electricalSource = sample.electricalSource;
   aggregate.sample.validFields |= sample.validFields;
@@ -1221,7 +1238,7 @@ static void appendSampleJson(struct webserver_t *client, const HistorySample &sa
   bool copValid = useAggregatedCop ? isfinite(aggregatedCop) : instantaneousCop(sample, aggregatedCop);
   snprintf(cop, sizeof(cop), copValid ? "%.2f" : "null", aggregatedCop);
   appendFmt(client,
-    "{\"t\":%lu,\"u\":%lu,\"outside\":%s,\"inlet\":%s,\"outlet\":%s,\"target\":%s,\"dhw\":%s,\"dhwTarget\":%s,\"room\":%s,\"roomTarget\":%s,\"flow\":%s,\"hz\":%s,\"pump\":%s,\"power\":%s,\"electrical\":%s,\"electricalSource\":%u,\"heatProduction\":%s,\"heatConsumption\":%s,\"dhwProduction\":%s,\"dhwConsumption\":%s,\"cop\":%s,\"zone1Request\":%s,\"zone1RequestSemantic\":\"%s\",\"heatingCurveShift\":%s,\"mode\":%u,\"valve\":%u,\"state\":%u,\"compressor\":%s,\"dhwActive\":%s,\"timeValid\":%s}",
+    "{\"t\":%lu,\"u\":%lu,\"outside\":%s,\"inlet\":%s,\"outlet\":%s,\"target\":%s,\"dhw\":%s,\"dhwTarget\":%s,\"room\":%s,\"roomTarget\":%s,\"flow\":%s,\"hz\":%s,\"pump\":%s,\"power\":%s,\"electrical\":%s,\"electricalSource\":%u,\"heatProduction\":%s,\"heatConsumption\":%s,\"dhwProduction\":%s,\"dhwConsumption\":%s,\"cop\":%s,\"zone1Request\":%s,\"zone1RequestSemantic\":\"%s\",\"heatingCurveShift\":%s,\"mode\":%u,\"valve\":%u,\"state\":%u,\"compressor\":%s,\"dhwActive\":%s,\"timeValid\":%s",
     (unsigned long)sample.timestamp, (unsigned long)sample.uptimeSeconds,
     outside, inlet, outlet, target, dhw, dhwTarget, room, roomTarget, flow, hz, pump,
     power, electrical, sample.electricalSource, heatProduction, heatConsumption, dhwProduction, dhwConsumption, cop,
@@ -1231,6 +1248,11 @@ static void appendSampleJson(struct webserver_t *client, const HistorySample &sa
     (sample.flags & SAMPLE_FLAG_COMPRESSOR) ? "true" : "false",
     (sample.flags & SAMPLE_FLAG_DHW) ? "true" : "false",
     (sample.flags & SAMPLE_FLAG_TIME_VALID) ? "true" : "false");
+  appendFmt(client, ",\"internalHeater\":%s,\"externalHeater\":%s}",
+    (sample.validFields & HISTORY_FIELD_INTERNAL_HEATER_STATE) ?
+      ((sample.flags & SAMPLE_FLAG_INTERNAL_HEATER) ? "true" : "false") : "null",
+    (sample.validFields & HISTORY_FIELD_EXTERNAL_HEATER_STATE) ?
+      ((sample.flags & SAMPLE_FLAG_EXTERNAL_HEATER) ? "true" : "false") : "null");
 }
 
 static void loadHistoryConfig() {
@@ -1354,19 +1376,18 @@ static bool parseCsvUnsigned(const char *text, uint32_t maximum, uint32_t &value
 
 static bool parseStoredHistorySample(char *line, HistorySample &sample) {
   if (line == nullptr || strncmp(line, "timestamp,", 10) == 0) return false;
-  char *fields[26] = {};
+  char *fields[28] = {};
   char *cursor = line;
-  for (uint8_t index = 0; index < 26; index++) {
-    fields[index] = cursor;
+  uint8_t fieldCount = 0;
+  while (fieldCount < 28) {
+    fields[fieldCount++] = cursor;
     char *separator = strchr(cursor, ',');
-    if (separator == nullptr) {
-      if (index != 25) return false;
-      break;
-    }
+    if (separator == nullptr) break;
+    if (fieldCount == 28) return false;
     *separator = '\0';
     cursor = separator + 1;
   }
-  if (strchr(fields[25], ',') != nullptr) return false;
+  if (fieldCount < 26 || strchr(fields[fieldCount - 1], ',') != nullptr) return false;
 
   memset(&sample, 0, sizeof(sample));
   uint32_t integer = 0;
@@ -1431,12 +1452,24 @@ static bool parseStoredHistorySample(char *line, HistorySample &sample) {
   if (parseCsvUnsigned(fields[24], 1, integer) && integer != 0) {
     sample.flags |= SAMPLE_FLAG_DEFROST;
   }
-  if ((sample.validFields & HISTORY_FIELD_COMPRESSOR_HZ) != 0 &&
-      sample.compressorHz10 > 5) sample.flags |= SAMPLE_FLAG_COMPRESSOR;
-  if (sample.operatingState == HISTORY_STATE_HEATING ||
+  if (fieldCount > 26 && parseCsvUnsigned(fields[26], 1, integer)) {
+    sample.validFields |= HISTORY_FIELD_INTERNAL_HEATER_STATE;
+    if (integer != 0) sample.flags |= SAMPLE_FLAG_INTERNAL_HEATER;
+  }
+  if (fieldCount > 27 && parseCsvUnsigned(fields[27], 1, integer)) {
+    sample.validFields |= HISTORY_FIELD_EXTERNAL_HEATER_STATE;
+    if (integer != 0) sample.flags |= SAMPLE_FLAG_EXTERNAL_HEATER;
+  }
+  if ((sample.validFields & HISTORY_FIELD_COMPRESSOR_HZ) != 0) {
+    if (sample.compressorHz10 > 5) sample.flags |= SAMPLE_FLAG_COMPRESSOR;
+  } else if (sample.operatingState == HISTORY_STATE_HEATING ||
       sample.operatingState == HISTORY_STATE_DHW ||
-      sample.operatingState == HISTORY_STATE_DEFROST) sample.flags |= SAMPLE_FLAG_COMPRESSOR;
-  if (sample.operatingState == HISTORY_STATE_DHW) sample.flags |= SAMPLE_FLAG_DHW;
+      sample.operatingState == HISTORY_STATE_DEFROST) {
+    sample.flags |= SAMPLE_FLAG_COMPRESSOR;
+  }
+  if (sample.operatingState == HISTORY_STATE_DHW || sample.valveState == 1) {
+    sample.flags |= SAMPLE_FLAG_DHW;
+  }
   if (sample.operatingState == HISTORY_STATE_DEFROST) sample.flags |= SAMPLE_FLAG_DEFROST;
   return true;
 }
@@ -1541,9 +1574,16 @@ static void appendStoredSampleJson(struct webserver_t *client,
   }
   snprintf(cop, sizeof(cop), isfinite(aggregatedCop) ? "%.2f" : "null", aggregatedCop);
   appendFmt(client,
-    "{\"t\":%lu,\"outside\":%s,\"inlet\":%s,\"outlet\":%s,\"target\":%s,\"dhw\":%s,\"dhwTarget\":%s,\"flow\":%s,\"hz\":%s,\"power\":%s,\"electrical\":%s,\"cop\":%s,\"zone1Request\":%s,\"zone1RequestSemantic\":\"%s\",\"heatingCurveShift\":%s,\"timeValid\":true}",
+    "{\"t\":%lu,\"outside\":%s,\"inlet\":%s,\"outlet\":%s,\"target\":%s,\"dhw\":%s,\"dhwTarget\":%s,\"flow\":%s,\"hz\":%s,\"power\":%s,\"electrical\":%s,\"cop\":%s,\"zone1Request\":%s,\"zone1RequestSemantic\":\"%s\",\"heatingCurveShift\":%s,\"valve\":%u,\"compressor\":%s,\"dhwActive\":%s,\"internalHeater\":%s,\"externalHeater\":%s,\"timeValid\":true}",
     (unsigned long)sample.timestamp, outside, inlet, outlet, target, dhw,
-    dhwTarget, flow, hz, power, electrical, cop, request, semantic, shift);
+    dhwTarget, flow, hz, power, electrical, cop, request, semantic, shift,
+    sample.valveState,
+    (sample.flags & SAMPLE_FLAG_COMPRESSOR) ? "true" : "false",
+    (sample.flags & SAMPLE_FLAG_DHW) ? "true" : "false",
+    (sample.validFields & HISTORY_FIELD_INTERNAL_HEATER_STATE) ?
+      ((sample.flags & SAMPLE_FLAG_INTERNAL_HEATER) ? "true" : "false") : "null",
+    (sample.validFields & HISTORY_FIELD_EXTERNAL_HEATER_STATE) ?
+      ((sample.flags & SAMPLE_FLAG_EXTERNAL_HEATER) ? "true" : "false") : "null");
 }
 
 // A History response is intentionally built in one SD pass. The old approach
@@ -2139,7 +2179,7 @@ static bool writeSdSamples() {
     setSdOpenError("history file");
     return false;
   }
-  if (ftell(file) == 0) fputs("timestamp,outside,inlet,outlet,target,dhw,dhw_target,room,room_target,flow,compressor_hz,pump_rpm,thermal_kw,electrical_kw,heat_production_kw,heat_consumption_kw,dhw_production_kw,dhw_consumption_kw,z1_request,z1_request_semantic,heating_curve_shift,mode,valve,state,defrost,estimated_cop\n", file);
+  if (ftell(file) == 0) fputs("timestamp,outside,inlet,outlet,target,dhw,dhw_target,room,room_target,flow,compressor_hz,pump_rpm,thermal_kw,electrical_kw,heat_production_kw,heat_consumption_kw,dhw_production_kw,dhw_consumption_kw,z1_request,z1_request_semantic,heating_curve_shift,mode,valve,state,defrost,estimated_cop,internal_heater,external_heater\n", file);
   HistorySample oldestSample;
 #if defined(ESP32)
   portENTER_CRITICAL(&historyDataMux);
@@ -2198,13 +2238,20 @@ static bool writeSdSamples() {
     }
     snprintf(curveShift, sizeof(curveShift), (sample.validFields & HISTORY_FIELD_HEATING_CURVE_SHIFT) ? "%d" : "",
       sample.heatingCurveShift);
-    fprintf(file, "%lu,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%u,%u,%u,%u,%s\n",
+    const char *internalHeater =
+      (sample.validFields & HISTORY_FIELD_INTERNAL_HEATER_STATE) ?
+        ((sample.flags & SAMPLE_FLAG_INTERNAL_HEATER) ? "1" : "0") : "";
+    const char *externalHeater =
+      (sample.validFields & HISTORY_FIELD_EXTERNAL_HEATER_STATE) ?
+        ((sample.flags & SAMPLE_FLAG_EXTERNAL_HEATER) ? "1" : "0") : "";
+    fprintf(file, "%lu,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%u,%u,%u,%u,%s,%s,%s\n",
       (unsigned long)sample.timestamp, outside, inlet, outlet, target, dhw,
       dhwTarget, room, roomTarget, flow, hz, pump, thermal, electrical,
       heatProduction, heatConsumption, dhwProduction, dhwConsumption,
       zone1Request, zone1Semantic, curveShift,
       sample.operatingMode, sample.valveState, sample.operatingState,
-      (sample.flags & SAMPLE_FLAG_DEFROST) ? 1 : 0, copText);
+      (sample.flags & SAMPLE_FLAG_DEFROST) ? 1 : 0, copText,
+      internalHeater, externalHeater);
     if (sample.sequence > newestWrittenSequence) newestWrittenSequence = sample.sequence;
   }
 #if defined(ESP32)

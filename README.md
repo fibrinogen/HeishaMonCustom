@@ -375,18 +375,12 @@ The OTA image is generated as `.pio/build/esp32s3/firmware.bin` and the complete
 [Current list of documented MQTT topics can be found here](MQTT-Topics.md)
 
 ## Communication reliability
-Messages from HeishaMon to the heatpump will occasionally be dropped, especially if multiple settings are changed within a short time. It's not feasible for HeishaMon to retry all dropped messages, so users should implement their own retry logic.
-
-The suggested retry logic is as follows:
-1. After changing a heatpump setting via HeishaMon, you should wait for HeishaMon to report that the setting has been changed.
-2. If the setting isn't updated after 10 seconds, set it again.
-
-This can be implemented on the HeishaMon itself using Rules if you wish, as in this example:
+Messages from HeishaMon to the heatpump can occasionally be dropped, especially if multiple settings are changed within a short time. MQTT setting commands are therefore sent at least 7 seconds apart. HeishaMon checks the corresponding Panasonic value and, if it is still different after 30 seconds, retries up to three times. Other command sources are not automatically retried and can use Rules for application-specific reconciliation:
 ```
 on StopExternalControl then
   if @External_Control != 0 then
     @SetExternalControl = 0;
-    settimer(9,10);
+    settimer(9,30);
   end
 end
 
@@ -399,6 +393,8 @@ end
 
 ## EEPROM warning
 As until today we don't know how the commands sent to the heatpump are processed in the heatpump itself. Most probably a lot of commands are written to EEPROM to be stored and available after a power failure, like setting the DHW temp. An EEPROM can facility a lot of writes but there is a limit. And we don't know the limit either. So make sure you don't overload the heatpump with too many commands. Every second is way too much. Just a few per hour, per settings, should probably be fine. Anyway, an heatpump is a slow heating(cooling) device so making changes that often is probably not even going to make any sense either.
+
+HeishaMon reduces unnecessary writes by comparing named setting commands from MQTT, HTTP REST, the scheduler, and Rules with a fresh Panasonic TOP value before sending. Commands that would set an already reported value are skipped. One-shot commands without a corresponding persistent TOP value cannot be checked this way.
 
 ## DS18b20 1-wire support
 The software also supports ds18b20 1-wire temperature sensors reading. A proper 1-wire configuration (with 4.7kohm pull-up resistor) connected to GPIO4 will be read each configured secs (minimal 5) and send at the panasonic_heat_pump/1wire/"sensor-hex-address" topic. On the pre-made boards this 4.7kohm resistor is already installed.

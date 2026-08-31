@@ -1,4 +1,5 @@
 #include "commands.h"
+#include "decode.h"
 #include <LittleFS.h>
 
 //removed checksum from default query, is calculated in send_command
@@ -1240,6 +1241,393 @@ unsigned int set_z2_water_temp(char *msg, char *log_msg) {
 
 unsigned int set_solar_temp(char *msg, char *log_msg) {
   return set_xxx_temp(msg, log_msg, 13, __FUNCTION__);
+}
+
+namespace {
+
+constexpr unsigned long MQTT_COMMAND_GAP_MS = 7000;
+constexpr unsigned long MQTT_COMMAND_CONFIRM_TIMEOUT_MS = 30000;
+constexpr unsigned long MQTT_COMMAND_QUEUE_RETRY_MS = 1000;
+constexpr uint8_t MQTT_COMMAND_MAX_RETRIES = 3;
+constexpr uint8_t MQTT_COMMAND_QUEUE_SIZE = 10;
+constexpr uint8_t MQTT_COMMAND_MAX_EXPECTATIONS = 16;
+
+struct MqttCommandExpectation {
+  uint8_t topic;
+  uint8_t commandByte;
+  int16_t desired;
+  bool confirmed;
+};
+
+struct PendingMqttCommand {
+  bool active;
+  bool waitingToSend;
+  bool wasSent;
+  uint8_t length;
+  uint8_t retries;
+  uint8_t expectationCount;
+  unsigned long sentAt;
+  unsigned long nextSendAt;
+  unsigned long sequence;
+  char name[29];
+  byte command[PANASONICQUERYSIZE];
+  MqttCommandExpectation expectations[MQTT_COMMAND_MAX_EXPECTATIONS];
+};
+
+struct CommandConfirmation {
+  const char* command;
+  uint8_t topic;
+};
+
+const CommandConfirmation commandConfirmations[] = {
+  { "SetHeatpump", 0 },
+  { "SetHolidayMode", 19 },
+  { "SetQuietMode", 18 },
+  { "SetPowerfulMode", 17 },
+  { "SetZ1HeatRequestTemperature", 27 },
+  { "SetZ1CoolRequestTemperature", 28 },
+  { "SetZ2HeatRequestTemperature", 34 },
+  { "SetZ2CoolRequestTemperature", 35 },
+  { "SetOperationMode", 4 },
+  { "SetForceDHW", 2 },
+  { "SetDHWTemp", 9 },
+  { "SetForceDefrost", 26 },
+  { "SetForceSterilization", 69 },
+  { "SetMaxPumpDuty", 95 },
+  { "SetZones", 94 },
+  { "SetFloorHeatDelta", 23 },
+  { "SetFloorCoolDelta", 24 },
+  { "SetDHWHeatDelta", 22 },
+  { "SetHeaterDelayTime", 96 },
+  { "SetHeaterStartDelta", 97 },
+  { "SetHeaterStopDelta", 98 },
+  { "SetMainSchedule", 13 },
+  { "SetBufferDelta", 113 },
+  { "SetBuffer", 99 },
+  { "SetForceHeater", 68 },
+  { "SetAltExternalSensor", 108 },
+  { "SetExternalPadHeater", 114 },
+  { "SetHeatingOffOutdoorTemp", 77 },
+  { "SetExternalControl", 119 },
+  { "SetExternalError", 121 },
+  { "SetExternalCompressorControl", 122 },
+  { "SetExternalHeatCoolControl", 120 },
+  { "SetBivalentControl", 129 },
+  { "SetBivalentMode", 130 },
+  { "SetBivalentStartTemp", 131 },
+  { "SetBivalentAPStartTemp", 134 },
+  { "SetBivalentAPStopTemp", 135 },
+  { "SetHeatingControl", 139 },
+  { "SetSmartDHW", 140 },
+  { "SetQuietModePriority", 141 },
+  { "SetPumpFlowrateMode", 106 },
+  { "SetDHWSensorSelection", 143 },
+  { "SetDHWHeaterState", 58 },
+  { "SetRoomHeaterState", 59 },
+  { "SetHeaterOnOutdoorTemp", 78 },
+};
+
+struct CurveConfirmation {
+  uint8_t commandByte;
+  uint8_t topic;
+};
+
+const CurveConfirmation curveConfirmations[] = {
+  { 75, 29 }, { 76, 30 }, { 77, 32 }, { 78, 31 },
+  { 79, 82 }, { 80, 83 }, { 81, 85 }, { 82, 84 },
+  { 86, 72 }, { 87, 73 }, { 88, 75 }, { 89, 74 },
+  { 90, 86 }, { 91, 87 }, { 92, 89 }, { 93, 88 },
+};
+
+PendingMqttCommand pendingMqttCommands[MQTT_COMMAND_QUEUE_SIZE] = {};
+unsigned long mqttCommandSequence = 0;
+unsigned long lastMqttCommandSendAt = 0;
+bool mqttCommandWasSent = false;
+
+bool currentDataIsFresh(char* data, unsigned long dataAt, unsigned int waitTime) {
+  if (data == nullptr || dataAt == 0 || (uint8_t)data[0] != 0x71 ||
+      (uint8_t)data[1] != 0xC8 || (uint8_t)data[2] != 0x01 ||
+      (uint8_t)data[3] != 0x10) return false;
+  unsigned long maximumAge = (unsigned long)waitTime * 4000UL;
+  if (maximumAge < 60000UL) maximumAge = 60000UL;
+  return (unsigned long)(millis() - dataAt) <= maximumAge;
+}
+
+int confirmationTopicFor(const char* command) {
+  for (const auto& confirmation : commandConfirmations) {
+    if (strcmp(command, confirmation.command) == 0) return confirmation.topic;
+  }
+  return -1;
+}
+
+bool expectationMatches(const char* commandName,
+    const MqttCommandExpectation& expectation, char* data) {
+  int actual = getDataValue(data, expectation.topic).toInt();
+  if (strcmp(commandName, "SetOperationMode") == 0) {
+    if ((expectation.desired == 2 && actual == 7) || (expectation.desired == 6 && actual == 8)) return true;
+  }
+  if (strcmp(commandName, "SetHolidayMode") == 0 &&
+      expectation.desired == 1 && actual == 2) return true;
+  return actual == expectation.desired;
+}
+
+uint8_t unconfirmedExpectationCount(const PendingMqttCommand& pending) {
+  uint8_t count = 0;
+  for (uint8_t i = 0; i < pending.expectationCount; i++) {
+    if (!pending.expectations[i].confirmed) count++;
+  }
+  return count;
+}
+
+bool sameRequest(const PendingMqttCommand& left, const PendingMqttCommand& right) {
+  if (strcmp(left.name, right.name) != 0 || left.expectationCount != right.expectationCount) return false;
+  if (left.expectationCount == 0) return memcmp(left.command, right.command, left.length) == 0;
+  for (uint8_t i = 0; i < left.expectationCount; i++) {
+    if (left.expectations[i].topic != right.expectations[i].topic ||
+        left.expectations[i].desired != right.expectations[i].desired) return false;
+  }
+  return true;
+}
+
+void logMqttCommand(void (*log_message)(char*), const char* format, const char* command, int value = -1) {
+  char message[192];
+  if (value >= 0) {
+    snprintf(message, sizeof(message), format, command, value);
+  } else {
+    snprintf(message, sizeof(message), format, command);
+  }
+  log_message(message);
+}
+
+void addExpectations(PendingMqttCommand& pending, const char* payload) {
+  if (strcmp(pending.name, "SetCurves") == 0) {
+    for (const auto& curve : curveConfirmations) {
+      if (pending.command[curve.commandByte] == 0) continue;
+      MqttCommandExpectation& expectation = pending.expectations[pending.expectationCount++];
+      expectation.topic = curve.topic;
+      expectation.commandByte = curve.commandByte;
+      expectation.desired = static_cast<int16_t>(pending.command[curve.commandByte]) - 128;
+      expectation.confirmed = false;
+    }
+    return;
+  }
+
+  int topic = confirmationTopicFor(pending.name);
+  if (topic >= 0) {
+    MqttCommandExpectation& expectation = pending.expectations[0];
+    expectation.topic = topic;
+    expectation.commandByte = 0;
+    expectation.desired = String(payload).toInt();
+    expectation.confirmed = false;
+    pending.expectationCount = 1;
+  }
+}
+
+void applyKnownState(PendingMqttCommand& pending, char* data) {
+  if (data == nullptr || data[0] != 0x71) return;
+  for (uint8_t i = 0; i < pending.expectationCount; i++) {
+    MqttCommandExpectation& expectation = pending.expectations[i];
+    if (!expectation.confirmed && expectationMatches(pending.name, expectation, data)) {
+      expectation.confirmed = true;
+      if (expectation.commandByte > 0) pending.command[expectation.commandByte] = 0;
+    }
+  }
+}
+
+}  // namespace
+
+bool heatpump_command_has_changes(const char* topic, const char* payload,
+    char* currentData, unsigned long currentDataAt, unsigned int waitTime,
+    unsigned char* command, unsigned int length,
+    char* status, size_t statusSize) {
+  if (topic == nullptr || payload == nullptr ||
+      command == nullptr || length == 0) return true;
+
+  if (strcmp(topic, "SetCurves") == 0) {
+    uint8_t requested = 0;
+    for (const auto& curve : curveConfirmations) {
+      if (curve.commandByte >= length || command[curve.commandByte] == 0) continue;
+      requested++;
+    }
+    if (requested == 0) {
+      if (status != nullptr && statusSize > 0) {
+        snprintf(status, statusSize, "SetCurves skipped: no valid curve values supplied");
+      }
+      return false;
+    }
+    if (!currentDataIsFresh(currentData, currentDataAt, waitTime)) return true;
+
+    uint8_t unchanged = 0;
+    for (const auto& curve : curveConfirmations) {
+      if (curve.commandByte >= length || command[curve.commandByte] == 0) continue;
+      int desired = (int)command[curve.commandByte] - 128;
+      int actual = getDataValue(currentData, curve.topic).toInt();
+      if (actual == desired) {
+        command[curve.commandByte] = 0;
+        unchanged++;
+      }
+    }
+    if (unchanged == requested) {
+      if (status != nullptr && statusSize > 0) {
+        snprintf(status, statusSize,
+          "SetCurves skipped: Panasonic already reports all requested values");
+      }
+      return false;
+    }
+    if (unchanged > 0 && status != nullptr && statusSize > 0) {
+      snprintf(status, statusSize,
+        "SetCurves: omitted %u unchanged value%s; %u value%s will be sent",
+        unchanged, unchanged == 1 ? "" : "s", requested - unchanged,
+        requested - unchanged == 1 ? "" : "s");
+    }
+    return true;
+  }
+
+  if (!currentDataIsFresh(currentData, currentDataAt, waitTime)) return true;
+
+  int confirmationTopic = confirmationTopicFor(topic);
+  if (confirmationTopic < 0) return true;
+
+  MqttCommandExpectation expectation = {
+    (uint8_t)confirmationTopic, 0, (int16_t)String(payload).toInt(), false
+  };
+  if (!expectationMatches(topic, expectation, currentData)) return true;
+
+  if (status != nullptr && statusSize > 0) {
+    snprintf(status, statusSize,
+      "%s skipped: Panasonic already reports the requested value %d",
+      topic, expectation.desired);
+  }
+  return false;
+}
+
+bool queue_mqtt_heatpump_command(char* topic, char* msg, char* currentData,
+    unsigned long currentDataAt, unsigned int waitTime, void (*log_message)(char*)) {
+  cmdStruct matchedCommand;
+  bool matched = false;
+  for (unsigned int i = 0; i < sizeof(commands) / sizeof(commands[0]); i++) {
+    cmdStruct candidate;
+    memcpy_P(&candidate, &commands[i], sizeof(candidate));
+    if (strcmp(topic, candidate.name) == 0) {
+      matchedCommand = candidate;
+      matched = true;
+      break;
+    }
+  }
+  if (!matched) return false;
+
+  PendingMqttCommand incoming = {};
+  strncpy(incoming.name, topic, sizeof(incoming.name) - 1);
+  char commandLog[256] = {};
+  unsigned int length = matchedCommand.func(msg, incoming.command, commandLog);
+  log_message(commandLog);
+  if (length == 0 || length > sizeof(incoming.command)) {
+    logMqttCommand(log_message, "[MQTT command] %s rejected: invalid value", topic);
+    return true;
+  }
+  incoming.length = length;
+  incoming.active = true;
+  incoming.waitingToSend = true;
+  incoming.nextSendAt = millis();
+  addExpectations(incoming, msg);
+  if (strcmp(topic, "SetCurves") == 0 && incoming.expectationCount == 0) {
+    logMqttCommand(log_message, "[MQTT command] %s rejected: invalid or empty curve JSON", topic);
+    return true;
+  }
+
+  if (currentDataIsFresh(currentData, currentDataAt, waitTime)) {
+    applyKnownState(incoming, currentData);
+  }
+  if (incoming.expectationCount > 0 && unconfirmedExpectationCount(incoming) == 0) {
+    logMqttCommand(log_message, "[MQTT command] %s skipped: Panasonic already reports the requested value", topic);
+    return true;
+  }
+
+  PendingMqttCommand* freeSlot = nullptr;
+  for (auto& pending : pendingMqttCommands) {
+    if (pending.active && strcmp(pending.name, topic) == 0) {
+      if (sameRequest(pending, incoming)) {
+        logMqttCommand(log_message, "[MQTT command] %s ignored: identical request is already pending", topic);
+        return true;
+      }
+      freeSlot = &pending;
+      logMqttCommand(log_message, "[MQTT command] %s replaces the pending request", topic);
+      break;
+    }
+    if (!pending.active && freeSlot == nullptr) freeSlot = &pending;
+  }
+  if (freeSlot == nullptr) {
+    logMqttCommand(log_message, "[MQTT command] %s rejected: confirmation queue is full", topic);
+    return true;
+  }
+
+  incoming.sequence = ++mqttCommandSequence;
+  *freeSlot = incoming;
+  logMqttCommand(log_message, "[MQTT command] %s queued", topic);
+  return true;
+}
+
+void confirm_mqtt_heatpump_commands(char* data, void (*log_message)(char*)) {
+  for (auto& pending : pendingMqttCommands) {
+    if (!pending.active || pending.expectationCount == 0) continue;
+    uint8_t before = unconfirmedExpectationCount(pending);
+    applyKnownState(pending, data);
+    uint8_t after = unconfirmedExpectationCount(pending);
+    if (after == 0) {
+      logMqttCommand(log_message, pending.wasSent
+        ? "[MQTT command] %s confirmed by Panasonic"
+        : "[MQTT command] %s cancelled: Panasonic already reports the requested value",
+        pending.name);
+      pending.active = false;
+    } else if (after < before && strcmp(pending.name, "SetCurves") == 0) {
+      logMqttCommand(log_message, "[MQTT command] %s partially confirmed; %d curve values still pending", pending.name, after);
+    }
+  }
+}
+
+void process_mqtt_heatpump_commands(bool (*send_command)(byte*, int), void (*log_message)(char*)) {
+  unsigned long now = millis();
+
+  for (auto& pending : pendingMqttCommands) {
+    if (!pending.active || pending.waitingToSend || !pending.wasSent || pending.expectationCount == 0) continue;
+    if ((unsigned long)(now - pending.sentAt) < MQTT_COMMAND_CONFIRM_TIMEOUT_MS) continue;
+    if (pending.retries >= MQTT_COMMAND_MAX_RETRIES) {
+      logMqttCommand(log_message, "[MQTT command] %s failed: Panasonic did not confirm it after %d attempts",
+        pending.name, MQTT_COMMAND_MAX_RETRIES + 1);
+      pending.active = false;
+      continue;
+    }
+    pending.retries++;
+    pending.waitingToSend = true;
+    pending.nextSendAt = now;
+    pending.sequence = ++mqttCommandSequence;
+    logMqttCommand(log_message, "[MQTT command] %s not confirmed; retry %d/3 queued", pending.name, pending.retries);
+  }
+
+  if (mqttCommandWasSent && (unsigned long)(now - lastMqttCommandSendAt) < MQTT_COMMAND_GAP_MS) return;
+
+  PendingMqttCommand* next = nullptr;
+  for (auto& pending : pendingMqttCommands) {
+    if (!pending.active || !pending.waitingToSend || (long)(now - pending.nextSendAt) < 0) continue;
+    if (next == nullptr || pending.sequence < next->sequence) next = &pending;
+  }
+  if (next == nullptr) return;
+
+  if (!send_command(next->command, next->length)) {
+    next->nextSendAt = now + MQTT_COMMAND_QUEUE_RETRY_MS;
+    return;
+  }
+
+  next->waitingToSend = false;
+  next->wasSent = true;
+  next->sentAt = now;
+  lastMqttCommandSendAt = now;
+  mqttCommandWasSent = true;
+  logMqttCommand(log_message, "[MQTT command] %s sent (attempt %d/4)", next->name, next->retries + 1);
+  if (next->expectationCount == 0) {
+    logMqttCommand(log_message, "[MQTT command] %s has no reliable reported state; it will not be retried", next->name);
+    next->active = false;
+  }
 }
 
 

@@ -40,6 +40,7 @@ extern int dallasDevicecount;
 extern dallasDataStruct *actDallasData;
 extern settingsStruct heishamonSettings;
 extern char actData[DATASIZE];
+extern unsigned long lastHeatpumpDataAt;
 extern char actOptData[OPTDATASIZE];
 extern char actDataExtra[DATASIZE];
 extern volatile s0DataStruct actS0Data[];
@@ -676,8 +677,11 @@ static int8_t vm_value_set(struct rules_t *obj) {
         memcpy_P(&tmp, &commands[x], sizeof(tmp));
         if(stricmp((char *)&key[1], tmp.name) == 0) {
           uint16_t len = tmp.func(payload, cmd, log_msg);
+          bool hasChanges = len > 0 && heatpump_command_has_changes(
+            tmp.name, payload, actData, lastHeatpumpDataAt,
+            heishamonSettings.waitTime, cmd, len, log_msg, sizeof(log_msg));
           log_message(log_msg);
-          send_command(cmd, len);
+          if(hasChanges) send_command(cmd, len);
           break;
         }
       }
@@ -1110,4 +1114,3 @@ void rules_deinitialize() {
     rule_options.event_cb = NULL;
   }
 }
-

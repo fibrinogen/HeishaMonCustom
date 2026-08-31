@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Heisha Monitor</title>
-    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.28" />
-    <script src="/webui/common.js?v=0.2.7-web.28"></script>
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.30" />
+    <script src="/webui/common.js?v=0.2.7-web.30"></script>
   </head>
   <body>
     <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
@@ -391,6 +391,15 @@
                 </div>
               </div>
             </div>
+            <div class="dashboard-row">
+              <span>Active heat source</span
+              ><span
+                id="dashboardDhwHeatSource"
+                class="dashboard-value dashboard-source-state"
+                data-state="inactive"
+                >--</span
+              >
+            </div>
             <div class="dashboard-section-title">DHW power</div>
             <div class="dashboard-row">
               <span>Production</span
@@ -399,10 +408,15 @@
               ><span id="TOP40-Description" class="dashboard-hidden"></span>
             </div>
             <div class="dashboard-row">
-              <span>Consumption</span
+              <span>Electrical consumption</span
               ><span class="dashboard-value"
                 ><span id="TOP41-Value">--</span> W</span
               ><span id="TOP41-Description" class="dashboard-hidden"></span>
+            </div>
+            <div class="wp-settings-note">
+              Heat source is derived from the DHW valve, compressor, and heater
+              relay states. Electrical consumption remains Panasonic's combined
+              DHW value; no heater wattage is estimated.
             </div>
             <div class="dashboard-section-title">Sterilization</div>
             <div class="dashboard-row">
@@ -419,7 +433,7 @@
         </section>
       </div>
     </main>
-    <script src="/webui/websocket.js?v=0.2.7-web.28"></script>
-    <script src="/webui/dashboard.js?v=0.2.7-web.28"></script>
+    <script src="/webui/websocket.js?v=0.2.7-web.30"></script>
+    <script src="/webui/dashboard.js?v=0.2.7-web.30"></script>
   </body>
 </html>

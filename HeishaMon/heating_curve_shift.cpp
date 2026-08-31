@@ -119,7 +119,18 @@ static bool sendCurveTargets(int16_t targetAtCold, int16_t targetAtWarm,
   unsigned char command[256] = {0};
   char commandLog[256] = {0};
   unsigned int length = set_curves((char *)payload.c_str(), command, commandLog);
-  if (length == 0 || !send_command(command, length)) {
+  if (length == 0) {
+    snprintf(response, responseSize, "SetCurves value rejected");
+    return false;
+  }
+  if (!heatpump_command_has_changes("SetCurves", payload.c_str(), actData,
+      lastHeatpumpDataAt, heishamonSettings.waitTime,
+      command, length, commandLog, sizeof(commandLog))) {
+    snprintf(response, responseSize, "%s", commandLog);
+    log_message(commandLog);
+    return true;
+  }
+  if (!send_command(command, length)) {
     snprintf(response, responseSize, "SetCurves command queue rejected");
     return false;
   }
@@ -212,7 +223,18 @@ bool heatingCurveShiftSet(int value, char *response, size_t responseSize) {
   char commandLog[256] = {0};
   unsigned int length = set_z1_heat_request_temperature(
     valueText, command, commandLog);
-  if (length == 0 || !send_command(command, length)) {
+  if (length == 0) {
+    snprintf(response, responseSize, "TOP27 value rejected");
+    return false;
+  }
+  if (!heatpump_command_has_changes("SetZ1HeatRequestTemperature", valueText,
+      actData, lastHeatpumpDataAt, heishamonSettings.waitTime,
+      command, length, commandLog, sizeof(commandLog))) {
+    snprintf(response, responseSize, "%s", commandLog);
+    log_message(commandLog);
+    return true;
+  }
+  if (!send_command(command, length)) {
     snprintf(response, responseSize, "TOP27 command queue rejected");
     return false;
   }

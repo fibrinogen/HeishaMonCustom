@@ -25,6 +25,10 @@ unsigned int set_force_sterilization(char *msg, unsigned char *cmd, char *logMsg
 unsigned int set_operation_mode(char *msg, unsigned char *cmd, char *logMsg);
 unsigned int set_DHW_temp(char *msg, unsigned char *cmd, char *logMsg);
 unsigned int set_z1_heat_request_temperature(char *msg, unsigned char *cmd, char *logMsg);
+bool heatpump_command_has_changes(const char *topic, const char *payload,
+  char *currentData, unsigned long currentDataAt, unsigned int waitTime,
+  unsigned char *command, unsigned int length,
+  char *status, size_t statusSize);
 
 extern settingsStruct heishamonSettings;
 extern char actData[DATASIZE];
@@ -153,14 +157,24 @@ static bool dashboardWorkflowSendCommand(bool operationModeCommand, int value) {
   snprintf(valueString, sizeof(valueString), "%d", value);
 
   unsigned int len;
+  const char *commandName;
   if (operationModeCommand) {
+    commandName = "SetOperationMode";
     len = set_operation_mode(valueString, cmd, commandLog);
   } else if (dashboardWorkflow.type == DASHBOARD_WORKFLOW_STERILIZATION) {
+    commandName = "SetForceSterilization";
     len = set_force_sterilization(valueString, cmd, commandLog);
   } else {
     return false;
   }
 
+  if (len == 0) return false;
+  if (!heatpump_command_has_changes(commandName, valueString, actData,
+      lastHeatpumpDataAt, heishamonSettings.waitTime, cmd, len,
+      commandLog, sizeof(commandLog))) {
+    log_message(commandLog);
+    return true;
+  }
   log_message(commandLog);
   return send_command(cmd, len);
 }
@@ -403,25 +417,41 @@ static SchedulerDispatchResult schedulerDispatchAction(SchedulerActionType actio
   char valueString[16];
   snprintf(valueString, sizeof(valueString), "%d", desired);
   unsigned int length = 0;
+  const char *panasonicCommandName = nullptr;
   switch (action) {
     case SCHEDULER_ACTION_FORCE_DHW_ON:
     case SCHEDULER_ACTION_FORCE_DHW_OFF:
+      panasonicCommandName = "SetForceDHW";
       length = set_force_DHW(valueString, command, commandLog); break;
     case SCHEDULER_ACTION_HEATPUMP_ON:
     case SCHEDULER_ACTION_HEATPUMP_OFF:
+      panasonicCommandName = "SetHeatpump";
       length = set_heatpump_state(valueString, command, commandLog); break;
     case SCHEDULER_ACTION_SET_OPERATION_MODE:
+      panasonicCommandName = "SetOperationMode";
       length = set_operation_mode(valueString, command, commandLog); break;
     case SCHEDULER_ACTION_SET_DHW_TARGET:
+      panasonicCommandName = "SetDHWTemp";
       length = set_DHW_temp(valueString, command, commandLog); break;
     case SCHEDULER_ACTION_SET_QUIET_MODE:
+      panasonicCommandName = "SetQuietMode";
       length = set_quiet_mode(valueString, command, commandLog); break;
     default:
       snprintf(detail, detailSize, "Unsupported action");
       return SCHEDULER_DISPATCH_FAILED;
   }
 
-  if (length == 0 || !send_command(command, length)) {
+  if (length == 0) {
+    snprintf(detail, detailSize, "Panasonic command value rejected");
+    return SCHEDULER_DISPATCH_FAILED;
+  }
+  if (!heatpump_command_has_changes(panasonicCommandName,
+      valueString, actData, lastHeatpumpDataAt, heishamonSettings.waitTime,
+      command, length, commandLog, sizeof(commandLog))) {
+    strlcpy(detail, commandLog, detailSize);
+    return SCHEDULER_DISPATCH_NO_CHANGE;
+  }
+  if (!send_command(command, length)) {
     snprintf(detail, detailSize, "Panasonic command queue rejected action");
     return SCHEDULER_DISPATCH_FAILED;
   }
@@ -745,7 +775,18 @@ static bool dispatchZone1HeatSemanticCommand(const char *commandName,
   char valueBuffer[16] = {0};
   snprintf(valueBuffer, sizeof(valueBuffer), "%ld", parsed);
   unsigned int length = set_z1_heat_request_temperature(valueBuffer, command, commandLog);
-  if (length == 0 || !send_command(command, length)) {
+  if (length == 0) {
+    snprintf(response, responseSize, "%s value rejected", commandName);
+    return false;
+  }
+  if (!heatpump_command_has_changes("SetZ1HeatRequestTemperature", valueBuffer,
+      actData, lastHeatpumpDataAt, heishamonSettings.waitTime,
+      command, length, commandLog, sizeof(commandLog))) {
+    snprintf(response, responseSize, "%s", commandLog);
+    log_message(commandLog);
+    return true;
+  }
+  if (!send_command(command, length)) {
     snprintf(response, responseSize, "%s command queue rejected", commandName);
     return false;
   }

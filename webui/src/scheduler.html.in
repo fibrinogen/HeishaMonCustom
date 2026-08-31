@@ -282,13 +282,20 @@
               />
             </div>
             <div class="scheduler-field">
-              <label for="schedulerTime">Execution time</label
-              ><input
-                id="schedulerTime"
-                class="scheduler-input"
-                type="time"
-                required
-              />
+              <label for="schedulerHour">Execution time (24-hour)</label>
+              <div class="scheduler-time-picker">
+                <select
+                  id="schedulerHour"
+                  class="scheduler-input"
+                  aria-label="Execution hour"
+                ></select
+                ><span aria-hidden="true">:</span
+                ><select
+                  id="schedulerMinute"
+                  class="scheduler-input"
+                  aria-label="Execution minute"
+                ></select>
+              </div>
             </div>
             <div class="scheduler-field">
               <label>Schedule state</label

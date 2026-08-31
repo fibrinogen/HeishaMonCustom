@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Heisha Monitor</title>
-    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.28" />
-    <script src="/webui/common.js?v=0.2.7-web.28"></script>
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.30" />
+    <script src="/webui/common.js?v=0.2.7-web.30"></script>
   </head>
   <body>
     <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
@@ -107,16 +107,36 @@
               >Start
               <input
                 id="eventStart"
-                type="datetime-local"
+                type="date"
                 lang="de-DE"
-                onchange="eventRangeCustom()" /></label
+                onchange="eventRangeCustom()" />
+              <select
+                id="eventStartHour"
+                aria-label="Start hour"
+                onchange="eventRangeCustom()"
+              ></select
+              >:<select
+                id="eventStartMinute"
+                aria-label="Start minute"
+                onchange="eventRangeCustom()"
+              ></select></label
             ><label
               >End
               <input
                 id="eventEnd"
-                type="datetime-local"
+                type="date"
                 lang="de-DE"
-                onchange="eventRangeCustom()" /></label
+                onchange="eventRangeCustom()" />
+              <select
+                id="eventEndHour"
+                aria-label="End hour"
+                onchange="eventRangeCustom()"
+              ></select
+              >:<select
+                id="eventEndMinute"
+                aria-label="End minute"
+                onchange="eventRangeCustom()"
+              ></select></label
             ><label
               >Type
               <select id="eventType" onchange="renderEventLog()">
@@ -376,20 +396,18 @@
           loadPersistentEvents();
       }
       var persistentEvents = [];
-      function inputDateTime(value) {
-        var z = function (v) {
-          return String(v).padStart(2, "0");
-        };
-        return (
+      function setEventDateTime(prefix, value) {
+        document.getElementById(prefix).value =
           value.getFullYear() +
           "-" +
-          z(value.getMonth() + 1) +
+          hmPad(value.getMonth() + 1) +
           "-" +
-          z(value.getDate()) +
-          "T" +
-          z(value.getHours()) +
-          ":" +
-          z(value.getMinutes())
+          hmPad(value.getDate());
+        document.getElementById(prefix + "Hour").value = hmPad(
+          value.getHours(),
+        );
+        document.getElementById(prefix + "Minute").value = hmPad(
+          value.getMinutes(),
         );
       }
       function setEventRange(load) {
@@ -402,15 +420,21 @@
         if (!seconds) return;
         var end = new Date(),
           start = new Date(end.getTime() - seconds * 1000);
-        document.getElementById("eventStart").value = inputDateTime(start);
-        document.getElementById("eventEnd").value = inputDateTime(end);
+        setEventDateTime("eventStart", start);
+        setEventDateTime("eventEnd", end);
         if (load) loadPersistentEvents();
       }
       function eventRangeCustom() {
         document.getElementById("eventRange").value = "custom";
       }
       function eventTimestamp(id) {
-        var value = new Date(document.getElementById(id).value).getTime();
+        var value = new Date(
+          document.getElementById(id).value +
+            "T" +
+            document.getElementById(id + "Hour").value +
+            ":" +
+            document.getElementById(id + "Minute").value,
+        ).getTime();
         return Number.isFinite(value) ? Math.floor(value / 1000) : 0;
       }
       function eventLogUrl(path) {
@@ -481,6 +505,8 @@
               "Diagnostics unavailable: " + e.message;
           });
       }
+      hmSetupTimePicker("eventStartHour", "eventStartMinute");
+      hmSetupTimePicker("eventEndHour", "eventEndMinute");
       setEventRange(false);
       document.title = "Diagnostics - HeishaMon";
       refresh();

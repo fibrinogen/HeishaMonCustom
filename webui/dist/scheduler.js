@@ -584,9 +584,12 @@ function schedulerOpenEditor(id) {
     ? "Edit schedule"
     : "Add schedule";
   document.getElementById("schedulerName").value = entry ? entry.name : "";
-  document.getElementById("schedulerTime").value = entry
-    ? schedulerPad(entry.hour) + ":" + schedulerPad(entry.minute)
-    : "06:00";
+  document.getElementById("schedulerHour").value = schedulerPad(
+    entry ? entry.hour : 6,
+  );
+  document.getElementById("schedulerMinute").value = schedulerPad(
+    entry ? entry.minute : 0,
+  );
   document.getElementById("schedulerEntryEnabled").checked = entry
     ? !!entry.enabled
     : true;
@@ -767,13 +770,10 @@ function schedulerReadActions() {
 }
 function schedulerSaveEditor() {
   var name = document.getElementById("schedulerName").value.trim();
-  var time = document.getElementById("schedulerTime").value;
+  var hour = Number(document.getElementById("schedulerHour").value);
+  var minute = Number(document.getElementById("schedulerMinute").value);
   if (!name) {
     schedulerSetStatus("A schedule name is required.", true);
-    return;
-  }
-  if (!time || time.indexOf(":") < 0) {
-    schedulerSetStatus("A valid execution time is required.", true);
     return;
   }
   var days = 0;
@@ -784,9 +784,6 @@ function schedulerSaveEditor() {
     schedulerSetStatus("Select at least one weekday.", true);
     return;
   }
-  var parts = time.split(":");
-  var hour = Number(parts[0]);
-  var minute = Number(parts[1]);
   if (
     !Number.isInteger(hour) ||
     hour < 0 ||
@@ -893,6 +890,7 @@ document.addEventListener("keydown", function (event) {
   if (event.key === "Escape") schedulerCloseEditor();
 });
 document.addEventListener("DOMContentLoaded", function () {
+  hmSetupTimePicker("schedulerHour", "schedulerMinute");
   schedulerRefresh();
   schedulerLoadEvents(true);
   window.setInterval(schedulerRefresh, 10000);
