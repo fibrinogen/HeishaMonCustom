@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Heisha Monitor</title>
-    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.32" />
-    <script src="/webui/common.js?v=0.2.7-web.32"></script>
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.33" />
+    <script src="/webui/common.js?v=0.2.7-web.33"></script>
   </head>
   <body>
     <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
@@ -141,13 +141,52 @@
         </div>
         <div id="historyTemperaturesView">
           <section class="panel history-card">
-            <div class="panel-header"><h3>Temperatures</h3></div>
+            <div class="panel-header"><h3>DHW</h3></div>
             <div class="history-card-body">
-              <canvas id="temps" class="history-chart"></canvas>
-              <div id="tempsLegend" class="history-legend"></div>
+              <canvas id="dhw" class="history-chart"></canvas>
+              <div id="dhwLegend" class="history-legend"></div>
+              <canvas
+                id="dhwSources"
+                class="history-source-timeline"
+                aria-label="DHW heat source activity"
+              ></canvas>
+              <div id="dhwSourceStatus" class="history-note"></div>
               <div class="history-note">
-                All values are in °C. The colored legend identifies every line.
+                Tank setpoint and actual tank temperature are shown continuously.
+                Inlet and outlet are assigned to DHW while the three-way valve
+                is in the DHW position.
               </div>
+            </div>
+          </section>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>Heat</h3></div>
+            <div class="history-card-body">
+              <canvas id="heat" class="history-chart"></canvas>
+              <div id="heatLegend" class="history-legend"></div>
+              <div class="history-note">
+                Inlet and outlet are assigned to heating while the three-way
+                valve is in the Heat position. The main water setpoint remains
+                visible for context.
+              </div>
+            </div>
+          </section>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>Room temperature</h3></div>
+            <div class="history-card-body">
+              <canvas id="room" class="history-chart"></canvas>
+              <div id="roomLegend" class="history-legend"></div>
+              <div class="history-note">
+                Zone 1 room setpoint and actual Zone 1 temperature. The setpoint
+                is only available when the Zone 1 request represents a room
+                target.
+              </div>
+            </div>
+          </section>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>Outside temperature</h3></div>
+            <div class="history-card-body">
+              <canvas id="outsideTemp" class="history-chart"></canvas>
+              <div id="outsideTempLegend" class="history-legend"></div>
             </div>
           </section>
           <section class="panel history-card">
@@ -160,19 +199,6 @@
                 curve shift (K), heating water target (°C) and room target (°C)
                 are never merged into one line.
               </div>
-            </div>
-          </section>
-          <section class="panel history-card">
-            <div class="panel-header"><h3>DHW</h3></div>
-            <div class="history-card-body">
-              <canvas id="dhw" class="history-chart"></canvas>
-              <div id="dhwLegend" class="history-legend"></div>
-              <canvas
-                id="dhwSources"
-                class="history-source-timeline"
-                aria-label="DHW heat source activity"
-              ></canvas>
-              <div id="dhwSourceStatus" class="history-note"></div>
             </div>
           </section>
         </div>
@@ -333,9 +359,24 @@
     </main>
     <script>
       var chartLines = {
-        outlet: { key: "outlet", label: "Outlet", color: "#e53935", unit: "°C" },
-        inlet: { key: "inlet", label: "Inlet", color: "#1e88e5", unit: "°C" },
-        target: { key: "target", label: "Target", color: "#f9a825", unit: "°C" },
+        heatInlet: {
+          key: "heatInlet",
+          label: "Actual T (inlet)",
+          color: "#1e88e5",
+          unit: "°C",
+        },
+        heatOutlet: {
+          key: "heatOutlet",
+          label: "Actual T (outlet)",
+          color: "#90caf9",
+          unit: "°C",
+        },
+        heatTarget: {
+          key: "target",
+          label: "Setpoint",
+          color: "#fb8c00",
+          unit: "°C",
+        },
         outside: { key: "outside", label: "Outside", color: "#43a047", unit: "°C" },
         hz: { key: "hz", label: "Compressor frequency", color: "#8e44ad", unit: "Hz" },
         flow: { key: "flow", label: "Water flow", color: "#00897b", unit: "l/min" },
@@ -406,8 +447,42 @@
           color: "#81c784",
           unit: "",
         },
-        dhw: { key: "dhw", label: "DHW actual", color: "#d32f2f", unit: "°C" },
-        dhwTarget: { key: "target", label: "DHW target", color: "#f9a825", unit: "°C" },
+        dhwTarget: {
+          key: "dhwTarget",
+          label: "Tank setpoint",
+          color: "#1e88e5",
+          unit: "°C",
+        },
+        dhwActual: {
+          key: "dhw",
+          label: "Tank actual",
+          color: "#90caf9",
+          unit: "°C",
+        },
+        dhwInlet: {
+          key: "dhwInlet",
+          label: "Actual T (inlet)",
+          color: "#fb8c00",
+          unit: "°C",
+        },
+        dhwOutlet: {
+          key: "dhwOutlet",
+          label: "Actual T (outlet)",
+          color: "#43a047",
+          unit: "°C",
+        },
+        roomTarget: {
+          key: "roomSetpoint",
+          label: "Setpoint (Zone 1)",
+          color: "#1e88e5",
+          unit: "°C",
+        },
+        roomActual: {
+          key: "room",
+          label: "Room actual (Zone 1)",
+          color: "#90caf9",
+          unit: "°C",
+        },
         zone1Shift: {
           key: "heatingCurveShift",
           label: "Heating curve shift (K)",
@@ -971,7 +1046,10 @@
               ? "Datum"
               : "Zeit";
         var units =
-          view.canvas.id === "temps" || view.canvas.id === "dhw"
+          view.canvas.id === "dhw" ||
+          view.canvas.id === "heat" ||
+          view.canvas.id === "room" ||
+          view.canvas.id === "outsideTemp"
             ? "°C"
             : view.canvas.id === "zone1Request"
               ? "°C / K"
@@ -1104,6 +1182,16 @@
             heatConsumption = Number(point.heatConsumption),
             dhwProduction = Number(point.dhwProduction),
             dhwConsumption = Number(point.dhwConsumption);
+          point.dhwInlet = point.dhwActive === true ? point.inlet : null;
+          point.dhwOutlet = point.dhwActive === true ? point.outlet : null;
+          point.heatInlet = point.dhwActive === true ? null : point.inlet;
+          point.heatOutlet = point.dhwActive === true ? null : point.outlet;
+          point.roomSetpoint =
+            point.roomTarget !== null && point.roomTarget !== undefined
+              ? point.roomTarget
+              : point.zone1RequestSemantic === "roomTarget"
+                ? point.zone1Request
+                : null;
           point.copHeat =
             Number.isFinite(heatProduction) &&
             Number.isFinite(heatConsumption) &&
@@ -1125,12 +1213,19 @@
           )
             point.internalHeater = point.internalHeater === true ? 1 : 0;
         });
-        var temps = [
-            chartLines.outlet,
-            chartLines.inlet,
-            chartLines.target,
-            chartLines.outside,
+        var dhw = [
+            chartLines.dhwTarget,
+            chartLines.dhwActual,
+            chartLines.dhwInlet,
+            chartLines.dhwOutlet,
           ],
+          heat = [
+            chartLines.heatInlet,
+            chartLines.heatOutlet,
+            chartLines.heatTarget,
+          ],
+          room = [chartLines.roomTarget, chartLines.roomActual],
+          outside = [chartLines.outside],
           zone1 = [
             chartLines.zone1Shift,
             chartLines.zone1Water,
@@ -1150,10 +1245,16 @@
             chartLines.heatConsumption,
             chartLines.dhwConsumption,
             chartLines.internalHeater,
-          ],
-          dhw = [chartLines.dhw, chartLines.dhwTarget];
-        draw("temps", p, temps);
-        lineLegend("tempsLegend", temps);
+          ];
+        draw("dhw", p, dhw);
+        lineLegend("dhwLegend", dhw);
+        drawDhwSources(p);
+        draw("heat", p, heat);
+        lineLegend("heatLegend", heat);
+        draw("room", p, room);
+        lineLegend("roomLegend", room);
+        draw("outsideTemp", p, outside);
+        lineLegend("outsideTempLegend", outside);
         draw("zone1Request", p, zone1);
         lineLegend("zone1RequestLegend", zone1);
         draw("hydraulics", p, hydraulics);
@@ -1162,9 +1263,6 @@
         lineLegend("efficiencyLegend", efficiency);
         draw("energy", p, energy);
         lineLegend("energyLegend", energy);
-        draw("dhw", p, dhw);
-        lineLegend("dhwLegend", dhw);
-        drawDhwSources(p);
         document.getElementById("efficiencySummary").innerHTML =
           "Selected SD period · Heating: <b>" +
           val(e2.heatingThermalKWh) +

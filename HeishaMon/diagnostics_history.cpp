@@ -564,6 +564,10 @@ static bool makeSample(HistorySample &sample) {
     sample.zone1RequestValue10 = scaledSigned(zone1Request, 10.0f);
     sample.zone1RequestSemantic = (uint8_t)zone1Semantic.type;
     sample.validFields |= HISTORY_FIELD_ZONE1_REQUEST;
+    if (zone1Semantic.type == ZONE1_ROOM_TARGET) {
+      sample.roomTarget10 = sample.zone1RequestValue10;
+      sample.validFields |= HISTORY_FIELD_ROOM_TARGET;
+    }
   }
   HeatingCurveShiftStatus curveShift;
   if (heatingCurveShiftGetStatus(&curveShift) && curveShift.available &&
@@ -1809,6 +1813,7 @@ static void handleEfficiencyApi(struct webserver_t *client) {
 static void appendStoredSampleJson(struct webserver_t *client,
     const HistorySample &sample, float aggregatedCop) {
   char outside[12], inlet[12], outlet[12], target[12], dhw[12], dhwTarget[12];
+  char room[12], roomTarget[12];
   char flow[12], hz[12], power[12], electrical[12], cop[12], request[12], shift[12];
   char heatProduction[12], heatConsumption[12], dhwProduction[12], dhwConsumption[12];
   char evaOutlet[12], current[12];
@@ -1821,6 +1826,8 @@ static void appendStoredSampleJson(struct webserver_t *client,
   FORMAT_FIELD(target, HISTORY_FIELD_TARGET, "%.1f", sample.targetTemp10 / 10.0f);
   FORMAT_FIELD(dhw, HISTORY_FIELD_DHW, "%.1f", sample.dhwTemp10 / 10.0f);
   FORMAT_FIELD(dhwTarget, HISTORY_FIELD_DHW_TARGET, "%.1f", sample.dhwTargetTemp10 / 10.0f);
+  FORMAT_FIELD(room, HISTORY_FIELD_ROOM, "%.1f", sample.roomTemp10 / 10.0f);
+  FORMAT_FIELD(roomTarget, HISTORY_FIELD_ROOM_TARGET, "%.1f", sample.roomTarget10 / 10.0f);
   FORMAT_FIELD(flow, HISTORY_FIELD_FLOW, "%.2f", sample.flow100 / 100.0f);
   FORMAT_FIELD(hz, HISTORY_FIELD_COMPRESSOR_HZ, "%.1f", sample.compressorHz10 / 10.0f);
   FORMAT_FIELD(power, HISTORY_FIELD_THERMAL_POWER, "%.2f", sample.thermalPower100 / 100.0f);
@@ -1840,9 +1847,9 @@ static void appendStoredSampleJson(struct webserver_t *client,
   }
   snprintf(cop, sizeof(cop), isfinite(aggregatedCop) ? "%.2f" : "null", aggregatedCop);
   appendFmt(client,
-    "{\"t\":%lu,\"outside\":%s,\"inlet\":%s,\"outlet\":%s,\"target\":%s,\"dhw\":%s,\"dhwTarget\":%s,\"flow\":%s,\"hz\":%s,\"power\":%s,\"electrical\":%s",
+    "{\"t\":%lu,\"outside\":%s,\"inlet\":%s,\"outlet\":%s,\"target\":%s,\"dhw\":%s,\"dhwTarget\":%s,\"room\":%s,\"roomTarget\":%s,\"flow\":%s,\"hz\":%s,\"power\":%s,\"electrical\":%s",
     (unsigned long)sample.timestamp, outside, inlet, outlet, target, dhw,
-    dhwTarget, flow, hz, power, electrical);
+    dhwTarget, room, roomTarget, flow, hz, power, electrical);
   appendFmt(client,
     ",\"heatProduction\":%s,\"heatConsumption\":%s,\"dhwProduction\":%s,\"dhwConsumption\":%s,\"evaOutlet\":%s,\"current\":%s,\"cop\":%s,\"zone1Request\":%s,\"zone1RequestSemantic\":\"%s\",\"heatingCurveShift\":%s,\"valve\":%u,\"compressor\":%s,\"dhwActive\":%s,\"defrost\":%s,\"internalHeater\":%s,\"externalHeater\":%s,\"timeValid\":true}",
     heatProduction, heatConsumption,
