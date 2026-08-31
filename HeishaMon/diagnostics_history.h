@@ -19,8 +19,10 @@ struct HistorySample {
   int16_t dhwTargetTemp10;
   int16_t roomTemp10;
   int16_t roomTarget10;
+  int16_t evaOutletTemp10;
   uint16_t flow100;
   uint16_t compressorHz10;
+  uint16_t compressorCurrent10;
   uint16_t pumpRpm;
   int16_t thermalPower100;
   uint16_t electricalPowerW;
@@ -69,7 +71,9 @@ enum HistorySampleField : uint32_t {
   HISTORY_FIELD_ZONE1_REQUEST = 1u << 25,
   HISTORY_FIELD_HEATING_CURVE_SHIFT = 1u << 26,
   HISTORY_FIELD_INTERNAL_HEATER_STATE = 1u << 27,
-  HISTORY_FIELD_EXTERNAL_HEATER_STATE = 1u << 28
+  HISTORY_FIELD_EXTERNAL_HEATER_STATE = 1u << 28,
+  HISTORY_FIELD_EVA_OUTLET = 1u << 29,
+  HISTORY_FIELD_COMPRESSOR_CURRENT = 1u << 30
 };
 
 enum HistoryOperatingState : uint8_t {

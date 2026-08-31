@@ -198,9 +198,21 @@
               <canvas id="efficiency" class="history-chart"></canvas>
               <div id="efficiencyLegend" class="history-legend"></div>
               <div class="history-note">
-                Estimated COP is calculated from thermal and electrical source
-                values. Aggregated ranges use energy totals, not averaged COP
+                COP Heat and COP DHW are calculated separately from the
+                corresponding Panasonic production and consumption values.
+                Aggregated period COP uses energy totals, not averaged COP
                 samples.
+              </div>
+            </div>
+          </section>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>Energy (kW)</h3></div>
+            <div class="history-card-body">
+              <canvas id="energy" class="history-chart"></canvas>
+              <div id="energyLegend" class="history-legend"></div>
+              <div class="history-note">
+                Instantaneous Panasonic production and consumption values.
+                Internal heater is a relay state (0/1), not measured power.
               </div>
             </div>
           </section>
@@ -328,12 +340,71 @@
         hz: { key: "hz", label: "Compressor frequency", color: "#8e44ad", unit: "Hz" },
         flow: { key: "flow", label: "Water flow", color: "#00897b", unit: "l/min" },
         power: { key: "power", label: "Thermal power", color: "#ef6c00", unit: "kW" },
-        cop: { key: "cop", label: "Estimated COP", color: "#1565c0", unit: "" },
+        evaOutlet: {
+          key: "evaOutlet",
+          label: "Evaporator outlet",
+          color: "#1e88e5",
+          unit: "°C",
+        },
+        defrost: {
+          key: "defrost",
+          label: "Defrost state",
+          color: "#90caf9",
+          unit: "",
+        },
+        current: {
+          key: "current",
+          label: "Current",
+          color: "#fb8c00",
+          unit: "A",
+        },
+        copHeat: {
+          key: "copHeat",
+          label: "COP Heat",
+          color: "#2e7d32",
+          unit: "",
+        },
+        copDhw: {
+          key: "copDhw",
+          label: "COP DHW",
+          color: "#81c784",
+          unit: "",
+        },
         electrical: {
           key: "electrical",
           label: "Electrical power",
           color: "#c62828",
           unit: "kW",
+        },
+        heatProduction: {
+          key: "heatProduction",
+          label: "Heat production",
+          color: "#00897b",
+          unit: "kW",
+        },
+        dhwProduction: {
+          key: "dhwProduction",
+          label: "DHW production",
+          color: "#e91e63",
+          unit: "kW",
+        },
+        heatConsumption: {
+          key: "heatConsumption",
+          label: "Heat consumption",
+          color: "#1e88e5",
+          unit: "kW",
+        },
+        dhwConsumption: {
+          key: "dhwConsumption",
+          label: "DHW consumption",
+          color: "#fb8c00",
+          unit: "kW",
+        },
+        internalHeater: {
+          key: "internalHeater",
+          label: "Internal heater state",
+          color: "#81c784",
+          unit: "",
         },
         dhw: { key: "dhw", label: "DHW actual", color: "#d32f2f", unit: "°C" },
         dhwTarget: { key: "target", label: "DHW target", color: "#f9a825", unit: "°C" },
@@ -387,6 +458,7 @@
           cop: [
             { key: "heatCop", label: "Heat", color: "#ef6c00" },
             { key: "dhwCop", label: "DHW", color: "#1565c0" },
+            { key: "totalCop", label: "Total", color: "#2e7d32" },
           ],
         },
         barChartViews = {};
@@ -905,7 +977,9 @@
               ? "°C / K"
               : view.canvas.id === "hydraulics"
                 ? "Hz / L/min / kW"
-                : "COP / kW";
+                : view.canvas.id === "energy"
+                  ? "kW / state"
+                  : "°C / A / COP / state";
         ctx.font = "11px Arial";
         ctx.fillStyle = "#75818a";
         ctx.strokeStyle = "rgba(117,129,138,.22)";
@@ -1025,6 +1099,32 @@
         renderedHistory = d;
         var p = d.samples || [],
           e2 = d.efficiency || {};
+        p.forEach(function (point) {
+          var heatProduction = Number(point.heatProduction),
+            heatConsumption = Number(point.heatConsumption),
+            dhwProduction = Number(point.dhwProduction),
+            dhwConsumption = Number(point.dhwConsumption);
+          point.copHeat =
+            Number.isFinite(heatProduction) &&
+            Number.isFinite(heatConsumption) &&
+            heatProduction > 0 &&
+            heatConsumption >= 0.1
+              ? heatProduction / heatConsumption
+              : null;
+          point.copDhw =
+            Number.isFinite(dhwProduction) &&
+            Number.isFinite(dhwConsumption) &&
+            dhwProduction > 0 &&
+            dhwConsumption >= 0.1
+              ? dhwProduction / dhwConsumption
+              : null;
+          point.defrost = point.defrost === true ? 1 : 0;
+          if (
+            point.internalHeater !== null &&
+            point.internalHeater !== undefined
+          )
+            point.internalHeater = point.internalHeater === true ? 1 : 0;
+        });
         var temps = [
             chartLines.outlet,
             chartLines.inlet,
@@ -1038,9 +1138,18 @@
           ],
           hydraulics = [chartLines.hz, chartLines.flow, chartLines.power],
           efficiency = [
-            chartLines.cop,
-            chartLines.power,
-            chartLines.electrical,
+            chartLines.evaOutlet,
+            chartLines.defrost,
+            chartLines.current,
+            chartLines.copHeat,
+            chartLines.copDhw,
+          ],
+          energy = [
+            chartLines.heatProduction,
+            chartLines.dhwProduction,
+            chartLines.heatConsumption,
+            chartLines.dhwConsumption,
+            chartLines.internalHeater,
           ],
           dhw = [chartLines.dhw, chartLines.dhwTarget];
         draw("temps", p, temps);
@@ -1051,6 +1160,8 @@
         lineLegend("hydraulicsLegend", hydraulics);
         draw("efficiency", p, efficiency);
         lineLegend("efficiencyLegend", efficiency);
+        draw("energy", p, energy);
+        lineLegend("energyLegend", energy);
         draw("dhw", p, dhw);
         lineLegend("dhwLegend", dhw);
         drawDhwSources(p);
@@ -1067,6 +1178,8 @@
           val(e2.dhwElectricalKWh) +
           " kWh electrical</b> · COP <b>" +
           val(e2.dhwCop) +
+          "</b> · Total COP <b>" +
+          val(e2.totalCop) +
           "</b>";
         document.getElementById("status").textContent =
           (d.storedSampleCount || 0) +
