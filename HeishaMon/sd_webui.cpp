@@ -104,7 +104,7 @@ constexpr PageRoute PAGE_ROUTES[] = {
 };
 
 constexpr const char *REQUIRED_FILES[] = {
-  "styles.css", "common.js", "websocket.js",
+  "styles.css", "common.js", "websocket.js", "heishamon_favicon.ico",
   "dashboard.html", "dashboard.js", "wpsettings.html", "wpsettings.js",
   "scheduler.html", "scheduler.js", "externalsensors.html", "externalsensors.js",
   "hardware.html", "hardware.js",
@@ -497,6 +497,7 @@ const char *contentType(const char *path) {
   if (strcmp(extension, ".css") == 0) return "text/css";
   if (strcmp(extension, ".js") == 0) return "application/javascript";
   if (strcmp(extension, ".json") == 0) return "application/json";
+  if (strcmp(extension, ".ico") == 0) return "image/x-icon";
   return "application/octet-stream";
 }
 

@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Heisha Monitor</title>
+    <link rel="icon" href="/webui/heishamon_favicon.ico?v={{WEBUI_VERSION}}" />
     <link rel="stylesheet" href="/webui/styles.css?v={{WEBUI_VERSION}}" />
     <script src="/webui/common.js?v={{WEBUI_VERSION}}"></script>
   </head>

@@ -79,8 +79,11 @@ def main() -> None:
     for source in sorted(SOURCE.iterdir()):
         if not source.is_file():
             continue
-        output_name = source.name[:-3] if source.name.endswith(".in") else source.name
-        payloads[output_name] = render(source, replacements)
+        if source.name.endswith(".in"):
+            output_name = source.name[:-3]
+            payloads[output_name] = render(source, replacements)
+        else:
+            payloads[source.name] = source.read_bytes()
 
     manifest_files = []
     for name, data in sorted(payloads.items()):
