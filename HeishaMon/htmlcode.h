@@ -740,6 +740,7 @@ static const char webHeader[] FLASHPROG = R"====(
 <meta charset='utf-8'>
 <meta name='viewport' content='width=device-width, initial-scale=1'>
 <title>Heisha Monitor</title>
+<link rel='icon' type='image/x-icon' href='/favicon.ico'>
 <script>
 function hmGetCookie(name){
   var prefix=name+'=',cookies=document.cookie.split(';');

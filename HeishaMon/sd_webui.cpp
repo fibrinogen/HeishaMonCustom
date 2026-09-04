@@ -104,7 +104,7 @@ constexpr PageRoute PAGE_ROUTES[] = {
 };
 
 constexpr const char *REQUIRED_FILES[] = {
-  "styles.css", "common.js", "websocket.js", "heishamon_favicon.ico",
+  "styles.css", "common.js", "websocket.js", "heishamon_h_favicon.ico",
   "dashboard.html", "dashboard.js", "wpsettings.html", "wpsettings.js",
   "scheduler.html", "scheduler.js", "externalsensors.html", "externalsensors.js",
   "hardware.html", "hardware.js",
@@ -684,6 +684,7 @@ bool sdWebUiHandleUri(struct webserver_t *client, const char *uri) {
   if (client == nullptr || uri == nullptr) return false;
   const char *relativePath = nullptr;
   bool pageRequest = false;
+  if (strcmp(uri, "/favicon.ico") == 0) relativePath = "heishamon_h_favicon.ico";
   for (const PageRoute &route : PAGE_ROUTES) {
     if (strcmp(uri, route.uri) == 0) {
       relativePath = route.file;
@@ -759,7 +760,9 @@ bool sdWebUiHandleWrite(struct webserver_t *client) {
 bool sdWebUiHandleHeader(struct webserver_t *client, struct header_t *header) {
   if (client == nullptr || header == nullptr || client->route != ROUTE_SD_WEBUI_FILE) return false;
   SdWebUiRequest *request = (SdWebUiRequest *)client->userdata;
-  const char *cache = request != nullptr && !request->pageRequest ?
+  bool cacheAsset = request != nullptr && !request->pageRequest &&
+    strcmp(request->relativePath, "heishamon_h_favicon.ico") != 0;
+  const char *cache = cacheAsset ?
     "Cache-Control: public, max-age=86400\r\n" :
     "Cache-Control: no-cache\r\n";
   header->ptr += snprintf((char *)header->buffer, 512 - header->ptr, "%s", cache);
