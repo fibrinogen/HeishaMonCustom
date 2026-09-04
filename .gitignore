@@ -13,5 +13,7 @@ firmware.map
 firmware.asm
 *.map
 *.elf
+__pycache__/
+*.py[cod]
 
 binaries/prepare_release.bat
