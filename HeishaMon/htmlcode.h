@@ -1,3 +1,5 @@
+#include "custom_favicon.h"
+
 #if defined(ESP8266)
   #define FLASHPROG PROGMEM
 #else
@@ -740,7 +742,7 @@ static const char webHeader[] FLASHPROG = R"====(
 <meta charset='utf-8'>
 <meta name='viewport' content='width=device-width, initial-scale=1'>
 <title>Heisha Monitor</title>
-<link rel='icon' type='image/x-icon' href='/favicon.ico'>
+<link rel='icon' type='image/png' href=')====" CUSTOM_FAVICON_DATA_URL R"====('>
 <script>
 function hmGetCookie(name){
   var prefix=name+'=',cookies=document.cookie.split(';');

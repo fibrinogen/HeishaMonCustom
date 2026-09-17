@@ -164,6 +164,12 @@
             <div class="history-card-body">
               <canvas id="heat" class="history-chart"></canvas>
               <div id="heatLegend" class="history-legend"></div>
+              <canvas
+                id="heatSources"
+                class="history-source-timeline"
+                aria-label="Room-heating source activity"
+              ></canvas>
+              <div id="heatSourceStatus" class="history-note"></div>
               <div class="history-note">
                 Inlet and outlet are assigned to heating while the three-way
                 valve is in the Heat position. The main water setpoint remains
@@ -1008,9 +1014,9 @@
         setupChartInteraction(c);
         paintChart(view);
       }
-      function drawDhwSources(points) {
-        var canvas = document.getElementById("dhwSources"),
-          status = document.getElementById("dhwSourceStatus"),
+      function drawSourceTimeline(canvasId, statusId, points, valveState, label) {
+        var canvas = document.getElementById(canvasId),
+          status = document.getElementById(statusId),
           context = canvas.getContext("2d"),
           width = canvas.clientWidth || 800,
           height = 82,
@@ -1063,7 +1069,9 @@
                 source.alwaysKnown ||
                 (point[source.key] !== null &&
                   point[source.key] !== undefined),
-              active = Number(point.valve) === 1 && point[source.key] === true,
+              active =
+                Number(point.valve) === valveState &&
+                (point[source.key] === true || Number(point[source.key]) === 1),
               x1 = left + (plotWidth * index) / Math.max(1, points.length),
               x2 =
                 left +
@@ -1078,9 +1086,11 @@
           });
         });
         status.textContent = !points.length
-          ? "No DHW source samples are available for this period."
+          ? "No " + label + " source samples are available for this period."
           : heaterDataAvailable
-            ? "Colored bands show active DHW sources. Heater bands are relay activity, not estimated wattage."
+            ? "Colored bands show active " +
+              label +
+              " sources. Heater bands are relay activity, not estimated wattage."
             : "Compressor activity is available, but selected older samples predate heater-relay history.";
       }
       function paintChart(view) {
@@ -1308,9 +1318,16 @@
           ];
         draw("dhw", p, dhw);
         lineLegend("dhwLegend", dhw);
-        drawDhwSources(p);
+        drawSourceTimeline("dhwSources", "dhwSourceStatus", p, 1, "DHW");
         draw("heat", p, heat);
         lineLegend("heatLegend", heat);
+        drawSourceTimeline(
+          "heatSources",
+          "heatSourceStatus",
+          p,
+          0,
+          "room-heating",
+        );
         draw("room", p, room);
         lineLegend("roomLegend", room);
         draw("zone1Request", p, zone1);
