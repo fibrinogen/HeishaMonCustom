@@ -4,9 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Heisha Monitor</title>
-    <link rel="icon" type="image/x-icon" href="/webui/heishamon_h_favicon.ico?v=0.2.7-web.41" />
-    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.41" />
-    <script src="/webui/common.js?v=0.2.7-web.41"></script>
+    <link rel="icon" type="image/x-icon" href="/webui/heishamon_h_favicon.ico?v=0.2.7-web.45" />
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.45" />
+    <script src="/webui/common.js?v=0.2.7-web.45"></script>
   </head>
   <body>
     <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
@@ -137,7 +137,8 @@
         <div class="history-note" style="margin: -4px 0 14px">
           Charts are read from persistent SD-card CSV history. Select a period
           of up to 90 days; the display is downsampled without averaging COP
-          values. Hover over a line to inspect its time and value. Drag across
+          values, while heat-source transitions are retained. Hover within a
+          chart to inspect every series at the nearest stored time. Drag across
           a chart to zoom all charts into that time range.
         </div>
         <div id="historyTemperaturesView">
@@ -857,29 +858,18 @@
           return null;
         var position =
             ((px - view.left) / view.plotW) * (view.points.length - 1),
-          first = Math.floor(position),
-          last = Math.ceil(position),
-          ratio = position - first,
-          closest = null;
-        view.lines.forEach(function (line) {
-          var firstValue = chartLineValue(line, view.points[first]),
-            lastValue = chartLineValue(line, view.points[last]);
-          if (firstValue === null || lastValue === null) return;
-          var value = firstValue + (lastValue - firstValue) * ratio,
-            lineY = view.y(value),
-            distance = Math.abs(py - lineY);
-          if (distance <= 12 && (!closest || distance < closest.distance)) {
-            closest = {
-              line: line,
-              value: value,
-              x: px,
-              y: lineY,
-              time: chartTimeAtX(view, px),
-              distance: distance,
-            };
-          }
-        });
-        return closest;
+          index = Math.max(
+            0,
+            Math.min(view.points.length - 1, Math.round(position)),
+          ),
+          point = view.points[index] || {};
+        return {
+          entries: view.lines.map(function (line) {
+            return { line: line, value: chartLineValue(line, point) };
+          }),
+          x: view.x(index),
+          time: Number(point.t),
+        };
       }
       function chartPointerPosition(canvas, event) {
         var bounds = canvas.getBoundingClientRect();
@@ -1014,7 +1004,14 @@
         setupChartInteraction(c);
         paintChart(view);
       }
-      function drawSourceTimeline(canvasId, statusId, points, valveState, label) {
+      function drawSourceTimeline(
+        canvasId,
+        statusId,
+        points,
+        sourceStates,
+        valveState,
+        label,
+      ) {
         var canvas = document.getElementById(canvasId),
           status = document.getElementById(statusId),
           context = canvas.getContext("2d"),
@@ -1044,13 +1041,23 @@
               color: "#c62828",
             },
           ];
+        var hasExactStates = Array.isArray(sourceStates),
+          timeline = hasExactStates ? sourceStates : points,
+          sourceBitOffset = valveState === 1 ? 3 : 0;
         canvas.width = width * density;
         canvas.height = height * density;
         context.scale(density, density);
         context.clearRect(0, 0, width, height);
         context.font = "11px Arial";
         context.textBaseline = "middle";
-        var heaterDataAvailable = points.some(function (point) {
+        var heaterDataAvailable = timeline.some(function (point) {
+          if (hasExactStates)
+            return (
+              (Number(point.known) &
+                ((1 << (sourceBitOffset + 1)) |
+                  (1 << (sourceBitOffset + 2)))) !==
+              0
+            );
           return (
             (point.internalHeater !== null &&
               point.internalHeater !== undefined) ||
@@ -1064,18 +1071,37 @@
           context.fillText(source.label, 2, y + rowHeight / 2);
           context.fillStyle = "rgba(117,129,138,.10)";
           context.fillRect(left, y, plotWidth, rowHeight);
-          points.forEach(function (point, index) {
-            var known =
-                source.alwaysKnown ||
-                (point[source.key] !== null &&
-                  point[source.key] !== undefined),
-              active =
-                Number(point.valve) === valveState &&
-                (point[source.key] === true || Number(point[source.key]) === 1),
-              x1 = left + (plotWidth * index) / Math.max(1, points.length),
-              x2 =
-                left +
-                (plotWidth * (index + 1)) / Math.max(1, points.length);
+          timeline.forEach(function (point, index) {
+            var bit = 1 << (sourceBitOffset + row),
+              known = hasExactStates
+                ? (Number(point.known) & bit) !== 0
+                : source.alwaysKnown ||
+                  (point[source.key] !== null &&
+                    point[source.key] !== undefined),
+              active = hasExactStates
+                ? (Number(point.active) & bit) !== 0
+                : Number(point.valve) === valveState &&
+                  (point[source.key] === true || Number(point[source.key]) === 1),
+              x1 = hasExactStates
+                ? left +
+                  (plotWidth *
+                    (Math.max(historyRequestStart, Number(point.t)) -
+                      historyRequestStart)) /
+                    Math.max(1, historyRequestEnd - historyRequestStart)
+                : left +
+                  (plotWidth * index) / Math.max(1, timeline.length),
+              nextTime =
+                index + 1 < timeline.length
+                  ? Number(timeline[index + 1].t)
+                  : historyRequestEnd,
+              x2 = hasExactStates
+                ? left +
+                  (plotWidth *
+                    (Math.min(historyRequestEnd, nextTime) -
+                      historyRequestStart)) /
+                    Math.max(1, historyRequestEnd - historyRequestStart)
+                : left +
+                  (plotWidth * (index + 1)) / Math.max(1, timeline.length);
             if (active) {
               context.fillStyle = source.color;
               context.fillRect(x1, y, Math.max(1, x2 - x1), rowHeight);
@@ -1085,7 +1111,7 @@
             }
           });
         });
-        status.textContent = !points.length
+        status.textContent = !timeline.length
           ? "No " + label + " source samples are available for this period."
           : heaterDataAvailable
             ? "Colored bands show active " +
@@ -1194,44 +1220,64 @@
         }
         if (view.hover) {
           var hover = view.hover,
-            valueText = String(Math.round(hover.value * 100) / 100),
-            text =
-              hover.line.label +
-              " · " +
-              chartFormatClock(hover.time, rangeSeconds >= 86400) +
-              " · " +
-              valueText +
-              (hover.line.unit ? " " + hover.line.unit : ""),
+            header = chartFormatClock(hover.time, rangeSeconds >= 86400),
             styles = getComputedStyle(document.documentElement),
             background = styles.getPropertyValue("--bg-elevated").trim() || "#fff",
             foreground = styles.getPropertyValue("--text-primary").trim() || "#222",
             padding = 7,
-            boxWidth;
+            lineHeight = 18,
+            boxWidth = 0;
           ctx.font = "12px Arial";
-          boxWidth = ctx.measureText(text).width + padding * 2;
-          var boxX = Math.max(
+          boxWidth = ctx.measureText(header).width;
+          hover.entries.forEach(function (entry) {
+            var valueText =
+              entry.value === null
+                ? "N/A"
+                : String(Math.round(entry.value * 100) / 100) +
+                  (entry.line.unit ? " " + entry.line.unit : "");
+            entry.text = entry.line.label + ": " + valueText;
+            boxWidth = Math.max(boxWidth, ctx.measureText(entry.text).width + 14);
+          });
+          boxWidth += padding * 2;
+          var boxHeight = padding * 2 + 17 + hover.entries.length * lineHeight,
+            preferredBoxX = hover.x + 10,
+            boxX = Math.max(
               2,
-              Math.min(w - boxWidth - 2, hover.x + 10),
+              Math.min(
+                w - boxWidth - 2,
+                preferredBoxX + boxWidth > w - 2
+                  ? hover.x - boxWidth - 10
+                  : preferredBoxX,
+              ),
             ),
-            boxY = Math.min(
-              h - 27,
-              hover.y > 38 ? hover.y - 32 : hover.y + 12,
-            );
+            boxY = Math.max(2, Math.min(h - boxHeight - 2, top + 4));
           ctx.strokeStyle = "rgba(117,129,138,.55)";
           ctx.beginPath();
           ctx.moveTo(hover.x, top);
           ctx.lineTo(hover.x, top + plotH);
           ctx.stroke();
-          ctx.fillStyle = hover.line.color;
-          ctx.beginPath();
-          ctx.arc(hover.x, hover.y, 4, 0, Math.PI * 2);
-          ctx.fill();
+          hover.entries.forEach(function (entry) {
+            if (entry.value === null) return;
+            ctx.fillStyle = entry.line.color;
+            ctx.beginPath();
+            ctx.arc(hover.x, view.y(entry.value), 4, 0, Math.PI * 2);
+            ctx.fill();
+          });
           ctx.fillStyle = background;
           ctx.strokeStyle = "rgba(117,129,138,.55)";
-          ctx.fillRect(boxX, boxY, boxWidth, 25);
-          ctx.strokeRect(boxX, boxY, boxWidth, 25);
+          ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+          ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
           ctx.fillStyle = foreground;
-          ctx.fillText(text, boxX + padding, boxY + 17);
+          ctx.fillText(header, boxX + padding, boxY + padding + 11);
+          hover.entries.forEach(function (entry, index) {
+            var textY = boxY + padding + 25 + index * lineHeight;
+            ctx.fillStyle = entry.line.color;
+            ctx.beginPath();
+            ctx.arc(boxX + padding + 4, textY - 4, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = foreground;
+            ctx.fillText(entry.text, boxX + padding + 13, textY);
+          });
         }
       }
       var renderedHistory = null,
@@ -1318,13 +1364,21 @@
           ];
         draw("dhw", p, dhw);
         lineLegend("dhwLegend", dhw);
-        drawSourceTimeline("dhwSources", "dhwSourceStatus", p, 1, "DHW");
+        drawSourceTimeline(
+          "dhwSources",
+          "dhwSourceStatus",
+          p,
+          d.sourceStates,
+          1,
+          "DHW",
+        );
         draw("heat", p, heat);
         lineLegend("heatLegend", heat);
         drawSourceTimeline(
           "heatSources",
           "heatSourceStatus",
           p,
+          d.sourceStates,
           0,
           "room-heating",
         );

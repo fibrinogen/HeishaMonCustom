@@ -172,6 +172,7 @@ static float heatingDegreeDayBase = 18.0f;
 static uint8_t electricalSourceId = 0;
 static unsigned long lastSampleAt = 0;
 static unsigned long lastSdFlushAt = 0;
+static bool sourceTransitionPending = false;
 static uint32_t sampleSequence = 0;
 static uint32_t sdFlushedSequence = 0;
 static uint32_t eventSequence = 0;
@@ -396,6 +397,7 @@ static void updateCycleState() {
   }
 
   if (compressorRunning != cycle.compressorRunning) {
+    sourceTransitionPending = true;
     if (compressorRunning) {
       cycle.compressorStartedAt = millis();
       cycle.compressorStartTimestamp = currentTimestamp();
@@ -2036,6 +2038,7 @@ static void appendStoredSampleJson(struct webserver_t *client,
 // the shared SD lock for roughly half as long.
 constexpr uint16_t MAX_STORED_HISTORY_DISPLAY_POINTS = 72;
 struct StoredHistoryOutput {
+  struct webserver_t *client;
   uint32_t lowerTimestamp;
   uint32_t upperTimestamp;
   uint16_t maxPoints;
@@ -2051,7 +2054,55 @@ struct StoredHistoryOutput {
   HistorySample *samples;
   float *cops;
   uint16_t emitted;
+  uint8_t previousSourceActive;
+  uint8_t previousSourceKnown;
+  bool previousSourceValid;
+  bool firstSourceState;
 };
+
+// Source-state bits are kept outside the 72-point measurement series so every
+// sampled start, stop and heat/DHW handover survives chart downsampling.
+// Bits 0..2 are Heat compressor/internal/external; bits 3..5 are DHW.
+static void appendStoredSourceState(StoredHistoryOutput &output,
+    const HistorySample &sample) {
+  constexpr uint8_t HEAT_COMPRESSOR = 1u << 0;
+  constexpr uint8_t HEAT_INTERNAL = 1u << 1;
+  constexpr uint8_t HEAT_EXTERNAL = 1u << 2;
+  constexpr uint8_t DHW_COMPRESSOR = 1u << 3;
+  constexpr uint8_t DHW_INTERNAL = 1u << 4;
+  constexpr uint8_t DHW_EXTERNAL = 1u << 5;
+  constexpr uint8_t COMPRESSOR_KNOWN = HEAT_COMPRESSOR | DHW_COMPRESSOR;
+  uint8_t active = 0;
+  uint8_t known = COMPRESSOR_KNOWN;
+  bool compressor = (sample.flags & SAMPLE_FLAG_COMPRESSOR) != 0 &&
+    (sample.flags & SAMPLE_FLAG_DEFROST) == 0;
+  bool internalHeater = (sample.flags & SAMPLE_FLAG_INTERNAL_HEATER) != 0;
+  bool externalHeater = (sample.flags & SAMPLE_FLAG_EXTERNAL_HEATER) != 0;
+  if ((sample.validFields & HISTORY_FIELD_INTERNAL_HEATER_STATE) != 0) {
+    known |= HEAT_INTERNAL | DHW_INTERNAL;
+  }
+  if ((sample.validFields & HISTORY_FIELD_EXTERNAL_HEATER_STATE) != 0) {
+    known |= HEAT_EXTERNAL | DHW_EXTERNAL;
+  }
+  if (sample.valveState == 0) {
+    if (compressor) active |= HEAT_COMPRESSOR;
+    if (internalHeater) active |= HEAT_INTERNAL;
+    if (externalHeater) active |= HEAT_EXTERNAL;
+  } else if (sample.valveState == 1) {
+    if (compressor) active |= DHW_COMPRESSOR;
+    if (internalHeater) active |= DHW_INTERNAL;
+    if (externalHeater) active |= DHW_EXTERNAL;
+  }
+  if (output.previousSourceValid && active == output.previousSourceActive &&
+      known == output.previousSourceKnown) return;
+  if (!output.firstSourceState) appendText(output.client, ",");
+  output.firstSourceState = false;
+  appendFmt(output.client, "{\"t\":%lu,\"active\":%u,\"known\":%u}",
+    (unsigned long)sample.timestamp, active, known);
+  output.previousSourceActive = active;
+  output.previousSourceKnown = known;
+  output.previousSourceValid = true;
+}
 
 static void finishStoredHistoryBucket(StoredHistoryOutput &output) {
   if (output.aggregate.count == 0 || output.emitted >= output.maxPoints) return;
@@ -2074,6 +2125,7 @@ static void finishStoredHistoryBucket(StoredHistoryOutput &output) {
 
 static bool aggregateStoredHistorySample(const HistorySample &sample, void *context) {
   StoredHistoryOutput &output = *(StoredHistoryOutput *)context;
+  appendStoredSourceState(output, sample);
   if (output.previousValid) {
     addEnergyPair(output.previous, sample, 1, output.lowerTimestamp,
       output.upperTimestamp, output.heating);
@@ -2153,11 +2205,15 @@ static void handleStoredHistoryApi(struct webserver_t *client, uint32_t lowerTim
   }
   StoredHistoryOutput output = {};
   memset(&output, 0, sizeof(output));
+  output.client = client;
   output.lowerTimestamp = lowerTimestamp;
   output.upperTimestamp = upperTimestamp;
   output.maxPoints = min<uint16_t>(maxPoints, MAX_STORED_HISTORY_DISPLAY_POINTS);
   output.samples = displaySamples;
   output.cops = displayCops;
+  output.firstSourceState = true;
+  webserver_send(client, 200, (char *)"application/json", 0);
+  appendText(client, "{\"sourceStates\":[");
   bool read = visitStoredHistory(lowerTimestamp, upperTimestamp,
     aggregateStoredHistorySample, &output);
   finishStoredHistoryBucket(output);
@@ -2166,8 +2222,8 @@ static void handleStoredHistoryApi(struct webserver_t *client, uint32_t lowerTim
     free(displaySamples);
     sdHistoryReaderBusy = false;
     xSemaphoreGive(sdFilesystemMutex);
-    webserver_send(client, 500, (char *)"application/json", 0);
-    appendText(client, "{\"error\":\"Could not read persistent history\"}");
+    appendText(client,
+      "],\"error\":\"Could not read persistent history\"}");
     return;
   }
   float heatingCop = NAN, dhwCop = NAN, totalCop = NAN;
@@ -2179,9 +2235,8 @@ static void handleStoredHistoryApi(struct webserver_t *client, uint32_t lowerTim
   totalsCop(output.heating, heatingCop);
   totalsCop(output.dhw, dhwCop);
   totalsCop(total, totalCop);
-  webserver_send(client, 200, (char *)"application/json", 0);
   appendFmt(client,
-    "{\"source\":\"sd\",\"intervalSeconds\":%u,\"storedSampleCount\":%lu,\"rangeSeconds\":%lu,\"efficiency\":{\"heatingThermalKWh\":%.4f,\"heatingElectricalKWh\":%.4f,\"heatingCop\":",
+    "],\"source\":\"sd\",\"intervalSeconds\":%u,\"storedSampleCount\":%lu,\"rangeSeconds\":%lu,\"efficiency\":{\"heatingThermalKWh\":%.4f,\"heatingElectricalKWh\":%.4f,\"heatingCop\":",
     sampleIntervalSeconds, (unsigned long)output.sampleCount, (unsigned long)rangeSeconds,
     output.heating.thermalKWh, output.heating.electricalKWh);
   appendJsonFloat(client, isfinite(heatingCop), heatingCop);
@@ -3325,6 +3380,7 @@ void diagnosticsHistoryBegin() {
   sdFlushedEventSequence = 0;
   lastSampleAt = 0;
   lastSdFlushAt = 0;
+  sourceTransitionPending = false;
   cycle = CycleState();
   memset(cycleRecords, 0, sizeof(cycleRecords));
   cycleRecordStart = 0;
@@ -3380,13 +3436,15 @@ void diagnosticsHistoryLoop() {
   updateCycleState();
   unsigned long intervalMillis = (unsigned long)sampleIntervalSeconds * 1000UL;
   if (historyBuffersReady && dataFresh() &&
-      (lastSampleAt == 0 || (unsigned long)(millis() - lastSampleAt) >= intervalMillis)) {
+      (sourceTransitionPending || lastSampleAt == 0 ||
+        (unsigned long)(millis() - lastSampleAt) >= intervalMillis)) {
     HistorySample sample;
     if (makeSample(sample)) {
       sample.sequence = ++sampleSequence;
       storeSample(sample);
       updateDailySummary(samples[orderedSampleIndex(sampleCount - 1)]);
       lastSampleAt = millis();
+      sourceTransitionPending = false;
     }
   }
   checkSdWriterHealth();
