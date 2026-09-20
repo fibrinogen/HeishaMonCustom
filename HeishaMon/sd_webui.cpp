@@ -101,6 +101,7 @@ constexpr PageRoute PAGE_ROUTES[] = {
   {"/hardware", "hardware.html"},
   {"/diagnostics", "diagnostics.html"},
   {"/history", "history.html"},
+  {"/history-new", "history-new.html"},
 };
 
 constexpr const char *REQUIRED_FILES[] = {
@@ -108,7 +109,7 @@ constexpr const char *REQUIRED_FILES[] = {
   "dashboard.html", "dashboard.js", "wpsettings.html", "wpsettings.js",
   "scheduler.html", "scheduler.js", "externalsensors.html", "externalsensors.js",
   "hardware.html", "hardware.js",
-  "diagnostics.html", "history.html"
+  "diagnostics.html", "history.html", "history-new.html", "history-new.js"
 };
 
 bool cardReady() {

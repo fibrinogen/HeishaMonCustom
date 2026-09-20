@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>History new - HeishaMon</title>
+    <link rel="icon" type="image/x-icon" href="/webui/heishamon_h_favicon.ico?v=0.2.7-web.46" />
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.46" />
+    <script src="/webui/common.js?v=0.2.7-web.46"></script>
+  </head>
+  <body>
+    <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
+    <aside class="sidemenu" id="sideMenu">
+      <div class="sidemenu-header">
+        <h2>HeishaMon</h2>
+        <p>Custom build 0.2.7<br /><small>Base: v4.2.1</small></p>
+      </div>
+      <div class="theme-toggle">
+        <label class="theme-toggle-label"><span class="nav-icon">☀</span> Dark Mode</label>
+        <label class="theme-switch"><input type="checkbox" id="darkModeToggle" onchange="toggleDarkMode()" /><span class="theme-slider"></span></label>
+      </div>
+      <nav class="sidemenu-nav" id="sideNav"></nav>
+      <div class="sidemenu-footer"><a href="https://github.com/heishamon/HeishaMon" target="_blank">GitHub</a></div>
+    </aside>
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="hamburger" onclick="toggleMenu()">&#9776;</button><a class="topbar-logo" href="/">Heisha<span>Mon</span></a>
+      </div>
+    </header>
+    <main class="main-content history-page history-new-page">
+      <div class="history-heading">
+        <div>
+          <h1>History new <span class="history-new-badge">comparison</span></h1>
+          <div class="history-note"><a href="/history">Open the existing History page</a></div>
+        </div>
+        <span id="hnStatus" class="history-status">Loading…</span>
+      </div>
+
+      <div class="history-toolbar">
+        <label>Preset <select id="hnRange" onchange="hnApplyPreset(true)">
+          <option value="1h">Last 1 h</option><option value="3h">Last 3 h</option><option value="6h">Last 6 h</option>
+          <option value="24h" selected>Last 24 h</option><option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option><option value="90d">Last 90 days</option><option value="custom">Custom period</option>
+        </select></label>
+        <label>Start <input id="hnStart" type="date" lang="de-DE" onchange="hnPeriodEdited()" /><select id="hnStartHour" aria-label="Start hour" onchange="hnPeriodEdited()"></select>:<select id="hnStartMinute" aria-label="Start minute" onchange="hnPeriodEdited()"></select></label>
+        <label>End <input id="hnEnd" type="date" lang="de-DE" onchange="hnPeriodEdited()" /><select id="hnEndHour" aria-label="End hour" onchange="hnPeriodEdited()"></select>:<select id="hnEndMinute" aria-label="End minute" onchange="hnPeriodEdited()"></select></label>
+        <button type="button" class="dashboard-button" onclick="hnRefresh()">Load period</button>
+        <button id="hnResetZoom" type="button" class="dashboard-button" onclick="hnResetZoom()" hidden>Reset zoom</button>
+      </div>
+      <div class="history-note history-new-intro">
+        This comparison view follows the operating story: when the system worked, which circuit received heat, what changed, and how efficiently it ran. Hover in any chart to select one shared timestamp; drag to zoom all charts.
+      </div>
+
+      <div class="history-new-summary" aria-label="Selected-period summary">
+        <div class="history-new-metric"><span>Compressor runtime</span><strong id="hnRuntime">—</strong></div>
+        <div class="history-new-metric"><span>Starts</span><strong id="hnStarts">—</strong></div>
+        <div class="history-new-metric"><span>Room heating</span><strong id="hnHeatRuntime">—</strong></div>
+        <div class="history-new-metric"><span>DHW heating</span><strong id="hnDhwRuntime">—</strong></div>
+        <div class="history-new-metric"><span>Heating COP</span><strong id="hnHeatCop">—</strong></div>
+        <div class="history-new-metric"><span>DHW COP</span><strong id="hnDhwCop">—</strong></div>
+      </div>
+
+      <section class="panel history-card">
+        <div class="panel-header"><h3>1 · Operation — when and for what purpose?</h3></div>
+        <div class="history-card-body">
+          <canvas id="hnActivity" class="history-new-activity" aria-label="Heat-pump operation timeline"></canvas>
+          <div class="history-note">Purpose is derived from the three-way valve and active heat sources. It identifies the receiving circuit; scheduler and mode events below provide additional trigger context.</div>
+        </div>
+      </section>
+
+      <section class="panel history-card history-new-selection">
+        <div class="panel-header"><h3>Selected time</h3><span id="hnSelectedTime" class="panel-meta">Move over a chart</span></div>
+        <div id="hnContext" class="history-new-context"><span>Select a timestamp to see operation, demand context, temperatures, power and COP together.</span></div>
+      </section>
+
+      <section class="panel history-card">
+        <div class="panel-header"><h3>2 · DHW — request and result</h3></div>
+        <div class="history-card-body"><canvas id="hnDhw" class="history-chart"></canvas><div id="hnDhwLegend" class="history-legend"></div><div class="history-note">DHW activity is shaded. Tank temperature is the result; tank setpoint is the request.</div></div>
+      </section>
+
+      <section class="panel history-card">
+        <div class="panel-header"><h3>3 · Room heating — request and result</h3></div>
+        <div class="history-card-body"><canvas id="hnRoom" class="history-chart"></canvas><div id="hnRoomLegend" class="history-legend"></div><div class="history-note">Room-heating activity is shaded. A room target is shown only when Zone 1 uses room-temperature control.</div></div>
+      </section>
+
+      <section class="panel history-card">
+        <div class="panel-header"><h3>4 · Heating water circuit — delivered temperature</h3></div>
+        <div class="history-card-body"><canvas id="hnWater" class="history-chart"></canvas><div id="hnWaterLegend" class="history-legend"></div><div class="history-note">Target, flow and return temperatures show what the heating circuit received. Curve shift or direct-water request is included only when applicable.</div></div>
+      </section>
+
+      <div class="history-new-two-column">
+        <section class="panel history-card">
+          <div class="panel-header"><h3>5 · Thermal output and electrical input</h3></div>
+          <div class="history-card-body"><canvas id="hnPower" class="history-chart"></canvas><div id="hnPowerLegend" class="history-legend"></div></div>
+        </section>
+        <section class="panel history-card">
+          <div class="panel-header"><h3>6 · COP during operation</h3></div>
+          <div class="history-card-body"><canvas id="hnCop" class="history-chart"></canvas><div id="hnCopLegend" class="history-legend"></div><div class="history-note">The selected-period COP cards use integrated energy totals. Short-interval COP points are diagnostic and can fluctuate.</div></div>
+        </section>
+      </div>
+
+      <section class="panel history-card">
+        <div class="panel-header"><h3>Compressor cycles</h3><span class="panel-meta">Results are approximate at long display ranges</span></div>
+        <div class="history-new-table-wrap"><table><thead><tr><th>Start</th><th>Purpose</th><th>Duration</th><th>Observed result</th></tr></thead><tbody id="hnCycles"><tr><td colspan="4">Loading…</td></tr></tbody></table></div>
+      </section>
+
+      <section class="panel history-card">
+        <div class="panel-header"><h3>Operating events — additional “why” context</h3><span id="hnEventStatus" class="panel-meta"></span></div>
+        <div id="hnEvents" class="history-new-events"><div class="history-note">Loading events…</div></div>
+      </section>
+    </main>
+    <script src="/webui/history-new.js?v=0.2.7-web.46"></script>
+  </body>
+</html>

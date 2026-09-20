@@ -128,6 +128,10 @@ struct CycleState {
   bool heatpumpOn = false;
   bool dhwActive = false;
   bool defrostActive = false;
+  bool internalHeaterKnown = false;
+  bool internalHeaterActive = false;
+  bool externalHeaterKnown = false;
+  bool externalHeaterActive = false;
   int valve = -1;
   int operationMode = -1;
   bool errorActive = false;
@@ -368,6 +372,10 @@ static void updateCycleState() {
   bool heatpumpOn = readTopic(TOP_HEATPUMP_STATE, value) && lroundf(value) != 0;
   bool dhwActive = currentDhwActive();
   bool defrostActive = readTopic(TOP_DEFROST, value) && lroundf(value) != 0;
+  bool internalHeaterValid = readTopic(TOP_INTERNAL_HEATER_STATE, value);
+  bool internalHeaterActive = internalHeaterValid && lroundf(value) != 0;
+  bool externalHeaterValid = readTopic(TOP_EXTERNAL_HEATER_STATE, value);
+  bool externalHeaterActive = externalHeaterValid && lroundf(value) != 0;
   int valve = readTopic(TOP_VALVE, value) ? (int)lroundf(value) : -1;
   bool errorActive = currentErrorActive();
   int operationMode = readTopic(TOP_OPERATION_MODE, value) ? (int)lroundf(value) : -1;
@@ -384,6 +392,10 @@ static void updateCycleState() {
     cycle.heatpumpOn = heatpumpOn;
     cycle.dhwActive = dhwActive;
     cycle.defrostActive = defrostActive;
+    cycle.internalHeaterKnown = internalHeaterValid;
+    cycle.internalHeaterActive = internalHeaterActive;
+    cycle.externalHeaterKnown = externalHeaterValid;
+    cycle.externalHeaterActive = externalHeaterActive;
     cycle.valve = valve;
     cycle.operationMode = operationMode;
     cycle.errorActive = errorActive;
@@ -414,19 +426,31 @@ static void updateCycleState() {
     }
   }
   if (heatpumpOn != cycle.heatpumpOn) {
+    sourceTransitionPending = true;
     addEvent(heatpumpOn ? HISTORY_EVENT_HEATPUMP_ON : HISTORY_EVENT_HEATPUMP_OFF,
       heatpumpOn ? "Heat pump on" : "Heat pump off");
   }
   if (dhwActive != cycle.dhwActive) {
+    sourceTransitionPending = true;
     addEvent(dhwActive ? HISTORY_EVENT_DHW_START : HISTORY_EVENT_DHW_STOP,
       dhwActive ? "DHW operation started" : "DHW operation stopped");
   }
   if (defrostActive != cycle.defrostActive) {
+    sourceTransitionPending = true;
     addEvent(defrostActive ? HISTORY_EVENT_DEFROST_START : HISTORY_EVENT_DEFROST_STOP,
       defrostActive ? "Defrost started" : "Defrost stopped");
   }
   if (valve >= 0 && cycle.valve >= 0 && valve != cycle.valve) {
+    sourceTransitionPending = true;
     addEvent(HISTORY_EVENT_VALVE_CHANGED, "Three-way valve changed", valve);
+  }
+  if (internalHeaterValid && cycle.internalHeaterKnown &&
+      internalHeaterActive != cycle.internalHeaterActive) {
+    sourceTransitionPending = true;
+  }
+  if (externalHeaterValid && cycle.externalHeaterKnown &&
+      externalHeaterActive != cycle.externalHeaterActive) {
+    sourceTransitionPending = true;
   }
   if (operationMode >= 0 && cycle.operationMode >= 0 && operationMode != cycle.operationMode) {
     addEvent(HISTORY_EVENT_OPERATION_MODE_CHANGED, "Operating mode changed", operationMode);
@@ -446,6 +470,14 @@ static void updateCycleState() {
   cycle.heatpumpOn = heatpumpOn;
   cycle.dhwActive = dhwActive;
   cycle.defrostActive = defrostActive;
+  if (internalHeaterValid) {
+    cycle.internalHeaterKnown = true;
+    cycle.internalHeaterActive = internalHeaterActive;
+  }
+  if (externalHeaterValid) {
+    cycle.externalHeaterKnown = true;
+    cycle.externalHeaterActive = externalHeaterActive;
+  }
   cycle.valve = valve;
   cycle.operationMode = operationMode;
   cycle.errorActive = errorActive;
@@ -1505,6 +1537,7 @@ static bool parseStoredHistorySample(char *line, HistorySample &sample) {
     sample.flags |= SAMPLE_FLAG_DHW;
   }
   if (sample.operatingState == HISTORY_STATE_DEFROST) sample.flags |= SAMPLE_FLAG_DEFROST;
+  if (sample.operatingState != HISTORY_STATE_UNKNOWN) sample.flags |= SAMPLE_FLAG_HEATPUMP;
   return true;
 }
 
@@ -2019,10 +2052,10 @@ static void appendStoredSampleJson(struct webserver_t *client,
     (unsigned long)sample.timestamp, outside, inlet, outlet, target, dhw,
     dhwTarget, room, roomTarget, flow, hz, power, electrical);
   appendFmt(client,
-    ",\"heatProduction\":%s,\"heatConsumption\":%s,\"dhwProduction\":%s,\"dhwConsumption\":%s,\"evaOutlet\":%s,\"current\":%s,\"cop\":%s,\"zone1Request\":%s,\"zone1RequestSemantic\":\"%s\",\"heatingCurveShift\":%s,\"valve\":%u,\"compressor\":%s,\"dhwActive\":%s,\"defrost\":%s,\"internalHeater\":%s,\"externalHeater\":%s,\"timeValid\":true}",
+    ",\"heatProduction\":%s,\"heatConsumption\":%s,\"dhwProduction\":%s,\"dhwConsumption\":%s,\"evaOutlet\":%s,\"current\":%s,\"cop\":%s,\"zone1Request\":%s,\"zone1RequestSemantic\":\"%s\",\"heatingCurveShift\":%s,\"mode\":%u,\"valve\":%u,\"state\":%u,\"compressor\":%s,\"dhwActive\":%s,\"defrost\":%s,\"internalHeater\":%s,\"externalHeater\":%s,\"timeValid\":true}",
     heatProduction, heatConsumption,
     dhwProduction, dhwConsumption, evaOutlet, current, cop, request, semantic, shift,
-    sample.valveState,
+    sample.operatingMode, sample.valveState, sample.operatingState,
     (sample.flags & SAMPLE_FLAG_COMPRESSOR) ? "true" : "false",
     (sample.flags & SAMPLE_FLAG_DHW) ? "true" : "false",
     (sample.flags & SAMPLE_FLAG_DEFROST) ? "true" : "false",
@@ -2062,7 +2095,8 @@ struct StoredHistoryOutput {
 
 // Source-state bits are kept outside the 72-point measurement series so every
 // sampled start, stop and heat/DHW handover survives chart downsampling.
-// Bits 0..2 are Heat compressor/internal/external; bits 3..5 are DHW.
+// Bits 0..2 are Heat compressor/internal/external, bits 3..5 are DHW,
+// bit 6 is defrost and bit 7 is the overall heat-pump on state.
 static void appendStoredSourceState(StoredHistoryOutput &output,
     const HistorySample &sample) {
   constexpr uint8_t HEAT_COMPRESSOR = 1u << 0;
@@ -2071,13 +2105,17 @@ static void appendStoredSourceState(StoredHistoryOutput &output,
   constexpr uint8_t DHW_COMPRESSOR = 1u << 3;
   constexpr uint8_t DHW_INTERNAL = 1u << 4;
   constexpr uint8_t DHW_EXTERNAL = 1u << 5;
+  constexpr uint8_t DEFROST = 1u << 6;
+  constexpr uint8_t HEATPUMP_ON = 1u << 7;
   constexpr uint8_t COMPRESSOR_KNOWN = HEAT_COMPRESSOR | DHW_COMPRESSOR;
   uint8_t active = 0;
-  uint8_t known = COMPRESSOR_KNOWN;
+  uint8_t known = COMPRESSOR_KNOWN | DEFROST | HEATPUMP_ON;
   bool compressor = (sample.flags & SAMPLE_FLAG_COMPRESSOR) != 0 &&
     (sample.flags & SAMPLE_FLAG_DEFROST) == 0;
   bool internalHeater = (sample.flags & SAMPLE_FLAG_INTERNAL_HEATER) != 0;
   bool externalHeater = (sample.flags & SAMPLE_FLAG_EXTERNAL_HEATER) != 0;
+  if ((sample.flags & SAMPLE_FLAG_DEFROST) != 0) active |= DEFROST;
+  if ((sample.flags & SAMPLE_FLAG_HEATPUMP) != 0) active |= HEATPUMP_ON;
   if ((sample.validFields & HISTORY_FIELD_INTERNAL_HEATER_STATE) != 0) {
     known |= HEAT_INTERNAL | DHW_INTERNAL;
   }

@@ -221,6 +221,7 @@ function markActiveNav() {
       "/externalsensors",
       "/diagnostics",
       "/history",
+      "/history-new",
     ];
     var customActive = customPaths.indexOf(current) >= 0;
     var toggle = group.querySelector(".sidemenu-group-toggle");
@@ -292,6 +293,7 @@ function groupCustomNav() {
   );
   submenu.appendChild(createNavLink("/diagnostics", "Diagnostics", "◌"));
   submenu.appendChild(createNavLink("/history", "History", "▥"));
+  submenu.appendChild(createNavLink("/history-new", "History new", "▤"));
   group.appendChild(submenu);
   nav.innerHTML = "";
   nav.appendChild(createNavLink("/", "Home", "↳"));
