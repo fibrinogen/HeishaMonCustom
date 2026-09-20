@@ -7,9 +7,9 @@
 // makes every uploaded package uniquely identifiable, even across firmware
 // releases. Increment it for every Web UI package we publish.
 #define CUSTOM_FIRMWARE_VERSION "0.2.7"
-#define CUSTOM_WEBUI_BUILD "46"
+#define CUSTOM_WEBUI_BUILD "47"
 #define CUSTOM_WEBUI_VERSION CUSTOM_FIRMWARE_VERSION "-web." CUSTOM_WEBUI_BUILD
 
 // Backwards-compatible name used by existing custom feature code.
 #define CUSTOM_FEATURES_VERSION CUSTOM_FIRMWARE_VERSION
-#define HEISHAMON_BASE_VERSION "v4.2.1"
+#define HEISHAMON_BASE_VERSION "v4.2.2"
