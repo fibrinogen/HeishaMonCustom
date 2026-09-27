@@ -190,6 +190,14 @@ static bool mqttStateKnown = false;
 static bool previousMqttState = false;
 static bool sdInitializationPending = false;
 static void finalizeCycle(uint32_t stopTimestamp);
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+constexpr unsigned long COP_MQTT_PUBLISH_INTERVAL_MS = 300000UL;
+static unsigned long lastCopMqttPublishAt = 0;
+static bool copMqttHistoryPending = true;
+static bool copMqttArchiveLoaded = false;
+static bool copMqttArchiveDirty = true;
+static int32_t copMqttLocalDay = -1;
+#endif
 
 static bool frameHeaderValid() {
   return actData[0] == 0x71 && actData[1] == 0xC8 &&
@@ -1615,8 +1623,6 @@ static bool visitStoredHistory(uint32_t lowerTimestamp, uint32_t upperTimestamp,
   return true;
 }
 
-constexpr uint8_t EFFICIENCY_MONTH_COUNT = 12;
-constexpr uint8_t EFFICIENCY_YEAR_COUNT = 12;
 constexpr uint8_t DEMAND_DAY_COUNT = 31;
 constexpr uint8_t DEMAND_HOUR_COUNT = 24;
 
@@ -1636,8 +1642,10 @@ struct DailyDemandPeriod {
 };
 
 struct EfficiencyArchive {
-  EfficiencyPeriod months[EFFICIENCY_MONTH_COUNT];
-  EfficiencyPeriod years[EFFICIENCY_YEAR_COUNT];
+  EfficiencyPeriod *months = nullptr;
+  EfficiencyPeriod *years = nullptr;
+  uint16_t monthCount = 0;
+  uint16_t yearCount = 0;
   DailyDemandPeriod demandDays[DEMAND_DAY_COUNT];
 };
 
@@ -1658,6 +1666,7 @@ struct HourlyDemandArchive {
 // The HTTP loop task has a small stack. These response workspaces are safe to
 // share because the efficiency route is serialized by sdFilesystemMutex.
 static EfficiencyArchive efficiencyArchiveResponse;
+static EfficiencyArchive efficiencyArchiveMqtt;
 static HourlyDemandArchive hourlyDemandResponse;
 
 static bool parseCsvDouble(const char *text, double &value) {
@@ -1704,19 +1713,67 @@ static bool parseDailySummaryLine(char *line, uint32_t &dayStart,
   return true;
 }
 
-static void initializeEfficiencyArchive(EfficiencyArchive &archive,
-    const struct tm &now) {
-  memset(&archive, 0, sizeof(archive));
+static void releaseEfficiencyArchive(EfficiencyArchive &archive) {
+  free(archive.months);
+  free(archive.years);
+  archive.months = nullptr;
+  archive.years = nullptr;
+  archive.monthCount = 0;
+  archive.yearCount = 0;
+}
+
+static bool oldestEfficiencyMonth(const struct tm &now,
+    int &oldestAbsoluteMonth) {
   int absoluteMonth = (now.tm_year + 1900) * 12 + now.tm_mon;
-  for (uint8_t index = 0; index < EFFICIENCY_MONTH_COUNT; index++) {
-    int periodMonth = absoluteMonth - (EFFICIENCY_MONTH_COUNT - 1 - index);
+  oldestAbsoluteMonth = absoluteMonth;
+  File root = SD_MMC.open("/daily");
+  if (!root) return false;
+  while (true) {
+    File entry = root.openNextFile();
+    if (!entry) break;
+    char name[72] = {};
+    snprintf(name, sizeof(name), "%s", entry.name());
+    bool directoryEntry = entry.isDirectory();
+    entry.close();
+    int year = 0, month = 0, day = 0;
+    if (directoryEntry || !parseSdDate(name, year, month, day)) continue;
+    int candidate = year * 12 + month - 1;
+    if (candidate < oldestAbsoluteMonth) oldestAbsoluteMonth = candidate;
+  }
+  root.close();
+  return true;
+}
+
+static bool initializeEfficiencyArchive(EfficiencyArchive &archive,
+    const struct tm &now) {
+  releaseEfficiencyArchive(archive);
+  memset(archive.demandDays, 0, sizeof(archive.demandDays));
+  int absoluteMonth = (now.tm_year + 1900) * 12 + now.tm_mon;
+  int oldestAbsoluteMonth = absoluteMonth;
+  if (!oldestEfficiencyMonth(now, oldestAbsoluteMonth)) return false;
+  uint32_t monthCount = (uint32_t)(absoluteMonth - oldestAbsoluteMonth + 1);
+  uint32_t yearCount = (uint32_t)((now.tm_year + 1900) -
+    (oldestAbsoluteMonth / 12) + 1);
+  if (monthCount == 0 || monthCount > UINT16_MAX || yearCount == 0 ||
+      yearCount > UINT16_MAX) return false;
+  archive.months = (EfficiencyPeriod *)calloc(monthCount,
+    sizeof(EfficiencyPeriod));
+  archive.years = (EfficiencyPeriod *)calloc(yearCount,
+    sizeof(EfficiencyPeriod));
+  if (archive.months == nullptr || archive.years == nullptr) {
+    releaseEfficiencyArchive(archive);
+    return false;
+  }
+  archive.monthCount = (uint16_t)monthCount;
+  archive.yearCount = (uint16_t)yearCount;
+  for (uint16_t index = 0; index < archive.monthCount; index++) {
+    int periodMonth = oldestAbsoluteMonth + index;
     archive.months[index].year = periodMonth / 12;
     archive.months[index].month = (int8_t)(periodMonth % 12 + 1);
   }
-  int currentYear = now.tm_year + 1900;
-  for (uint8_t index = 0; index < EFFICIENCY_YEAR_COUNT; index++) {
-    archive.years[index].year = currentYear -
-      (EFFICIENCY_YEAR_COUNT - 1 - index);
+  int oldestYear = oldestAbsoluteMonth / 12;
+  for (uint16_t index = 0; index < archive.yearCount; index++) {
+    archive.years[index].year = oldestYear + index;
   }
   struct tm currentDay = now;
   currentDay.tm_hour = 0;
@@ -1729,6 +1786,7 @@ static void initializeEfficiencyArchive(EfficiencyArchive &archive,
     archive.demandDays[index].start = (uint32_t)mktime(&period);
     archive.demandDays[index].heatingDegreeDays = NAN;
   }
+  return true;
 }
 
 static void addEfficiencyTotals(EfficiencyPeriod &period,
@@ -1750,14 +1808,14 @@ static void addEfficiencyDay(EfficiencyArchive &archive, uint32_t dayStart,
   if (localtime_r(&value, &local) == nullptr) return;
   int year = local.tm_year + 1900;
   int month = local.tm_mon + 1;
-  for (uint8_t index = 0; index < EFFICIENCY_MONTH_COUNT; index++) {
+  for (uint16_t index = 0; index < archive.monthCount; index++) {
     if (archive.months[index].year == year &&
         archive.months[index].month == month) {
       addEfficiencyTotals(archive.months[index], heating, dhw);
       break;
     }
   }
-  for (uint8_t index = 0; index < EFFICIENCY_YEAR_COUNT; index++) {
+  for (uint16_t index = 0; index < archive.yearCount; index++) {
     if (archive.years[index].year == year) {
       addEfficiencyTotals(archive.years[index], heating, dhw);
       break;
@@ -1774,7 +1832,8 @@ static void addEfficiencyDay(EfficiencyArchive &archive, uint32_t dayStart,
   }
 }
 
-static bool readEfficiencyArchive(EfficiencyArchive &archive) {
+static bool readEfficiencyArchive(EfficiencyArchive &archive,
+    bool includeCurrentDay = true) {
   File root = SD_MMC.open("/daily");
   if (!root) return false;
   while (true) {
@@ -1811,7 +1870,7 @@ static bool readEfficiencyArchive(EfficiencyArchive &archive) {
     delay(0);
   }
   root.close();
-  if (dailySummary.valid) {
+  if (includeCurrentDay && dailySummary.valid) {
     addEfficiencyDay(archive, dailySummary.dayStart, dailySummary.heating,
       dailySummary.dhw, dailySummary.outsideSamples > 0 ?
         dailySummary.heatingDegreeDays : NAN);
@@ -1946,6 +2005,25 @@ static void appendEfficiencyPeriodJson(struct webserver_t *client,
   appendText(client, "}");
 }
 
+static void appendCurrentCopJson(struct webserver_t *client, const char *period,
+    const EnergyTotals &heating, const EnergyTotals &dhw) {
+  float heatingCop = NAN, dhwCop = NAN, totalCop = NAN;
+  EnergyTotals total;
+  total.thermalKWh = heating.thermalKWh + dhw.thermalKWh;
+  total.electricalKWh = heating.electricalKWh + dhw.electricalKWh;
+  total.intervals = heating.intervals + dhw.intervals;
+  totalsCop(heating, heatingCop);
+  totalsCop(dhw, dhwCop);
+  totalsCop(total, totalCop);
+  appendFmt(client, "{\"period\":\"%s\",\"heatCop\":", period);
+  appendJsonFloat(client, isfinite(heatingCop), heatingCop);
+  appendText(client, ",\"dhwCop\":");
+  appendJsonFloat(client, isfinite(dhwCop), dhwCop);
+  appendText(client, ",\"totalCop\":");
+  appendJsonFloat(client, isfinite(totalCop), totalCop);
+  appendText(client, "}");
+}
+
 static void handleEfficiencyApi(struct webserver_t *client) {
   if (!sdState.active) {
     webserver_send(client, 503, (char *)"application/json", 0);
@@ -1968,13 +2046,14 @@ static void handleEfficiencyApi(struct webserver_t *client) {
   }
   sdHistoryReaderBusy = true;
   EfficiencyArchive &archive = efficiencyArchiveResponse;
-  initializeEfficiencyArchive(archive, now);
-  bool read = readEfficiencyArchive(archive);
+  bool initialized = initializeEfficiencyArchive(archive, now);
+  bool read = initialized && readEfficiencyArchive(archive);
   HourlyDemandArchive &hourlyDemand = hourlyDemandResponse;
   initializeHourlyDemandArchive(hourlyDemand, now);
   bool hourlyRead = readHourlyDemandArchive(hourlyDemand,
     (uint32_t)nowValue);
   if (!read || !hourlyRead) {
+    releaseEfficiencyArchive(archive);
     sdHistoryReaderBusy = false;
     xSemaphoreGive(sdFilesystemMutex);
     webserver_send(client, 500, (char *)"application/json", 0);
@@ -1982,14 +2061,33 @@ static void handleEfficiencyApi(struct webserver_t *client) {
     return;
   }
   webserver_send(client, 200, (char *)"application/json", 0);
-  appendText(client, "{\"monthly\":[");
-  for (uint8_t index = 0; index < EFFICIENCY_MONTH_COUNT; index++) {
+  char dayPeriod[11];
+  snprintf(dayPeriod, sizeof(dayPeriod), "%04d-%02d-%02d", now.tm_year + 1900,
+    now.tm_mon + 1, now.tm_mday);
+  char monthPeriod[8];
+  snprintf(monthPeriod, sizeof(monthPeriod), "%04d-%02d", now.tm_year + 1900,
+    now.tm_mon + 1);
+  char yearPeriod[5];
+  snprintf(yearPeriod, sizeof(yearPeriod), "%04d", now.tm_year + 1900);
+  appendText(client, "{\"current\":{\"day\":");
+  appendCurrentCopJson(client, dayPeriod, dailySummary.heating,
+    dailySummary.dhw);
+  appendText(client, ",\"month\":");
+  appendCurrentCopJson(client, monthPeriod,
+    archive.months[archive.monthCount - 1].heating,
+    archive.months[archive.monthCount - 1].dhw);
+  appendText(client, ",\"year\":");
+  appendCurrentCopJson(client, yearPeriod,
+    archive.years[archive.yearCount - 1].heating,
+    archive.years[archive.yearCount - 1].dhw);
+  appendText(client, "},\"monthly\":[");
+  for (uint16_t index = 0; index < archive.monthCount; index++) {
     if (index > 0) appendText(client, ",");
     appendEfficiencyPeriodJson(client, archive.months[index], true);
   }
   appendText(client, "],\"yearly\":[");
   bool first = true;
-  for (uint8_t index = 0; index < EFFICIENCY_YEAR_COUNT; index++) {
+  for (uint16_t index = 0; index < archive.yearCount; index++) {
     if (archive.years[index].days == 0) continue;
     if (!first) appendText(client, ",");
     appendEfficiencyPeriodJson(client, archive.years[index], false);
@@ -2007,8 +2105,90 @@ static void handleEfficiencyApi(struct webserver_t *client) {
   }
   appendFmt(client, "],\"heatingDegreeDayBase\":%.1f}",
     heatingDegreeDayBase);
+  releaseEfficiencyArchive(archive);
   sdHistoryReaderBusy = false;
   xSemaphoreGive(sdFilesystemMutex);
+}
+
+static bool publishCopMqttValue(const char *suffix,
+    const EnergyTotals &heating, const EnergyTotals &dhw) {
+  EnergyTotals total;
+  total.thermalKWh = heating.thermalKWh + dhw.thermalKWh;
+  total.electricalKWh = heating.electricalKWh + dhw.electricalKWh;
+  total.intervals = heating.intervals + dhw.intervals;
+  float cop = NAN;
+  char value[16];
+  if (totalsCop(total, cop)) snprintf(value, sizeof(value), "%.3f", cop);
+  else snprintf(value, sizeof(value), "null");
+  char topic[256];
+  snprintf(topic, sizeof(topic), "%s/statistics/COP/%s",
+    heishamonSettings.mqtt_topic_base, suffix);
+  return mqtt_client.publish(topic, value, true);
+}
+
+static void publishCopMqtt() {
+  if (!mqtt_client.connected() || !sdState.active ||
+      sdFilesystemMutex == nullptr || sdHistoryReaderBusy) return;
+  time_t nowValue = 0;
+  struct tm now = {};
+  if (!validClock(&nowValue) || localtime_r(&nowValue, &now) == nullptr) return;
+  EfficiencyArchive &archive = efficiencyArchiveMqtt;
+  if (!copMqttArchiveLoaded || copMqttArchiveDirty) {
+    if (xSemaphoreTake(sdFilesystemMutex, pdMS_TO_TICKS(100)) != pdTRUE) return;
+    sdHistoryReaderBusy = true;
+    bool read = initializeEfficiencyArchive(archive, now) &&
+      readEfficiencyArchive(archive, false);
+    sdHistoryReaderBusy = false;
+    xSemaphoreGive(sdFilesystemMutex);
+    if (!read || archive.monthCount == 0 || archive.yearCount == 0) {
+      releaseEfficiencyArchive(archive);
+      copMqttArchiveLoaded = false;
+      return;
+    }
+    copMqttArchiveLoaded = true;
+    copMqttArchiveDirty = false;
+  }
+
+  EfficiencyPeriod currentMonth = archive.months[archive.monthCount - 1];
+  EfficiencyPeriod currentYear = archive.years[archive.yearCount - 1];
+  addEfficiencyTotals(currentMonth, dailySummary.heating, dailySummary.dhw);
+  addEfficiencyTotals(currentYear, dailySummary.heating, dailySummary.dhw);
+  bool published = publishCopMqttValue("Current_Day", dailySummary.heating,
+    dailySummary.dhw);
+  published = publishCopMqttValue("Current_Month",
+    currentMonth.heating, currentMonth.dhw) && published;
+  published = publishCopMqttValue("Current_Year",
+    currentYear.heating, currentYear.dhw) && published;
+
+  if (copMqttHistoryPending) {
+    char suffix[48];
+    for (uint16_t index = 0; index < archive.monthCount &&
+        mqtt_client.connected(); index++) {
+      const EfficiencyPeriod &storedPeriod = archive.months[index];
+      const EfficiencyPeriod &period = index == archive.monthCount - 1 ?
+        currentMonth : storedPeriod;
+      if (period.days == 0) continue;
+      snprintf(suffix, sizeof(suffix), "Monthly/%04d-%02d", period.year,
+        period.month);
+      published = publishCopMqttValue(suffix, period.heating, period.dhw) &&
+        published;
+      mqtt_client.loop();
+      delay(0);
+    }
+    for (uint16_t index = 0; index < archive.yearCount &&
+        mqtt_client.connected(); index++) {
+      const EfficiencyPeriod &storedPeriod = archive.years[index];
+      const EfficiencyPeriod &period = index == archive.yearCount - 1 ?
+        currentYear : storedPeriod;
+      if (period.days == 0) continue;
+      snprintf(suffix, sizeof(suffix), "Yearly/%04d", period.year);
+      published = publishCopMqttValue(suffix, period.heating, period.dhw) &&
+        published;
+      mqtt_client.loop();
+      delay(0);
+    }
+    if (published && mqtt_client.connected()) copMqttHistoryPending = false;
+  }
 }
 
 static void appendStoredSampleJson(struct webserver_t *client,
@@ -3377,10 +3557,14 @@ static void handleEventsApi(struct webserver_t *client) {
 void diagnosticsHistoryBegin() {
   free(samples);
   free(events);
+#if defined(ESP32)
   free(storedArchivePaths);
+#endif
   samples = nullptr;
   events = nullptr;
+#if defined(ESP32)
   storedArchivePaths = nullptr;
+#endif
   historyBuffersReady = false;
 #if defined(ESP32)
   if (psramFound()) {
@@ -3392,7 +3576,6 @@ void diagnosticsHistoryBegin() {
 #else
   samples = (HistorySample *)malloc(sizeof(HistorySample) * HEISHAMON_HISTORY_MAX_SAMPLES);
   events = (HistoryEvent *)malloc(sizeof(HistoryEvent) * HEISHAMON_HISTORY_MAX_EVENTS);
-  storedArchivePaths = (char (*)[72])malloc(sizeof(char) * MAX_STORED_HISTORY_FILES * 72);
 #endif
   if (samples == nullptr || events == nullptr) {
     free(samples);
@@ -3405,9 +3588,11 @@ void diagnosticsHistoryBegin() {
     memset(events, 0, sizeof(HistoryEvent) * HEISHAMON_HISTORY_MAX_EVENTS);
     historyBuffersReady = true;
   }
+#if defined(ESP32)
   if (storedArchivePaths == nullptr) {
     log_message((char *)"[HISTORY] PSRAM allocation failed; SD archive reads unavailable");
   }
+#endif
   sampleStart = 0;
   sampleCount = 0;
   eventStart = 0;
@@ -3430,6 +3615,13 @@ void diagnosticsHistoryBegin() {
   previousCommunicationState = false;
   mqttStateKnown = false;
   previousMqttState = false;
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+  lastCopMqttPublishAt = 0;
+  copMqttHistoryPending = true;
+  copMqttArchiveLoaded = false;
+  copMqttArchiveDirty = true;
+  copMqttLocalDay = -1;
+#endif
   loadHistoryConfig();
   // switchSerial() configures HeishaMon's generic GPIOs after custom feature
   // setup and would detach an already initialized SDMMC bus on GPIO34..37.
@@ -3467,9 +3659,21 @@ void diagnosticsHistoryLoop() {
   if (!mqttStateKnown) {
     mqttStateKnown = true;
     previousMqttState = mqttOk;
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+    if (mqttOk) {
+      lastCopMqttPublishAt = 0;
+      copMqttHistoryPending = true;
+    }
+#endif
   } else if (mqttOk != previousMqttState) {
     addEvent(HISTORY_EVENT_MQTT, mqttOk ? "MQTT connected" : "MQTT disconnected");
     previousMqttState = mqttOk;
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+    if (mqttOk) {
+      lastCopMqttPublishAt = 0;
+      copMqttHistoryPending = true;
+    }
+#endif
   }
   updateCycleState();
   unsigned long intervalMillis = (unsigned long)sampleIntervalSeconds * 1000UL;
@@ -3485,6 +3689,28 @@ void diagnosticsHistoryLoop() {
       sourceTransitionPending = false;
     }
   }
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+  time_t copNow = 0;
+  struct tm copLocal = {};
+  if (validClock(&copNow) && localtime_r(&copNow, &copLocal) != nullptr) {
+    int32_t localDay = (copLocal.tm_year + 1900) * 400 + copLocal.tm_yday;
+    if (localDay != copMqttLocalDay) {
+      bool dayChanged = copMqttLocalDay >= 0;
+      if (dayChanged) {
+        copMqttHistoryPending = true;
+        copMqttArchiveDirty = true;
+      }
+      copMqttLocalDay = localDay;
+      lastCopMqttPublishAt = dayChanged ? millis() : 0;
+    }
+  }
+  if (mqttOk && sdState.active && (lastCopMqttPublishAt == 0 ||
+      (unsigned long)(millis() - lastCopMqttPublishAt) >=
+        COP_MQTT_PUBLISH_INTERVAL_MS)) {
+    publishCopMqtt();
+    lastCopMqttPublishAt = millis();
+  }
+#endif
   checkSdWriterHealth();
   if (sdState.active && (lastSdFlushAt == 0 ||
       (unsigned long)(millis() - lastSdFlushAt) >= 60000UL)) {

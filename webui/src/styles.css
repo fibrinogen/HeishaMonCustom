@@ -801,6 +801,7 @@ input:checked + .theme-slider:before {
 .history-new-badge{display:inline-block;vertical-align:middle;margin-left:7px;padding:3px 7px;border-radius:10px;background:var(--accent-glow);color:var(--accent);font-size:9px;font-weight:600;letter-spacing:.5px;text-transform:uppercase}
 .history-new-intro{margin:-4px 0 14px;padding:10px 12px;border-left:3px solid var(--accent);background:var(--accent-glow);border-radius:0 var(--radius-sm) var(--radius-sm) 0}
 .history-new-summary{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.history-current-cop{grid-template-columns:repeat(3,minmax(0,1fr))}
 .history-new-metric{min-width:0;padding:12px 14px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg)}
 .history-new-metric span{display:block;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.45px}
 .history-new-metric strong{display:block;margin-top:4px;color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500}

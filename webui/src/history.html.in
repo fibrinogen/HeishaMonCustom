@@ -279,6 +279,20 @@
               >Loading…</span
             >
           </div>
+          <div class="history-new-summary history-current-cop">
+            <div class="history-new-metric">
+              <span>Current day COP</span>
+              <strong id="currentDayCop">—</strong>
+            </div>
+            <div class="history-new-metric">
+              <span>Current month COP</span>
+              <strong id="currentMonthCop">—</strong>
+            </div>
+            <div class="history-new-metric">
+              <span>Current year COP</span>
+              <strong id="currentYearCop">—</strong>
+            </div>
+          </div>
           <div class="history-aggregate-grid">
             <section class="panel history-card">
               <div class="panel-header"><h3>Monthly production</h3></div>
@@ -289,7 +303,7 @@
                 ></canvas>
                 <div id="monthlyProductionLegend" class="history-legend"></div>
                 <div class="history-note">
-                  Thermal energy in kWh for the last 12 calendar months.
+                  Thermal energy in kWh for all stored calendar months.
                 </div>
               </div>
             </section>
@@ -1421,7 +1435,17 @@
         var monthly = data.monthly || [],
           yearly = data.yearly || [],
           demandDaily = data.demandDaily || [],
-          demandHourly = data.demandHourly || [];
+          demandHourly = data.demandHourly || [],
+          current = data.current || {};
+        document.getElementById("currentDayCop").textContent = val(
+          current.day && current.day.totalCop,
+        );
+        document.getElementById("currentMonthCop").textContent = val(
+          current.month && current.month.totalCop,
+        );
+        document.getElementById("currentYearCop").textContent = val(
+          current.year && current.year.totalCop,
+        );
         drawBarChart(
           "dailyDemand",
           demandDaily,
@@ -1463,7 +1487,9 @@
         drawBarChart("yearlyCop", yearly, efficiencyBarSeries.cop, "COP");
         lineLegend("yearlyCopLegend", efficiencyBarSeries.cop);
         document.getElementById("efficiencyArchiveStatus").textContent =
-          "Last 31 days · last 24 hours · last 12 months · " +
+          "Last 31 days · last 24 hours · " +
+          monthly.length +
+          " stored month(s) · " +
           yearly.length +
           " stored year(s)";
       }

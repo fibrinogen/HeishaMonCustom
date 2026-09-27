@@ -3,7 +3,11 @@
 // SD history uses the dedicated microSD wiring on the HeishaMon PCB.
 // Initialization remains non-fatal when no card is inserted.
 #ifndef HEISHAMON_SD_HISTORY_ENABLED
+#if defined(ESP32)
 #define HEISHAMON_SD_HISTORY_ENABLED 1
+#else
+#define HEISHAMON_SD_HISTORY_ENABLED 0
+#endif
 #endif
 
 #ifndef HEISHAMON_SD_CS_PIN

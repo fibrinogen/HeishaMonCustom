@@ -50,6 +50,12 @@
   #include "lwip/init.h"
   #include "lwip/errno.h"
   #include <errno.h>
+  #ifdef ESP8266
+    // lwIP exposes these as macros, while the ESP8266 Arduino core declares
+    // matching IPAddress constants. Avoid macro expansion in IPAddress.h.
+    #undef INADDR_ANY
+    #undef INADDR_NONE
+  #endif
   #include <WiFiServer.h>
   #include <WiFiClient.h>
 #endif

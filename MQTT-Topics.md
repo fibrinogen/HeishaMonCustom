@@ -12,6 +12,25 @@ ID | Topic | Response
 --- | --- | ---
 LOG1 | log | response from headpump (level switchable)
 
+## COP Statistics Topics:
+
+These retained topics are available on the ESP32-S3 board when persistent SD
+history is active. COP is calculated as integrated thermal energy divided by
+integrated electrical energy; it is not an average of instantaneous COP
+samples. The payload is a decimal number, or `null` until a period contains
+valid energy data.
+
+Topic | Response/Description
+--- | ---
+statistics/COP/Current_Day | Total COP for the current local calendar day
+statistics/COP/Current_Month | Total COP for the current local calendar month
+statistics/COP/Current_Year | Total COP for the current local calendar year
+statistics/COP/Monthly/YYYY-MM | Total COP for a stored calendar month
+statistics/COP/Yearly/YYYY | Total COP for a stored calendar year
+
+All stored monthly and yearly values are republished after connecting to MQTT.
+Current-period values are refreshed every five minutes.
+
 ## Sensor Topics:
 
 ID | Topic | Response/Description
