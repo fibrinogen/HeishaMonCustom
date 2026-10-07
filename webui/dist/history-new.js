@@ -7,7 +7,9 @@ var hnData = null,
   hnRequestEnd = 0,
   hnRequestSequence = 0,
   hnZoomBase = null,
-  hnDrag = null;
+  hnDrag = null,
+  hnCalendarCopLoaded = false,
+  hnCalendarCopLoading = false;
 
 var HN_HEAT_COMPRESSOR = 1,
   HN_HEAT_INTERNAL = 2,
@@ -448,6 +450,54 @@ function hnRenderSummary() {
   document.getElementById("hnHeatCop").textContent = hnFormat(efficiency.heatingCop, 2);
   document.getElementById("hnDhwCop").textContent = hnFormat(efficiency.dhwCop, 2);
 }
+function hnCalendarCopRows(id, periods) {
+  var rows = (periods || []).filter(function (period) {
+    return period && Number(period.days) > 0;
+  }).slice().reverse();
+  document.getElementById(id).innerHTML = rows.length ? rows.map(function (period) {
+    return "<tr><td>" + hmEscape(period.period || "—") + "</td><td>" +
+      hmEscape(hnFormat(period.heatCop, 2)) + "</td><td>" +
+      hmEscape(hnFormat(period.dhwCop, 2)) + "</td><td>" +
+      hmEscape(hnFormat(period.totalCop, 2)) + "</td></tr>";
+  }).join("") : '<tr><td colspan="4">No stored COP data.</td></tr>';
+  return rows.length;
+}
+function hnRenderCalendarCop(data) {
+  var current = data.current || {},
+    monthCount = hnCalendarCopRows("hnMonthlyCop", data.monthly),
+    yearCount = hnCalendarCopRows("hnYearlyCop", data.yearly);
+  document.getElementById("hnCurrentDayCop").textContent = hnFormat(current.day && current.day.totalCop, 2);
+  document.getElementById("hnCurrentMonthCop").textContent = hnFormat(current.month && current.month.totalCop, 2);
+  document.getElementById("hnCurrentYearCop").textContent = hnFormat(current.year && current.year.totalCop, 2);
+  document.getElementById("hnCalendarCopStatus").textContent =
+    monthCount + " stored month(s) · " + yearCount + " stored year(s)";
+  hnCalendarCopLoaded = true;
+}
+function hnLoadCalendarCop() {
+  if (hnCalendarCopLoaded || hnCalendarCopLoading) return;
+  hnCalendarCopLoading = true;
+  fetch("/efficiencyapi", { cache: "no-store" })
+    .then(function (response) {
+      return response.text().then(function (body) {
+        var data = {};
+        try { data = JSON.parse(body); } catch (error) {}
+        if (!response.ok || data.error) throw Error(data.error || body || response.status);
+        return data;
+      });
+    })
+    .then(function (data) {
+      hnCalendarCopLoading = false;
+      hnRenderCalendarCop(data);
+    })
+    .catch(function (error) {
+      hnCalendarCopLoading = false;
+      document.getElementById("hnCalendarCopStatus").textContent = "Unavailable";
+      document.getElementById("hnMonthlyCop").innerHTML =
+        '<tr><td colspan="4">Calendar COP unavailable: ' + hmEscape(error.message) + "</td></tr>";
+      document.getElementById("hnYearlyCop").innerHTML =
+        '<tr><td colspan="4">Calendar COP unavailable.</td></tr>';
+    });
+}
 function hnBuildCycles() {
   var states = hnData.sourceStates || [], cycles = [], current = null;
   states.forEach(function (state, index) {
@@ -570,7 +620,12 @@ function hnLoad(start, end) {
   status.textContent = "Reading SD history…";
   fetch("/historyapi?storage=sd&maxPoints=72&start=" + start + "&end=" + end, { cache: "no-store" })
     .then(function (response) { return response.text().then(function (body) { var data = {}; try { data = JSON.parse(body); } catch (error) {} if (!response.ok || data.error) throw Error(data.error || body || response.status); return data; }); })
-    .then(function (data) { if (sequence !== hnRequestSequence) return; hnRender(data); hnLoadEvents(start, end, sequence); })
+    .then(function (data) {
+      if (sequence !== hnRequestSequence) return;
+      hnRender(data);
+      hnLoadEvents(start, end, sequence);
+      hnLoadCalendarCop();
+    })
     .catch(function (error) { if (sequence === hnRequestSequence) status.textContent = "SD history unavailable: " + error.message; });
 }
 function hnRefresh() {

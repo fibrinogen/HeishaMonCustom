@@ -1,3 +1,4 @@
+#include <BridgeTime.h>
 #include "webfunctions.h"
 #include "decode.h"
 #include "version.h"
@@ -159,10 +160,10 @@ void ntpReload(settingsStruct *heishamonSettings) {
     token = strtok(NULL, ",");
   }
 
-  if (count == 0) configTzTime(tzCfg.value, "pool.ntp.org");
-  else if (count == 1) configTzTime(tzCfg.value, servers[0]);
-  else if (count == 2) configTzTime(tzCfg.value, servers[0], servers[1]);
-  else configTzTime(tzCfg.value, servers[0], servers[1], servers[2]);
+  if (count == 0) bridge_time::configureNtp(tzCfg.value, "pool.ntp.org");
+  else if (count == 1) bridge_time::configureNtp(tzCfg.value, servers[0]);
+  else if (count == 2) bridge_time::configureNtp(tzCfg.value, servers[0], servers[1]);
+  else bridge_time::configureNtp(tzCfg.value, servers[0], servers[1], servers[2]);
   return;
 #endif
 

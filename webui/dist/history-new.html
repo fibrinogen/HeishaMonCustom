@@ -4,9 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>History new - HeishaMon</title>
-    <link rel="icon" type="image/x-icon" href="/webui/heishamon_h_favicon.ico?v=0.2.7-web.48" />
-    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.48" />
-    <script src="/webui/common.js?v=0.2.7-web.48"></script>
+    <link rel="icon" type="image/x-icon" href="/webui/heishamon_h_favicon.ico?v=0.2.7-web.49" />
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.49" />
+    <script src="/webui/common.js?v=0.2.7-web.49"></script>
   </head>
   <body>
     <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
@@ -60,6 +60,36 @@
         <div class="history-new-metric"><span>DHW COP</span><strong id="hnDhwCop">—</strong></div>
       </div>
 
+      <div class="history-aggregate-heading">
+        <h2>Calendar COP</h2>
+        <span id="hnCalendarCopStatus" class="history-status">Loading…</span>
+      </div>
+      <div class="history-new-summary history-current-cop" aria-label="Current calendar COP">
+        <div class="history-new-metric"><span>Current day COP</span><strong id="hnCurrentDayCop">—</strong></div>
+        <div class="history-new-metric"><span>Current month COP</span><strong id="hnCurrentMonthCop">—</strong></div>
+        <div class="history-new-metric"><span>Current year COP</span><strong id="hnCurrentYearCop">—</strong></div>
+      </div>
+      <div class="history-new-two-column">
+        <section class="panel history-card">
+          <div class="panel-header"><h3>Monthly COP history</h3></div>
+          <div class="history-new-table-wrap">
+            <table>
+              <thead><tr><th>Month</th><th>Heating</th><th>DHW</th><th>Total</th></tr></thead>
+              <tbody id="hnMonthlyCop"><tr><td colspan="4">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="panel history-card">
+          <div class="panel-header"><h3>Yearly COP history</h3></div>
+          <div class="history-new-table-wrap">
+            <table>
+              <thead><tr><th>Year</th><th>Heating</th><th>DHW</th><th>Total</th></tr></thead>
+              <tbody id="hnYearlyCop"><tr><td colspan="4">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
       <section class="panel history-card">
         <div class="panel-header"><h3>1 · Operation — when and for what purpose?</h3></div>
         <div class="history-card-body">
@@ -109,6 +139,6 @@
         <div id="hnEvents" class="history-new-events"><div class="history-note">Loading events…</div></div>
       </section>
     </main>
-    <script src="/webui/history-new.js?v=0.2.7-web.48"></script>
+    <script src="/webui/history-new.js?v=0.2.7-web.49"></script>
   </body>
 </html>

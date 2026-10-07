@@ -1,3 +1,4 @@
+#include "app_clock.h"
 #include "scheduler.h"
 
 #include <LittleFS.h>
@@ -28,7 +29,7 @@ bool SchedulerManager::readClock(SchedulerClock &clock) const {
   memset(&clock, 0, sizeof(clock));
   time_t now = time(nullptr);
   struct tm local;
-  if (now <= 0 || localtime_r(&now, &local) == nullptr || local.tm_year + 1900 < 2024) {
+  if (!AppClock.read(now, local)) {
     clock.valid = false;
     return false;
   }
@@ -328,10 +329,8 @@ void SchedulerManager::addEvent(const SchedulerEntry &entry, const char *result,
 
   SchedulerEvent &event = events_[index];
   time_t now = time(nullptr);
-  struct tm local;
-  if (now > 0 && localtime_r(&now, &local) != nullptr) {
-    strftime(event.timestamp, sizeof(event.timestamp), "%Y-%m-%d %H:%M:%S", &local);
-  } else {
+  if (!EventClock.format("%Y-%m-%d %H:%M:%S", now, event.timestamp,
+                         sizeof(event.timestamp))) {
     strlcpy(event.timestamp, "time unavailable", sizeof(event.timestamp));
   }
   event.entryId = entry.id;
@@ -787,11 +786,9 @@ void SchedulerManager::toJson(JsonDocument &document) const {
   document["maxEntries"] = SCHEDULER_MAX_ENTRIES;
   document["timeValid"] = clockValid();
 
-  char localTime[20] = "Time unavailable";
-  time_t now = time(nullptr);
-  struct tm local;
-  if (now > 0 && localtime_r(&now, &local) != nullptr && local.tm_year + 1900 >= 2024) {
-    strftime(localTime, sizeof(localTime), "%Y-%m-%d %H:%M:%S", &local);
+  char localTime[20];
+  if (!AppClock.format("%Y-%m-%d %H:%M:%S", localTime, sizeof(localTime))) {
+    strlcpy(localTime, "Time unavailable", sizeof(localTime));
   }
   document["localTime"] = localTime;
   document["pendingActions"] = pendingActionCount();

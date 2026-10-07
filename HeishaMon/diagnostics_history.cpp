@@ -1,4 +1,5 @@
 #include "diagnostics_history.h"
+#include "app_clock.h"
 
 #include "decode.h"
 #include "diagnostics_logic.h"
@@ -254,9 +255,7 @@ static bool readError(String &value) {
 
 static bool validClock(time_t *nowOut = nullptr) {
   time_t now = time(nullptr);
-  struct tm local = {};
-  bool valid = now > 0 && localtime_r(&now, &local) != nullptr &&
-    local.tm_year + 1900 >= 2024;
+  bool valid = AppClock.valid(now);
   if (valid && nowOut != nullptr) *nowOut = now;
   return valid;
 }

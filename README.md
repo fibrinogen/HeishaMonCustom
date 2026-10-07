@@ -460,3 +460,21 @@ Currently, there is no possibility to delete a once-uploaded CA certificate. So 
 [IOBroker Manual](Integrations/ioBroker_manual)
 
 [Domoticz](Integrations/Domoticz)
+
+## Shared time library
+
+Time utilities use the standalone **BridgeTime 0.3.0** package at
+`../bridge-time`. Keep that checkout beside this project for local builds;
+PlatformIO references the same source through `symlink://../bridge-time`.
+The library is maintained independently of the firmware projects. Before
+distributing standalone checkouts or configuring CI, publish it and replace
+the development link with an immutable package or Git revision.
+See [BridgeTime](../bridge-time/README.md) for API and host tests.
+Existing time formats, settings, and application clock-validity rules remain
+project-specific. No control decisions were moved into the library.
+
+The Arduino CLI build scripts pass this checkout via `--library`; the custom
+ESP8266 SNTP path and existing timezone-index settings are preserved.
+
+`HeishaMon/app_clock.h` shares the local-year clock gate between scheduler
+and diagnostics through BridgeTime's bounded, nonblocking clock view.
