@@ -347,3 +347,60 @@ SET48 | SetReset | Reset/confirm active heatpump fault code (e.g. H72). Equivale
   }
 }
 ```
+
+## Recorded energy and period COP
+
+Energy statistics use the configured MQTT prefix (default `panasonic_heat_pump`):
+
+| Topic | Numeric payload |
+| --- | --- |
+| `<prefix>/energy/<period>/electrical_kwh` | Recorded electrical energy in kWh |
+| `<prefix>/energy/<period>/heat_kwh` | Recorded heat energy in kWh |
+| `<prefix>/energy/<period>/cop` | Total heat kWh divided by total electrical kWh |
+
+`<period>` is `today`, `month`, `year`, `history/month/YYYY-MM`, or
+`history/year/YYYY`. The first three cover the current local calendar period
+so far. Historical topics exist only for months/years with recorded data; the
+current recorded month/year also have dated topics and continue to update.
+Missing months and years are not filled with invented zero totals. State
+messages are separate retained numbers, with six decimal places, refreshed
+every five minutes and after MQTT reconnection or a calendar rollover.
+
+These statistics expose the existing history subsystem's heating + DHW energy
+accounting: trapezoidal integration of adjacent valid power samples, with gaps
+longer than ten minutes excluded. Heat uses the water-side flow/temperature
+calculation; electricity uses the history setting's Panasonic or external power
+source. Cooling, defrost, standby, unknown modes, and invalid/below-threshold
+power samples are excluded by that existing accounting. These are recorded
+heating/DHW totals, not a replacement for a whole-installation billing meter.
+COP is calculated from the summed energies, never averaged from instantaneous
+COP samples. Calendar boundaries use the controller's configured timezone and
+DST rules. Intervals crossing midnight are split at the boundary.
+
+With SD history enabled, existing `/daily` CSV summaries supply the archive.
+On startup, retained raw `/history` samples recover unfinished days (including
+today) without adding already summarized days again. New raw records include
+boot/source identifiers so integration never crosses a reboot or source change.
+Old CSV formats remain readable. Downtime and samples that were not saved
+before power loss are not reconstructed. Without SD, a sparse LittleFS ledger
+(`/energy.json`) preserves energy recorded by this extension, checkpointed every
+five minutes and on the next recorded day's rollover. Sudden power loss can
+lose the uncheckpointed portion; pre-existing SD data is not invented on boards
+without that archive. SD summaries remain available after raw-history retention
+expires. Changing between SD and non-SD storage uses the selected storage's
+recorded data; the two archives are not combined.
+
+Every energy/COP sensor has retained Home Assistant MQTT discovery under
+`homeassistant/sensor/<id>/config`. IDs contain the board's Wi-Fi MAC address,
+period, and metric, and remain stable across reboot, hostname, or prefix changes.
+Sensors share a device, include energy units/classes or dimensionless COP
+metadata, and use the existing `<prefix>/LWT` (`Online`/`Offline`) convention.
+Each also has `<state-topic>/availability`; Home Assistant requires both device
+and metric availability. An undefined COP (zero electrical energy) is marked
+`Offline` and its old retained state is deleted with an empty retained MQTT
+message. No `NaN`, infinity, `null`, or invented zero COP is published as a
+numeric state. Zero heat with positive electricity produces a valid COP of zero.
+The older `<prefix>/statistics/COP/...` SD topics remain supported.
+
+Host regression tests: `test/run_energy_tests.sh` (needs `g++` and an installed
+ArduinoJson library; set `ARDUINOJSON_INCLUDE` if it is outside the usual paths).

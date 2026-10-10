@@ -1020,6 +1020,7 @@ bool customFeaturesHandleMqttMessage(const char *topic, const char *mqttBase,
 }
 
 void customFeaturesMqttConnected(PubSubClient &client, const char *mqttBase) {
+  diagnosticsHistoryMqttConnected();
   externalSensors.setMqttConnected(true);
   externalSensors.subscribe(client, mqttBase);
 }

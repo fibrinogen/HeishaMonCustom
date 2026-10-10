@@ -3,6 +3,8 @@
 
 #include "decode.h"
 #include "diagnostics_logic.h"
+#include "diagnostics_energy.h"
+#include "energy_mqtt.h"
 #include "history_config.h"
 #include "version.h"
 #include "webfunctions.h"
@@ -103,15 +105,6 @@ constexpr uint8_t TOP_LIQUID_TYPE = 107;
 // It is quantized, so values below this threshold are not useful for COP.
 constexpr float COP_MIN_ELECTRICAL_POWER_W = 100.0f;
 
-constexpr uint8_t SAMPLE_FLAG_COMPRESSOR = 0x01;
-constexpr uint8_t SAMPLE_FLAG_HEATPUMP = 0x02;
-constexpr uint8_t SAMPLE_FLAG_DHW = 0x04;
-constexpr uint8_t SAMPLE_FLAG_DEFROST = 0x08;
-constexpr uint8_t SAMPLE_FLAG_TIME_VALID = 0x10;
-constexpr uint8_t SAMPLE_FLAG_EXTERNAL_ELECTRICAL = 0x20;
-constexpr uint8_t SAMPLE_FLAG_INTERNAL_HEATER = 0x40;
-constexpr uint8_t SAMPLE_FLAG_EXTERNAL_HEATER = 0x80;
-
 struct HistoryRequest {
   uint32_t rangeSeconds;
   uint32_t startTimestamp;
@@ -179,6 +172,7 @@ static unsigned long lastSampleAt = 0;
 static unsigned long lastSdFlushAt = 0;
 static bool sourceTransitionPending = false;
 static uint32_t sampleSequence = 0;
+static uint32_t historyBootId = 0;
 static uint32_t sdFlushedSequence = 0;
 static uint32_t eventSequence = 0;
 static uint32_t sdFlushedEventSequence = 0;
@@ -191,14 +185,16 @@ static bool mqttStateKnown = false;
 static bool previousMqttState = false;
 static bool sdInitializationPending = false;
 static void finalizeCycle(uint32_t stopTimestamp);
-#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
 constexpr unsigned long COP_MQTT_PUBLISH_INTERVAL_MS = 300000UL;
 static unsigned long lastCopMqttPublishAt = 0;
+static unsigned long lastEnergyMqttAttemptAt = 0;
 static bool copMqttHistoryPending = true;
 static bool copMqttArchiveLoaded = false;
 static bool copMqttArchiveDirty = true;
 static int32_t copMqttLocalDay = -1;
-#endif
+static bool energyHistoryRestored = false;
+static volatile uint32_t energyArchiveRevision = 0;
+static uint32_t energyArchiveRevisionHandled = 0;
 
 static bool frameHeaderValid() {
   return actData[0] == 0x71 && actData[1] == 0xC8 &&
@@ -494,6 +490,7 @@ static void updateCycleState() {
 static bool makeSample(HistorySample &sample) {
   if (!dataFresh()) return false;
   memset(&sample, 0, sizeof(sample));
+  sample.bootId = historyBootId;
   bool timestampValid = false;
   sample.timestamp = currentTimestamp(&timestampValid);
   sample.uptimeSeconds = (uint32_t)(millis() / 1000UL);
@@ -723,24 +720,6 @@ static uint32_t sampleTimeSeconds(const HistorySample &sample) {
   return sampleHasValidTime(sample) ? sample.timestamp : sample.uptimeSeconds;
 }
 
-// 1 = heating, 2 = DHW. Cooling and unknown modes are deliberately excluded:
-// the water-side formula is not a trustworthy cooling COP measurement.
-static int efficiencyGroup(const HistorySample &sample) {
-  if ((sample.flags & SAMPLE_FLAG_COMPRESSOR) == 0 ||
-      (sample.flags & SAMPLE_FLAG_DEFROST) != 0) return 0;
-  switch (sample.operatingMode) {
-    case 1: // Heat
-    case 3: // Auto(heat)
-      return (sample.flags & SAMPLE_FLAG_DHW) != 0 ? 2 : 1;
-    case 4: // DHW
-    case 5: // Heat+DHW
-    case 7: // Auto(heat)+DHW
-      return (sample.flags & SAMPLE_FLAG_DHW) != 0 ? 2 : 1;
-    default:
-      return 0;
-  }
-}
-
 static bool instantaneousCop(const HistorySample &sample, float &cop) {
   if (efficiencyGroup(sample) == 0 ||
       (sample.validFields & HISTORY_FIELD_THERMAL_POWER) == 0 ||
@@ -752,12 +731,6 @@ static bool instantaneousCop(const HistorySample &sample, float &cop) {
   return diagnosticsCalculateEstimatedCop(thermal, electrical / 1000.0f, true,
     true, true, true, COP_MIN_ELECTRICAL_POWER_W / 1000.0f, cop);
 }
-
-struct EnergyTotals {
-  double thermalKWh = 0.0;
-  double electricalKWh = 0.0;
-  uint32_t intervals = 0;
-};
 
 struct CycleRecord {
   uint32_t startTimestamp;
@@ -773,20 +746,6 @@ struct CycleRecord {
   double electricalKWh;
   float cop;
   bool copValid;
-};
-
-struct DailySummary {
-  bool valid = false;
-  uint32_t dayStart = 0;
-  double heatingDegreeDays = 0.0;
-  EnergyTotals heating;
-  EnergyTotals dhw;
-  uint32_t compressorSeconds = 0;
-  uint32_t compressorStarts = 0;
-  float outsideMinimum = NAN;
-  float outsideMaximum = NAN;
-  double outsideSum = 0.0;
-  uint32_t outsideSamples = 0;
 };
 
 #if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
@@ -833,38 +792,6 @@ static uint8_t cycleRecordCount = 0;
 static DailySummary dailySummary;
 static HistorySample previousDailySample;
 static bool previousDailySampleValid = false;
-
-static bool addEnergyPair(const HistorySample &previous, const HistorySample &current,
-    int groupFilter, uint32_t lowerTime, uint32_t upperTime, EnergyTotals &totals) {
-  if (!sampleHasValidTime(previous) || !sampleHasValidTime(current)) return false;
-  uint32_t previousTime = sampleTimeSeconds(previous);
-  uint32_t currentTime = sampleTimeSeconds(current);
-  if (currentTime <= previousTime || currentTime - previousTime > 600UL ||
-      previousTime < lowerTime || currentTime > upperTime) return false;
-  int previousGroup = efficiencyGroup(previous);
-  int currentGroup = efficiencyGroup(current);
-  if (previousGroup == 0 || currentGroup == 0 || previousGroup != currentGroup ||
-      (groupFilter != 0 && currentGroup != groupFilter)) return false;
-  float previousThermal = previous.thermalPower100 / 100.0f;
-  float currentThermal = current.thermalPower100 / 100.0f;
-  float previousElectrical = previous.electricalPowerW / 1000.0f;
-  float currentElectrical = current.electricalPowerW / 1000.0f;
-  bool thermalAdded =
-    (previous.validFields & HISTORY_FIELD_THERMAL_POWER) != 0 &&
-    (current.validFields & HISTORY_FIELD_THERMAL_POWER) != 0 &&
-    previousThermal > 0.1f && currentThermal > 0.1f &&
-    diagnosticsIntegratePower(previousThermal, currentThermal,
-      currentTime - previousTime, totals.thermalKWh);
-  bool electricalAdded =
-    (previous.validFields & HISTORY_FIELD_ELECTRICAL_POWER) != 0 &&
-    (current.validFields & HISTORY_FIELD_ELECTRICAL_POWER) != 0 &&
-    previous.electricalPowerW >= COP_MIN_ELECTRICAL_POWER_W &&
-    current.electricalPowerW >= COP_MIN_ELECTRICAL_POWER_W &&
-    diagnosticsIntegratePower(previousElectrical, currentElectrical,
-      currentTime - previousTime, totals.electricalKWh);
-  if (thermalAdded && electricalAdded) totals.intervals++;
-  return thermalAdded || electricalAdded;
-}
 
 static bool totalsCop(const EnergyTotals &totals, float &cop) {
   if (totals.intervals == 0) return false;
@@ -945,13 +872,15 @@ static void finalizeCycle(uint32_t stopTimestamp) {
 }
 
 static uint32_t localDayStart(uint32_t timestamp) {
-  time_t value = (time_t)timestamp;
-  struct tm local = {};
-  if (localtime_r(&value, &local) == nullptr) return 0;
-  local.tm_hour = 0;
-  local.tm_min = 0;
-  local.tm_sec = 0;
-  return (uint32_t)mktime(&local);
+  return recordedEnergyLocalDayStart(timestamp);
+}
+
+static RecordedEnergy recordedEnergy(const EnergyTotals &heating,
+    const EnergyTotals &dhw) {
+  RecordedEnergy energy;
+  energy.electricalKWh = heating.electricalKWh + dhw.electricalKWh;
+  energy.heatKWh = heating.thermalKWh + dhw.thermalKWh;
+  return energy;
 }
 
 static void resetDailySummary(uint32_t dayStart) {
@@ -960,42 +889,42 @@ static void resetDailySummary(uint32_t dayStart) {
   dailySummary.dayStart = dayStart;
 }
 
+static void updateFallbackSummary() {
+  if (sdState.active || !dailySummary.valid) return;
+  time_t value = dailySummary.dayStart;
+  struct tm local = {};
+  if (localtime_r(&value, &local) == nullptr) return;
+  energyMqttUpdateFallback(dailySummary.dayStart, local.tm_year + 1900,
+    local.tm_mon + 1, recordedEnergy(dailySummary.heating, dailySummary.dhw), true);
+}
+
 static void updateDailySummary(const HistorySample &sample) {
   if (!sampleHasValidTime(sample)) return;
   uint32_t dayStart = localDayStart(sample.timestamp);
   if (dayStart == 0) return;
-  if (!dailySummary.valid) resetDailySummary(dayStart);
-  else if (dailySummary.dayStart != dayStart) {
+  const HistorySample *previous = previousDailySampleValid ? &previousDailySample : nullptr;
+  if (previous == nullptr) {
+    copMqttHistoryPending = true;
+    lastCopMqttPublishAt = 0;
+  }
+  if (!dailySummary.valid) {
+    resetDailySummary(dayStart);
+    copMqttHistoryPending = true;
+    lastCopMqttPublishAt = 0;
+  } else if (dailySummary.dayStart != dayStart) {
+    // Split a recorded interval at local midnight, including month/year and
+    // DST boundaries, instead of losing the whole interval at rollover.
+    accumulateDailySample(dailySummary, previous, sample, heatingDegreeDayBase);
+    updateFallbackSummary();
     persistDailySummary(dailySummary);
     resetDailySummary(dayStart);
+    copMqttArchiveDirty = true;
+    copMqttHistoryPending = true;
   }
-  if ((sample.validFields & HISTORY_FIELD_OUTSIDE) != 0) {
-    float outside = sample.outsideTemp10 / 10.0f;
-    dailySummary.outsideSum += outside;
-    dailySummary.outsideSamples++;
-    if (!isfinite(dailySummary.outsideMinimum) || outside < dailySummary.outsideMinimum) dailySummary.outsideMinimum = outside;
-    if (!isfinite(dailySummary.outsideMaximum) || outside > dailySummary.outsideMaximum) dailySummary.outsideMaximum = outside;
-  }
-  if (previousDailySampleValid && sampleHasValidTime(previousDailySample)) {
-    uint32_t previousTime = sampleTimeSeconds(previousDailySample);
-    uint32_t currentTime = sampleTimeSeconds(sample);
-    if (currentTime > previousTime && currentTime - previousTime <= 600UL &&
-        localDayStart(previousTime) == dayStart) {
-      if ((previousDailySample.validFields & HISTORY_FIELD_OUTSIDE) != 0 &&
-          (sample.validFields & HISTORY_FIELD_OUTSIDE) != 0) {
-        dailySummary.heatingDegreeDays += diagnosticsHeatingDegreeDays(heatingDegreeDayBase,
-          previousDailySample.outsideTemp10 / 10.0,
-          sample.outsideTemp10 / 10.0, currentTime - previousTime);
-      }
-      addEnergyPair(previousDailySample, sample, 1, dayStart, UINT32_MAX, dailySummary.heating);
-      addEnergyPair(previousDailySample, sample, 2, dayStart, UINT32_MAX, dailySummary.dhw);
-      if ((sample.flags & SAMPLE_FLAG_COMPRESSOR) != 0) dailySummary.compressorSeconds += currentTime - previousTime;
-      if ((sample.flags & SAMPLE_FLAG_COMPRESSOR) != 0 &&
-          (previousDailySample.flags & SAMPLE_FLAG_COMPRESSOR) == 0) dailySummary.compressorStarts++;
-    }
-  }
+  accumulateDailySample(dailySummary, previous, sample, heatingDegreeDayBase);
   previousDailySample = sample;
   previousDailySampleValid = true;
+  updateFallbackSummary();
 }
 
 static EnergyTotals calculateEnergy(uint16_t firstOffset, uint16_t lastOffset,
@@ -1397,7 +1326,7 @@ static bool parseSdDate(const char *name, int &year, int &month, int &day) {
   if (name == nullptr) return false;
   const char *base = strrchr(name, '/');
   base = base == nullptr ? name : base + 1;
-  if (strlen(base) < 14 || base[4] != '-' || base[7] != '-' ||
+  if (strlen(base) != 14 || base[4] != '-' || base[7] != '-' ||
       strncmp(base + 10, ".csv", 4) != 0) return false;
   char *end = nullptr;
   year = (int)strtol(base, &end, 10);
@@ -1441,14 +1370,14 @@ static bool parseCsvUnsigned(const char *text, uint32_t maximum, uint32_t &value
 
 static bool parseStoredHistorySample(char *line, HistorySample &sample) {
   if (line == nullptr || strncmp(line, "timestamp,", 10) == 0) return false;
-  char *fields[30] = {};
+  char *fields[32] = {};
   char *cursor = line;
   uint8_t fieldCount = 0;
-  while (fieldCount < 30) {
+  while (fieldCount < 32) {
     fields[fieldCount++] = cursor;
     char *separator = strchr(cursor, ',');
     if (separator == nullptr) break;
-    if (fieldCount == 30) return false;
+    if (fieldCount == 32) return false;
     *separator = '\0';
     cursor = separator + 1;
   }
@@ -1532,6 +1461,11 @@ static bool parseStoredHistorySample(char *line, HistorySample &sample) {
   if (fieldCount > 29 && parseCsvFloat(fields[29], value) && value >= 0.0f) {
     sample.compressorCurrent10 = scaledUnsigned(value, 10.0f);
     sample.validFields |= HISTORY_FIELD_COMPRESSOR_CURRENT;
+  }
+  if (fieldCount > 30 && !parseCsvUnsigned(fields[30], UINT32_MAX, sample.bootId)) return false;
+  if (fieldCount > 31) {
+    if (!parseCsvUnsigned(fields[31], 255, integer)) return false;
+    sample.electricalSource = (uint8_t)integer;
   }
   if ((sample.validFields & HISTORY_FIELD_COMPRESSOR_HZ) != 0) {
     if (sample.compressorHz10 > 5) sample.flags |= SAMPLE_FLAG_COMPRESSOR;
@@ -1862,7 +1796,9 @@ static bool readEfficiencyArchive(EfficiencyArchive &archive,
       double heatingDegreeDays = NAN;
       if (parseDailySummaryLine(storedArchiveCsvLine, dayStart, heating, dhw,
           heatingDegreeDays)) {
-        addEfficiencyDay(archive, dayStart, heating, dhw, heatingDegreeDays);
+        if (!dailySummary.valid || dayStart != dailySummary.dayStart) {
+          addEfficiencyDay(archive, dayStart, heating, dhw, heatingDegreeDays);
+        }
       }
     }
     fclose(file);
@@ -2125,24 +2061,185 @@ static bool publishCopMqttValue(const char *suffix,
   return mqtt_client.publish(topic, value, true);
 }
 
-static void publishCopMqtt() {
+// Recover only days without a completed daily summary. Existing summaries
+// are authoritative; their raw samples must never be added a second time.
+static bool readCompletedDailySummary(uint32_t dayStart, DailySummary &summary) {
+  time_t value = dayStart;
+  struct tm local = {};
+  if (localtime_r(&value, &local) == nullptr) return false;
+  char path[72];
+  snprintf(path, sizeof(path), "/sd/daily/%04d-%02d-%02d.csv",
+    local.tm_year + 1900, local.tm_mon + 1, local.tm_mday);
+  FILE *file = fopen(path, "r");
+  if (file == nullptr) return false;
+  bool found = false;
+  while (fgets(storedArchiveCsvLine, sizeof(storedArchiveCsvLine), file)) {
+    size_t length = strlen(storedArchiveCsvLine);
+    while (length && (storedArchiveCsvLine[length - 1] == '\n' ||
+        storedArchiveCsvLine[length - 1] == '\r')) storedArchiveCsvLine[--length] = 0;
+    uint32_t parsedDay = 0;
+    EnergyTotals heating, dhw;
+    double hdd = NAN;
+    if (!parseDailySummaryLine(storedArchiveCsvLine, parsedDay, heating, dhw, hdd) ||
+        parsedDay != dayStart) continue;
+    summary.heating.thermalKWh += heating.thermalKWh;
+    summary.heating.electricalKWh += heating.electricalKWh;
+    summary.heating.intervals += heating.intervals;
+    summary.dhw.thermalKWh += dhw.thermalKWh;
+    summary.dhw.electricalKWh += dhw.electricalKWh;
+    summary.dhw.intervals += dhw.intervals;
+    if (isfinite(hdd)) summary.heatingDegreeDays += hdd;
+    found = true;
+  }
+  fclose(file);
+  return found;
+}
+
+struct DailyRecovery {
+  uint32_t today = 0;
+  DailySummary summary;
+  HistorySample previous;
+  bool previousValid = false;
+  bool completed = false;
+};
+
+static void finishRecoveredDay(DailyRecovery &recovery) {
+  if (!recovery.summary.valid) return;
+  if (recovery.summary.dayStart == recovery.today) dailySummary = recovery.summary;
+  else if (!recovery.completed) writeDailySummaryToSd(recovery.summary);
+}
+
+static bool recoverDailySample(const HistorySample &sample, void *context) {
+  DailyRecovery &recovery = *(DailyRecovery *)context;
+  if (recovery.previousValid && sample.timestamp <= recovery.previous.timestamp) return true;
+  uint32_t day = localDayStart(sample.timestamp);
+  const HistorySample *previous = recovery.previousValid ? &recovery.previous : nullptr;
+  if (!recovery.summary.valid || recovery.summary.dayStart != day) {
+    if (recovery.summary.valid && !recovery.completed) {
+      accumulateDailySample(recovery.summary, previous, sample, heatingDegreeDayBase);
+    }
+    finishRecoveredDay(recovery);
+    recovery.summary = DailySummary();
+    recovery.summary.dayStart = day;
+    recovery.summary.valid = day != 0;
+    recovery.completed = readCompletedDailySummary(day, recovery.summary);
+  }
+  if (!recovery.completed) accumulateDailySample(recovery.summary, previous, sample, heatingDegreeDayBase);
+  recovery.previous = sample;
+  recovery.previousValid = true;
+  return true;
+}
+
+// Recovery must see every retained day, including when raw retention is
+// unlimited. Select the next dated file in directory scans rather than using
+// the graph endpoint's fixed 96-file workspace (which could omit today).
+static bool visitRecoveryHistory(uint32_t now, DailyRecovery &recovery) {
+  uint32_t afterDate = 0;
+  while (true) {
+    File root = SD_MMC.open("/history");
+    if (!root) return false;
+    uint32_t nextDate = UINT32_MAX;
+    char path[72] = {};
+    while (true) {
+      File entry = root.openNextFile();
+      if (!entry) break;
+      int year = 0, month = 0, day = 0;
+      bool dated = !entry.isDirectory() && parseSdDate(entry.name(), year, month, day);
+      entry.close();
+      if (!dated) continue;
+      uint32_t date = (uint32_t)year * 10000 + month * 100 + day;
+      if (date <= afterDate || date >= nextDate) continue;
+      nextDate = date;
+      snprintf(path, sizeof(path), "/sd/history/%04d-%02d-%02d.csv", year, month, day);
+    }
+    root.close();
+    if (nextDate == UINT32_MAX) return true;
+    // Completed daily totals are authoritative. Read only the tail of their
+    // raw file to keep a predecessor for a missing next day's first interval.
+    // This keeps ordinary startup proportional to summaries, not years of
+    // minute-by-minute data when retention is unlimited.
+    struct tm fileDate = {};
+    fileDate.tm_year = (int)(nextDate / 10000) - 1900;
+    fileDate.tm_mon = (int)((nextDate / 100) % 100) - 1;
+    fileDate.tm_mday = (int)(nextDate % 100);
+    fileDate.tm_isdst = -1;
+    uint32_t fileDay = (uint32_t)mktime(&fileDate);
+    DailySummary completedSummary;
+    bool completed = fileDay < recovery.today &&
+      readCompletedDailySummary(fileDay, completedSummary);
+    FILE *file = fopen(path, "r");
+    if (!file) return false;
+    if (completed && fseek(file, 0, SEEK_END) == 0 && ftell(file) > 1024) {
+      if (fseek(file, -1024, SEEK_END) != 0) {
+        fclose(file);
+        return false;
+      }
+      // Skip the first potentially partial CSV row in the tail.
+      if (fgets(storedArchiveCsvLine, sizeof(storedArchiveCsvLine), file) == nullptr) {
+        fclose(file);
+        return false;
+      }
+    } else rewind(file);
+    while (fgets(storedArchiveCsvLine, sizeof(storedArchiveCsvLine), file)) {
+      size_t length = strlen(storedArchiveCsvLine);
+      while (length && (storedArchiveCsvLine[length - 1] == '\n' ||
+          storedArchiveCsvLine[length - 1] == '\r')) storedArchiveCsvLine[--length] = 0;
+      HistorySample sample;
+      if (parseStoredHistorySample(storedArchiveCsvLine, sample) && sample.timestamp <= now) {
+        recoverDailySample(sample, &recovery);
+      }
+      delay(0);
+    }
+    bool read = ferror(file) == 0;
+    fclose(file);
+    if (!read) return false;
+    afterDate = nextDate;
+    delay(0);
+  }
+}
+
+static bool restoreEnergyHistory(uint32_t now) {
+  if (energyHistoryRestored) return true;
+  if (!sdState.active) return true;
+  if (sdFilesystemMutex == nullptr ||
+      sdHistoryReaderBusy || xSemaphoreTake(sdFilesystemMutex, pdMS_TO_TICKS(100)) != pdTRUE) return false;
+  sdHistoryReaderBusy = true;
+  DailyRecovery recovery;
+  recovery.today = localDayStart(now);
+  bool restored = visitRecoveryHistory(now, recovery);
+  if (restored) {
+    finishRecoveredDay(recovery);
+    energyHistoryRestored = true;
+    // A reboot is not an observed interval. Never bridge the outage with an
+    // invented trapezoid, even when it was shorter than the sample gap limit.
+    previousDailySampleValid = false;
+    copMqttArchiveDirty = true;
+  }
+  sdHistoryReaderBusy = false;
+  xSemaphoreGive(sdFilesystemMutex);
+  return restored;
+}
+
+static bool publishCopMqtt() {
   if (!mqtt_client.connected() || !sdState.active ||
-      sdFilesystemMutex == nullptr || sdHistoryReaderBusy) return;
+      sdFilesystemMutex == nullptr || sdHistoryReaderBusy || !energyHistoryRestored) return false;
   time_t nowValue = 0;
   struct tm now = {};
-  if (!validClock(&nowValue) || localtime_r(&nowValue, &now) == nullptr) return;
+  if (!validClock(&nowValue) || localtime_r(&nowValue, &now) == nullptr) return false;
   EfficiencyArchive &archive = efficiencyArchiveMqtt;
   if (!copMqttArchiveLoaded || copMqttArchiveDirty) {
-    if (xSemaphoreTake(sdFilesystemMutex, pdMS_TO_TICKS(100)) != pdTRUE) return;
+    // Wait for a queued rollover summary before reloading. The writer also
+    // invalidates this cache on completion, covering a concurrent dequeue.
+    if (sdWriterBusy || (sdWorkQueue && uxQueueMessagesWaiting(sdWorkQueue))) return false;
+    if (xSemaphoreTake(sdFilesystemMutex, pdMS_TO_TICKS(100)) != pdTRUE) return false;
     sdHistoryReaderBusy = true;
-    bool read = initializeEfficiencyArchive(archive, now) &&
-      readEfficiencyArchive(archive, false);
+    bool read = initializeEfficiencyArchive(archive, now) && readEfficiencyArchive(archive, false);
     sdHistoryReaderBusy = false;
     xSemaphoreGive(sdFilesystemMutex);
     if (!read || archive.monthCount == 0 || archive.yearCount == 0) {
       releaseEfficiencyArchive(archive);
       copMqttArchiveLoaded = false;
-      return;
+      return false;
     }
     copMqttArchiveLoaded = true;
     copMqttArchiveDirty = false;
@@ -2150,44 +2247,59 @@ static void publishCopMqtt() {
 
   EfficiencyPeriod currentMonth = archive.months[archive.monthCount - 1];
   EfficiencyPeriod currentYear = archive.years[archive.yearCount - 1];
-  addEfficiencyTotals(currentMonth, dailySummary.heating, dailySummary.dhw);
-  addEfficiencyTotals(currentYear, dailySummary.heating, dailySummary.dhw);
-  bool published = publishCopMqttValue("Current_Day", dailySummary.heating,
-    dailySummary.dhw);
-  published = publishCopMqttValue("Current_Month",
-    currentMonth.heating, currentMonth.dhw) && published;
-  published = publishCopMqttValue("Current_Year",
-    currentYear.heating, currentYear.dhw) && published;
-
-  if (copMqttHistoryPending) {
-    char suffix[48];
-    for (uint16_t index = 0; index < archive.monthCount &&
-        mqtt_client.connected(); index++) {
-      const EfficiencyPeriod &storedPeriod = archive.months[index];
-      const EfficiencyPeriod &period = index == archive.monthCount - 1 ?
-        currentMonth : storedPeriod;
-      if (period.days == 0) continue;
-      snprintf(suffix, sizeof(suffix), "Monthly/%04d-%02d", period.year,
-        period.month);
-      published = publishCopMqttValue(suffix, period.heating, period.dhw) &&
-        published;
-      mqtt_client.loop();
-      delay(0);
-    }
-    for (uint16_t index = 0; index < archive.yearCount &&
-        mqtt_client.connected(); index++) {
-      const EfficiencyPeriod &storedPeriod = archive.years[index];
-      const EfficiencyPeriod &period = index == archive.yearCount - 1 ?
-        currentYear : storedPeriod;
-      if (period.days == 0) continue;
-      snprintf(suffix, sizeof(suffix), "Yearly/%04d", period.year);
-      published = publishCopMqttValue(suffix, period.heating, period.dhw) &&
-        published;
-      mqtt_client.loop();
-      delay(0);
-    }
-    if (published && mqtt_client.connected()) copMqttHistoryPending = false;
+  bool liveToday = dailySummary.valid && dailySummary.dayStart == localDayStart((uint32_t)nowValue);
+  EnergyTotals empty;
+  const EnergyTotals &heating = liveToday ? dailySummary.heating : empty;
+  const EnergyTotals &dhw = liveToday ? dailySummary.dhw : empty;
+  time_t liveTime = dailySummary.dayStart;
+  struct tm liveDate = {};
+  bool liveValid = dailySummary.valid && localtime_r(&liveTime, &liveDate) != nullptr;
+  int liveYear = liveValid ? liveDate.tm_year + 1900 : 0;
+  int liveMonth = liveValid ? liveDate.tm_mon + 1 : 0;
+  if (liveYear == currentMonth.year && liveMonth == currentMonth.month) {
+    addEfficiencyTotals(currentMonth, dailySummary.heating, dailySummary.dhw);
   }
+  if (liveYear == currentYear.year) {
+    addEfficiencyTotals(currentYear, dailySummary.heating, dailySummary.dhw);
+  }
+  bool discovery = copMqttHistoryPending;
+  bool published = energyMqttPublishPeriod("today", recordedEnergy(heating, dhw), discovery);
+  published = energyMqttPublishPeriod("month", recordedEnergy(currentMonth.heating, currentMonth.dhw), discovery) && published;
+  published = energyMqttPublishPeriod("year", recordedEnergy(currentYear.heating, currentYear.dhw), discovery) && published;
+  // Keep the established COP-only topics for existing automations.
+  published = publishCopMqttValue("Current_Day", heating, dhw) && published;
+  published = publishCopMqttValue("Current_Month", currentMonth.heating, currentMonth.dhw) && published;
+  published = publishCopMqttValue("Current_Year", currentYear.heating, currentYear.dhw) && published;
+
+  char suffix[48];
+  for (uint16_t index = 0; index < archive.monthCount && mqtt_client.connected(); index++) {
+    EfficiencyPeriod period = index == archive.monthCount - 1 ? currentMonth : archive.months[index];
+    if (index != archive.monthCount - 1 && period.year == liveYear && period.month == liveMonth) {
+      addEfficiencyTotals(period, dailySummary.heating, dailySummary.dhw);
+    }
+    if (period.days == 0 || (!discovery && index != archive.monthCount - 1)) continue;
+    snprintf(suffix, sizeof(suffix), "history/month/%04d-%02d", period.year, period.month);
+    published = energyMqttPublishPeriod(suffix, recordedEnergy(period.heating, period.dhw), discovery) && published;
+    if (discovery) {
+      snprintf(suffix, sizeof(suffix), "Monthly/%04d-%02d", period.year, period.month);
+      published = publishCopMqttValue(suffix, period.heating, period.dhw) && published;
+    }
+  }
+  for (uint16_t index = 0; index < archive.yearCount && mqtt_client.connected(); index++) {
+    EfficiencyPeriod period = index == archive.yearCount - 1 ? currentYear : archive.years[index];
+    if (index != archive.yearCount - 1 && period.year == liveYear) {
+      addEfficiencyTotals(period, dailySummary.heating, dailySummary.dhw);
+    }
+    if (period.days == 0 || (!discovery && index != archive.yearCount - 1)) continue;
+    snprintf(suffix, sizeof(suffix), "history/year/%04d", period.year);
+    published = energyMqttPublishPeriod(suffix, recordedEnergy(period.heating, period.dhw), discovery) && published;
+    if (discovery) {
+      snprintf(suffix, sizeof(suffix), "Yearly/%04d", period.year);
+      published = publishCopMqttValue(suffix, period.heating, period.dhw) && published;
+    }
+  }
+  if (published && mqtt_client.connected()) copMqttHistoryPending = false;
+  return published;
 }
 
 static void appendStoredSampleJson(struct webserver_t *client,
@@ -2904,7 +3016,7 @@ static bool writeSdSamples() {
     setSdOpenError("history file");
     return false;
   }
-  if (ftell(file) == 0) fputs("timestamp,outside,inlet,outlet,target,dhw,dhw_target,room,room_target,flow,compressor_hz,pump_rpm,thermal_kw,electrical_kw,heat_production_kw,heat_consumption_kw,dhw_production_kw,dhw_consumption_kw,z1_request,z1_request_semantic,heating_curve_shift,mode,valve,state,defrost,estimated_cop,internal_heater,external_heater,eva_outlet,current_a\n", file);
+  if (ftell(file) == 0) fputs("timestamp,outside,inlet,outlet,target,dhw,dhw_target,room,room_target,flow,compressor_hz,pump_rpm,thermal_kw,electrical_kw,heat_production_kw,heat_consumption_kw,dhw_production_kw,dhw_consumption_kw,z1_request,z1_request_semantic,heating_curve_shift,mode,valve,state,defrost,estimated_cop,internal_heater,external_heater,eva_outlet,current_a,boot_id,electrical_source\n", file);
   HistorySample oldestSample;
 #if defined(ESP32)
   portENTER_CRITICAL(&historyDataMux);
@@ -2971,14 +3083,15 @@ static bool writeSdSamples() {
     const char *externalHeater =
       (sample.validFields & HISTORY_FIELD_EXTERNAL_HEATER_STATE) ?
         ((sample.flags & SAMPLE_FLAG_EXTERNAL_HEATER) ? "1" : "0") : "";
-    fprintf(file, "%lu,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%u,%u,%u,%u,%s,%s,%s,%s,%s\n",
+    fprintf(file, "%lu,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%u,%u,%u,%u,%s,%s,%s,%s,%s,%lu,%u\n",
       (unsigned long)sample.timestamp, outside, inlet, outlet, target, dhw,
       dhwTarget, room, roomTarget, flow, hz, pump, thermal, electrical,
       heatProduction, heatConsumption, dhwProduction, dhwConsumption,
       zone1Request, zone1Semantic, curveShift,
       sample.operatingMode, sample.valveState, sample.operatingState,
       (sample.flags & SAMPLE_FLAG_DEFROST) ? 1 : 0, copText,
-      internalHeater, externalHeater, evaOutlet, current);
+      internalHeater, externalHeater, evaOutlet, current,
+      (unsigned long)sample.bootId, sample.electricalSource);
     if (sample.sequence > newestWrittenSequence) newestWrittenSequence = sample.sequence;
   }
 #if defined(ESP32)
@@ -3024,7 +3137,9 @@ static void writeDailySummaryToSd(const DailySummary &summary) {
   char path[48];
   snprintf(path, sizeof(path), "/sd/daily/%04d-%02d-%02d.csv", local.tm_year + 1900,
     local.tm_mon + 1, local.tm_mday);
-  FILE *file = fopen(path, "a");
+  char temporaryPath[56];
+  snprintf(temporaryPath, sizeof(temporaryPath), "%s.tmp", path);
+  FILE *file = fopen(temporaryPath, "w");
   if (!file) {
     setSdOpenError("daily summary file");
     return;
@@ -3044,7 +3159,7 @@ static void writeDailySummaryToSd(const DailySummary &summary) {
     isfinite(summary.outsideMaximum) ? String(summary.outsideMaximum, 1).c_str() : "",
     isfinite(outsideAverage) ? String(outsideAverage, 1).c_str() : "");
   bool writeOk = ferror(file) == 0;
-  if (fclose(file) != 0 || !writeOk) {
+  if (fclose(file) != 0 || !writeOk || rename(temporaryPath, path) != 0) {
     setSdWriterError("Could not finish daily summary file");
   }
 #else
@@ -3154,6 +3269,7 @@ static void sdWriterTask(void *) {
         break;
       case SD_WORK_DAILY:
         writeDailySummaryToSd(item.daily);
+        energyArchiveRevision++;
         break;
       case SD_WORK_CYCLE:
         writeCycleRecordToSd(item.cycle);
@@ -3597,6 +3713,12 @@ void diagnosticsHistoryBegin() {
   eventStart = 0;
   eventCount = 0;
   sampleSequence = 0;
+#ifdef ESP32
+  historyBootId = esp_random();
+#else
+  historyBootId = (uint32_t)secureRandom(1, 0x7fffffff);
+#endif
+  if (historyBootId == 0) historyBootId = 1;
   eventSequence = 0;
   sdFlushedSequence = 0;
   sdFlushedEventSequence = 0;
@@ -3614,13 +3736,16 @@ void diagnosticsHistoryBegin() {
   previousCommunicationState = false;
   mqttStateKnown = false;
   previousMqttState = false;
-#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+  energyMqttBegin();
+  lastEnergyMqttAttemptAt = 0;
+  energyHistoryRestored = false;
+  energyArchiveRevision = 0;
+  energyArchiveRevisionHandled = 0;
   lastCopMqttPublishAt = 0;
   copMqttHistoryPending = true;
   copMqttArchiveLoaded = false;
   copMqttArchiveDirty = true;
   copMqttLocalDay = -1;
-#endif
   loadHistoryConfig();
   // switchSerial() configures HeishaMon's generic GPIOs after custom feature
   // setup and would detach an already initialized SDMMC bus on GPIO34..37.
@@ -3637,6 +3762,13 @@ void diagnosticsHistoryBegin() {
     HEISHAMON_HISTORY_MAX_SAMPLES, (unsigned)diagnosticsHistorySampleMemoryBytes(),
     (unsigned)diagnosticsHistoryEventMemoryBytes(), sampleIntervalSeconds);
   log_message(message);
+}
+
+void diagnosticsHistoryMqttConnected() {
+  energyMqttInvalidateCurrent();
+  lastEnergyMqttAttemptAt = 0;
+  lastCopMqttPublishAt = 0;
+  copMqttHistoryPending = true;
 }
 
 void diagnosticsHistoryLoop() {
@@ -3658,58 +3790,82 @@ void diagnosticsHistoryLoop() {
   if (!mqttStateKnown) {
     mqttStateKnown = true;
     previousMqttState = mqttOk;
-#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
     if (mqttOk) {
       lastCopMqttPublishAt = 0;
       copMqttHistoryPending = true;
     }
-#endif
   } else if (mqttOk != previousMqttState) {
     addEvent(HISTORY_EVENT_MQTT, mqttOk ? "MQTT connected" : "MQTT disconnected");
     previousMqttState = mqttOk;
-#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
     if (mqttOk) {
       lastCopMqttPublishAt = 0;
       copMqttHistoryPending = true;
     }
-#endif
   }
+  time_t energyNow = 0;
+  bool clockReady = validClock(&energyNow);
+  bool restored = true;
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+  if (clockReady) restored = restoreEnergyHistory((uint32_t)energyNow);
+#endif
   updateCycleState();
   unsigned long intervalMillis = (unsigned long)sampleIntervalSeconds * 1000UL;
-  if (historyBuffersReady && dataFresh() &&
+  if (restored && dataFresh() &&
       (sourceTransitionPending || lastSampleAt == 0 ||
         (unsigned long)(millis() - lastSampleAt) >= intervalMillis)) {
     HistorySample sample;
     if (makeSample(sample)) {
       sample.sequence = ++sampleSequence;
-      storeSample(sample);
-      updateDailySummary(samples[orderedSampleIndex(sampleCount - 1)]);
+      if (historyBuffersReady) storeSample(sample);
+      // Energy accounting does not require the large graph-history buffer
+      // (which cannot fit on an ESP8266).
+      updateDailySummary(sample);
       lastSampleAt = millis();
       sourceTransitionPending = false;
     }
   }
-#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
-  time_t copNow = 0;
-  struct tm copLocal = {};
-  if (validClock(&copNow) && localtime_r(&copNow, &copLocal) != nullptr) {
-    int32_t localDay = (copLocal.tm_year + 1900) * 400 + copLocal.tm_yday;
-    if (localDay != copMqttLocalDay) {
-      bool dayChanged = copMqttLocalDay >= 0;
-      if (dayChanged) {
-        copMqttHistoryPending = true;
-        copMqttArchiveDirty = true;
-      }
+  struct tm energyLocal = {};
+  if (clockReady && localtime_r(&energyNow, &energyLocal) != nullptr) {
+    uint32_t dayStart = localDayStart((uint32_t)energyNow);
+    int32_t localDay = (energyLocal.tm_year + 1900) * 400 + energyLocal.tm_yday;
+    if (dailySummary.valid && dailySummary.dayStart < dayStart &&
+        localDay != copMqttLocalDay) {
+      updateFallbackSummary();
+      persistDailySummary(dailySummary);
+      // Keep the previous sample and summary until the next observation can
+      // split its interval at midnight. Publish today as zero meanwhile.
+      copMqttArchiveDirty = true;
+    }
+    uint32_t archiveRevision = energyArchiveRevision;
+    if (localDay != copMqttLocalDay || archiveRevision != energyArchiveRevisionHandled) {
+      energyArchiveRevisionHandled = archiveRevision;
+      copMqttHistoryPending = true;
+      copMqttArchiveDirty = true;
       copMqttLocalDay = localDay;
-      lastCopMqttPublishAt = dayChanged ? millis() : 0;
+      lastCopMqttPublishAt = 0;
+    }
+    if (!sdState.active) {
+      energyMqttUpdateFallback(dayStart, energyLocal.tm_year + 1900,
+        energyLocal.tm_mon + 1, RecordedEnergy(), false);
+    }
+    if (mqttOk && (lastEnergyMqttAttemptAt == 0 ||
+        (unsigned long)(millis() - lastEnergyMqttAttemptAt) >= 1000UL) &&
+        (lastCopMqttPublishAt == 0 ||
+        (unsigned long)(millis() - lastCopMqttPublishAt) >= COP_MQTT_PUBLISH_INTERVAL_MS)) {
+      lastEnergyMqttAttemptAt = millis();
+      bool published = false;
+#if HEISHAMON_SD_HISTORY_ENABLED && defined(ESP32)
+      if (sdState.active) published = publishCopMqtt();
+      else
+#endif
+      published = energyMqttPublishFallback(dayStart, energyLocal.tm_year + 1900,
+        energyLocal.tm_mon + 1, copMqttHistoryPending);
+      if (published) {
+        copMqttHistoryPending = false;
+        lastCopMqttPublishAt = millis();
+      }
     }
   }
-  if (mqttOk && sdState.active && (lastCopMqttPublishAt == 0 ||
-      (unsigned long)(millis() - lastCopMqttPublishAt) >=
-        COP_MQTT_PUBLISH_INTERVAL_MS)) {
-    publishCopMqtt();
-    lastCopMqttPublishAt = millis();
-  }
-#endif
   checkSdWriterHealth();
   if (sdState.active && (lastSdFlushAt == 0 ||
       (unsigned long)(millis() - lastSdFlushAt) >= 60000UL)) {
