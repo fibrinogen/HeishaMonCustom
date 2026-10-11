@@ -616,10 +616,8 @@
         },
         barChartViews = {};
       function barPeriodLabel(period) {
-        if (period.length === 10) return period.slice(5);
         if (period.length === 16) return period.slice(11);
-        if (period.length !== 7) return period;
-        return period.slice(5) + "/" + period.slice(2, 4);
+        return btDate(period);
       }
       function barValue(item, series) {
         var value = Number(item && item[series.key]);
@@ -730,7 +728,7 @@
             text =
               hover.series.label +
               " · " +
-              hover.item.period +
+              btDate(hover.item.period) +
               " · " +
               hover.value.toFixed(view.unit === "COP" ? 2 : 1) +
               " " +
@@ -835,6 +833,7 @@
           ? date.toLocaleDateString("de-DE", {
               day: "2-digit",
               month: "2-digit",
+              year: "numeric",
             }) +
               " " +
               clock

@@ -19,6 +19,18 @@ UI untouched.
 The source files in `webui/src` are independent of the upstream HeishaMon
 firmware sources to keep future upstream merges small.
 
+The builder prepends the sibling `bridge-time/web/date-format.js` to the
+generated `common.js`. Scheduler clock, last-sync and action timestamps use
+German dates (`DD.MM.YYYY HH:mm:ss`). The embedded firmware version-history
+page uses the same formatter through `BridgeTime/WebDateTime.h`. API timestamps
+and native browser date controls retain their existing formats. Existing
+generated output is updated in place; the builder does not delete the output
+directory or unrelated files.
+History and History new also include the year whenever a chart label or
+tooltip includes a date. History new calendar COP cards/tables and History
+bar-chart periods also use German dates/months. The current generated package
+is `0.2.7-web.51`.
+
 Versions are maintained centrally in `HeishaMon/custom_version.h`:
 
 - `CUSTOM_FIRMWARE_VERSION` is the custom firmware release (`X.Y.Z`).

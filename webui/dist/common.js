@@ -1,3 +1,24 @@
+// Display calendar keys and device-local timestamps without changing their timezone.
+function btDate(value) {
+  return String(value == null ? '' : value)
+    .replace(/^(\d{4})-(\d{2})(?:-(\d{2}))?(?=$|[T ])/, function (_, year, month, day) {
+      return (day ? day + '.' : '') + month + '.' + year;
+    })
+    .replace(/^(\d{4})-W(\d{2})$/, 'KW $2/$1')
+    .replace(/T(?=\d{2}:)/, ' ');
+}
+
+// Epoch timestamps retain the caller's existing browser-local timezone behavior.
+function btStamp(epoch) {
+  var date = new Date(Number(epoch) * 1000);
+  return epoch && Number.isFinite(date.getTime())
+    ? date.toLocaleString('de-DE', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+      })
+    : '–';
+}
+
 function hmGetCookie(name) {
   var prefix = name + "=",
     cookies = document.cookie.split(";");

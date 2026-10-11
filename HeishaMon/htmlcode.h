@@ -1,4 +1,5 @@
 #include "custom_favicon.h"
+#include <BridgeTime/WebDateTime.h>
 
 #if defined(ESP8266)
   #define FLASHPROG PROGMEM
@@ -866,6 +867,7 @@ static const char webFooter[] FLASHPROG = "</body></html>";
 // ─────────────────────────────────────────────────────────────────────────────
 static const char menuJS[] FLASHPROG = R"====(
 <script>
+)====" BRIDGE_TIME_WEB_DATE_JS R"====(
 function toggleMenu(){
   var m=document.getElementById('sideMenu');
   var o=document.getElementById('menuOverlay');
@@ -2571,7 +2573,7 @@ function loadVersionHistory(){
   fetch('/webui/manifest.json',{cache:'no-store'}).then(function(response){if(!response.ok)throw new Error('HTTP '+response.status);return response.json();}).then(function(data){
     var entries=Array.isArray(data.versionHistory)?data.versionHistory:[];
     if(!entries.length){target.textContent='No version history is available in the active Web UI package.';return;}
-    target.innerHTML='<p>Latest '+entries.length+' commits included when this Web UI package was built. Uncommitted changes appear after they are committed and rebuilt.</p><ol class="version-history-list">'+entries.map(function(entry){return '<li><code>'+escapeHistory(entry.hash)+'</code> <time>'+escapeHistory(entry.date)+'</time> '+escapeHistory(entry.subject)+'</li>';}).join('')+'</ol>';
+    target.innerHTML='<p>Latest '+entries.length+' commits included when this Web UI package was built. Uncommitted changes appear after they are committed and rebuilt.</p><ol class="version-history-list">'+entries.map(function(entry){return '<li><code>'+escapeHistory(entry.hash)+'</code> <time>'+escapeHistory(btDate(entry.date))+'</time> '+escapeHistory(entry.subject)+'</li>';}).join('')+'</ol>';
   }).catch(function(){target.textContent='Version history is unavailable because no active SD Web UI package could be read.';});
 }
 function uploadWebUi(){

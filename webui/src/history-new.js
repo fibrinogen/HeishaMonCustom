@@ -61,7 +61,7 @@ function hnClock(timestamp, includeDate) {
   var date = new Date(timestamp * 1000),
     clock = date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
   return includeDate
-    ? date.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) + " " + clock
+    ? date.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }) + " " + clock
     : clock;
 }
 function hnDuration(seconds) {
@@ -455,7 +455,7 @@ function hnCalendarCopRows(id, periods) {
     return period && Number(period.days) > 0;
   }).slice().reverse();
   document.getElementById(id).innerHTML = rows.length ? rows.map(function (period) {
-    return "<tr><td>" + hmEscape(period.period || "—") + "</td><td>" +
+    return "<tr><td>" + hmEscape(btDate(period.period) || "—") + "</td><td>" +
       hmEscape(hnFormat(period.heatCop, 2)) + "</td><td>" +
       hmEscape(hnFormat(period.dhwCop, 2)) + "</td><td>" +
       hmEscape(hnFormat(period.totalCop, 2)) + "</td></tr>";

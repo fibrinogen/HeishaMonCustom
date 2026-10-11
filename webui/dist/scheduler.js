@@ -300,10 +300,10 @@ function schedulerRender(data) {
   schedulerSemantic = data.zone1HeatRequest || null;
   schedulerCurveShift = data.heatingCurveShift || null;
   document.getElementById("schedulerLocalTime").textContent =
-    data.localTime || "Time unavailable";
+    btDate(data.localTime) || "Time unavailable";
   var timeStatus = document.getElementById("schedulerTimeStatus");
   timeStatus.textContent = data.ntpSynchronized
-    ? "Last NTP sync: " + (data.lastNtpSync || "")
+    ? "Last NTP sync: " + (btDate(data.lastNtpSync) || "")
     : data.timeValid
       ? "Clock valid · NTP pending"
       : "Unavailable - paused";
@@ -335,7 +335,7 @@ function schedulerRender(data) {
     data.nextScheduledAction || "None configured";
   var last = data.events && data.events.length ? data.events[0] : null;
   document.getElementById("schedulerLastAction").textContent = last
-    ? last.time + " · " + last.name + " -> " + last.result + " · " + last.detail
+    ? btDate(last.time) + " · " + last.name + " -> " + last.result + " · " + last.detail
     : "No action since boot";
   var globalToggle = document.getElementById("schedulerGlobalToggle");
   globalToggle.checked = !!data.enabled;

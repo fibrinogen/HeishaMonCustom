@@ -12,7 +12,6 @@ import io
 import json
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import tarfile
 
@@ -71,9 +70,8 @@ def main() -> None:
         "WEBUI_VERSION": webui_version,
     }
 
-    if DIST.exists():
-        shutil.rmtree(DIST)
-    DIST.mkdir(parents=True)
+    # Preserve existing output and unrelated files; replace generated payloads only.
+    DIST.mkdir(parents=True, exist_ok=True)
 
     payloads: dict[str, bytes] = {}
     for source in sorted(SOURCE.iterdir()):
@@ -84,6 +82,9 @@ def main() -> None:
             payloads[output_name] = render(source, replacements)
         else:
             payloads[source.name] = source.read_bytes()
+
+    date_script = (ROOT.parent / "bridge-time/web/date-format.js").read_bytes()
+    payloads["common.js"] = date_script + b"\n" + payloads["common.js"]
 
     manifest_files = []
     for name, data in sorted(payloads.items()):

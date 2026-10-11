@@ -4,9 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Heisha Monitor</title>
-    <link rel="icon" type="image/x-icon" href="/webui/heishamon_h_favicon.ico?v=0.2.7-web.49" />
-    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.49" />
-    <script src="/webui/common.js?v=0.2.7-web.49"></script>
+    <link rel="icon" type="image/x-icon" href="/webui/heishamon_h_favicon.ico?v=0.2.7-web.51" />
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.51" />
+    <script src="/webui/common.js?v=0.2.7-web.51"></script>
   </head>
   <body>
     <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
@@ -616,10 +616,8 @@
         },
         barChartViews = {};
       function barPeriodLabel(period) {
-        if (period.length === 10) return period.slice(5);
         if (period.length === 16) return period.slice(11);
-        if (period.length !== 7) return period;
-        return period.slice(5) + "/" + period.slice(2, 4);
+        return btDate(period);
       }
       function barValue(item, series) {
         var value = Number(item && item[series.key]);
@@ -730,7 +728,7 @@
             text =
               hover.series.label +
               " · " +
-              hover.item.period +
+              btDate(hover.item.period) +
               " · " +
               hover.value.toFixed(view.unit === "COP" ? 2 : 1) +
               " " +
@@ -835,6 +833,7 @@
           ? date.toLocaleDateString("de-DE", {
               day: "2-digit",
               month: "2-digit",
+              year: "numeric",
             }) +
               " " +
               clock
