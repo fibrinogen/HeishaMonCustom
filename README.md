@@ -478,3 +478,17 @@ ESP8266 SNTP path and existing timezone-index settings are preserved.
 
 `HeishaMon/app_clock.h` shares the local-year clock gate between scheduler
 and diagnostics through BridgeTime's bounded, nonblocking clock view.
+
+## Shared OTA implementation
+
+Firmware uploads use the sibling `../bridge-ota` library. PlatformIO and both
+Arduino CLI build scripts include it. The custom `/firmware` multipart protocol,
+MD5 verification, ESP8266 asynchronous writes and delayed restart remain local.
+The shared uploader checks capacity/completion and cleans up failures or
+30 seconds without progress. A single browser client owns the upload until
+response/disconnect cleanup; additional clients are rejected. ArduinoOTA handling
+waits while the browser owns the updater. MD5 input is limited to 32 characters.
+
+See [BridgeOta](../bridge-ota/README.md) for integration and shared tests,
+and [the validation report](../bridge-ota/docs/VALIDATION.md) for pending
+firmware builds.

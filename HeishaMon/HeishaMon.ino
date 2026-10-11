@@ -32,6 +32,7 @@
 #include <DNSServer.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
+#include <BridgeOta.h>
 #include <DNSServer.h>
 #include <ArduinoJson.h>
 
@@ -1066,6 +1067,9 @@ void setupOTA() {
 
 
 
+static bridge_ota::ArduinoUpload webFirmwareUpload;
+static struct webserver_t *webFirmwareOwner = nullptr;
+
 int8_t webserver_cb(struct webserver_t *client, void *dat) {
   
 
@@ -1147,19 +1151,20 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
           }
 #endif
           } else if (strcmp_P((char *)dat, PSTR("/firmware")) == 0) {
-            if (!Update.isRunning()) {
+            if (webFirmwareOwner == nullptr && !Update.isRunning()) {
+              webFirmwareUpload.reset();
 #ifdef ESP8266
               Update.runAsync(true);
 #endif
-              if (!Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000)) {
+              if (!webFirmwareUpload.begin()) {
                 Update.printError(loggingSerial);
                 return -1;
               } else {
+                webFirmwareOwner = client;
                 client->route = 150;
               }
             } else {
-              loggingSerial.println(PSTR("New firmware update client, while previous isn't finished yet! Assume broken connection, abort!"));
-              Update.end();
+              loggingSerial.println(PSTR("Firmware updater busy; rejecting additional upload client."));
               return -1;
             }
           } else {
@@ -1262,21 +1267,25 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
               return cacheSettings(client, args);
             } break;
           case 150: {
-              if (Update.isRunning() && (!Update.hasError())) {
+              if (webFirmwareOwner == client && webFirmwareUpload.active()) {
                 if ((strcmp((char *)args->name, "md5") == 0) && (args->len > 0)) {
-                  char md5[args->len + 1];
-                  memset(&md5, 0, args->len + 1);
-                  snprintf((char *)&md5, args->len + 1, "%.*s", args->len, args->value);
+                  if (args->len != 32) {
+                    webFirmwareUpload.abort();
+                    return -1;
+                  }
+                  char md5[33];
+                  memcpy(md5, args->value, 32);
+                  md5[32] = '\0';
                   sprintf_P(log_msg, PSTR("Firmware MD5 expected: %s"), md5);
                   log_message(log_msg);
                   if (!Update.setMD5(md5)) {
                     log_message(_F("Failed to set expected update file MD5!"));
-                    Update.end(false);
+                    webFirmwareUpload.abort();
                   }
                 } else if (strcmp((char *)args->name, "firmware") == 0) {
-                  if (Update.write((uint8_t *)args->value, args->len) != args->len) {
+                  if (!webFirmwareUpload.write((uint8_t *)args->value, args->len)) {
                     Update.printError(loggingSerial);
-                    Update.end(false);
+                    webFirmwareUpload.abort();
                   } else {
                     if (uploadpercentage != (unsigned int)(((float)client->readlen / (float)client->totallen) * 20)) {
                       uploadpercentage = (unsigned int)(((float)client->readlen / (float)client->totallen) * 20);
@@ -1436,15 +1445,14 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
             } break;
           case 150: {
               log_message((char*)"In /firmware client write part");
-              if (Update.isRunning()) {
-                if (Update.end(true)) {
+              if (client->content == 0) {
+                if (webFirmwareOwner == client && webFirmwareUpload.finish()) {
                   log_message((char*)"Firmware update success");
                   timerqueue_insert(2, 0, -2); // Start reboot sequence
                   return showFirmwareSuccess(client);
-                } else {
-                  Update.printError(loggingSerial);
-                  return showFirmwareFail(client);
                 }
+                Update.printError(loggingSerial);
+                return showFirmwareFail(client);
               }
               return 0;
             } break;
@@ -1521,6 +1529,12 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
     case WEBSERVER_CLIENT_CLOSE: {
         if (customFeaturesHandleClose(client)) return 0;
         switch (client->route) {
+          case 150:
+            if (webFirmwareOwner == client) {
+              webFirmwareUpload.reset();
+              webFirmwareOwner = nullptr;
+            }
+            break;
           case 13:
           case 14:
           case 18:
@@ -2025,7 +2039,8 @@ void loop() {
   // check wifi
   check_wifi();
   // Handle OTA first.s
-  ArduinoOTA.handle();
+  webFirmwareUpload.poll();
+  if (!webFirmwareUpload.active()) ArduinoOTA.handle();
 
   mqtt_client.loop();
 
