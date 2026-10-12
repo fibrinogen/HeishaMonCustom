@@ -489,6 +489,12 @@ The shared uploader checks capacity/completion and cleans up failures or
 response/disconnect cleanup; additional clients are rejected. ArduinoOTA handling
 waits while the browser owns the updater. MD5 input is limited to 32 characters.
 
+The firmware upload GUI is also supplied by BridgeOta: file selection,
+progress, cancel, validation and result messages share one widget. Project
+endpoints and update restrictions are preserved. See the
+[widget API and local preview](../bridge-ota/README.md#shared-browser-upload-ui);
+`python3 ../bridge-ota/tests/run_web_tests.py` checks the actual page adapters.
+
 See [BridgeOta](../bridge-ota/README.md) for integration and shared tests,
 and [the validation report](../bridge-ota/docs/VALIDATION.md) for pending
 firmware builds.

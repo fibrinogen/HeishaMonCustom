@@ -1,5 +1,6 @@
 #include "custom_favicon.h"
 #include <BridgeTime/WebDateTime.h>
+#include <BridgeOta/WebUpload.h>
 
 #if defined(ESP8266)
   #define FLASHPROG PROGMEM
@@ -2531,31 +2532,7 @@ function getCursorPosition() {
 // ─────────────────────────────────────────────────────────────────────────────
 static const char showFirmwarePage[] FLASHPROG = R"====(
 <script>
-function getMD5(){
-  var fn=document.getElementById('firmware').value;
-  var sp=fn.split('-')[2];
-  if(sp){var md5=sp.split('.')[0];if(md5.length==32)document.getElementById('md5').value=md5;}
-}
-function reloadHome(){setTimeout(function(){window.location.href='/';},15000);}
-function uploadFile(){
-  document.getElementById('updatebutton').disabled=true;
-  document.getElementById('status').innerText='';
-  var file=document.getElementById('firmware').files[0];
-  var fd=new FormData();
-  fd.append('firmware',file);
-  fd.append('md5',document.getElementById('md5').value);
-  var req=new XMLHttpRequest();
-  req.upload.addEventListener('progress',function(e){document.getElementById('progressBar').value=Math.round((e.loaded/e.total)*100);},false);
-  req.onreadystatechange=function(){
-    if(req.readyState===4){
-      document.getElementById('status').innerText=req.responseText;
-      if(req.responseText.includes('success'))reloadHome();
-      else document.getElementById('updatebutton').disabled=false;
-    }
-  };
-  req.open('POST','/firmware');
-  req.send(fd);
-}
+)====" BRIDGE_OTA_WEB_SCRIPT_EN R"====(
 function loadWebUiStatus(){
   fetch('/webui/status',{cache:'no-store'}).then(function(response){
     if(!response.ok)throw new Error('HTTP '+response.status);
@@ -2589,7 +2566,7 @@ function uploadWebUi(){
   request.onreadystatechange=function(){if(request.readyState===4){status.textContent=request.responseText||('HTTP '+request.status);button.disabled=false;if(request.status===200){loadWebUiStatus();}}};
   request.open('POST','/webui/upload');request.send(form);
 }
-document.addEventListener('DOMContentLoaded',function(){loadWebUiStatus();loadVersionHistory();});
+document.addEventListener('DOMContentLoaded',function(){BridgeOta.mount(document.getElementById('otaUpload'),{url:'/firmware',accept:'.bin,.bin.gz',checksum:true,reloadDelayMs:15000,responseOK:xhr=>xhr.responseText.includes('success')});loadWebUiStatus();loadVersionHistory();});
 </script>
 <div class='firmware-container'>
   <div class='firmware-info'>
@@ -2620,21 +2597,10 @@ R"====(  </div>
   <div class='panel'>
     <div class='panel-header'><h3>Firmware Update</h3></div>
     <div style='padding:24px'>
-      <div class='file-input-wrap'>
-        <input type='file' accept='.bin,.bin.gz' id='firmware' name='firmware' onchange='getMD5();'>
-      </div>
-      <div style='margin-top:20px'>
-        <label style='font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px'>MD5 Checksum</label>
-        <input type='text' id='md5' name='md5' value='' size='32' minlength='32' maxlength='32' class='setting-input' placeholder='Auto-detected from filename'>
-      </div>
+      <div id='otaUpload'></div>
       <div class='firmware-warning'>
         <strong>Warning:</strong> Leaving the MD5 checksum empty disables integrity verification, which could brick your HeishaMon. A TTL cable will be required to recover in that case.
       </div>
-      <div style='margin-top:24px'>
-        <button id='updatebutton' class='btn btn-primary' onclick='uploadFile()'>Upload &amp; Update</button>
-      </div>
-      <progress id='progressBar' value='0' max='100'></progress>
-      <p id='status'></p>
     </div>
   </div>
   <div class='panel' style='margin-top:16px'>
