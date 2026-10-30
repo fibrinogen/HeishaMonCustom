@@ -31,6 +31,20 @@ tooltip includes a date. History new calendar COP cards/tables and History
 bar-chart periods also use German dates/months. The current generated package
 is `0.2.7-web.51`.
 
+**History new** shows electrical consumption (kWh), heat produced (kWh), and
+COP for the selected chart period, today, this month, this year, and recorded
+monthly/yearly history. Calendar energy totals come from `/efficiencyapi`
+and use the same recorded room-heating and DHW totals as the MQTT energy
+sensors. The added calendar kWh fields require matching updated firmware.
+**History new 2** (`/history-new-2`) extends this comparison with operator
+diagnostics: spread ($\Delta T$), target excess ($T_{\text{VL}} - T_{\text{Soll}}$),
+heating curve shift, compressor modulation (Hz/A), water flow (l/min),
+evaporator/icing temperature, defrost and backup-heater metrics, clickable
+per-cycle analysis, 31-day/24-hour demand charts, CSV export, and storage/degree-day
+settings.
+Run `node test/history_new_energy_test.js` to check the page's energy displays,
+missing values, and calendar refresh behavior locally.
+
 Versions are maintained centrally in `HeishaMon/custom_version.h`:
 
 - `CUSTOM_FIRMWARE_VERSION` is the custom firmware release (`X.Y.Z`).

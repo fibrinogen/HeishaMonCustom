@@ -8,7 +8,6 @@ var hnData = null,
   hnRequestSequence = 0,
   hnZoomBase = null,
   hnDrag = null,
-  hnCalendarCopLoaded = false,
   hnCalendarCopLoading = false;
 
 var HN_HEAT_COMPRESSOR = 1,
@@ -55,6 +54,10 @@ function hnValue(point, line) {
 function hnFormat(value, decimals) {
   var number = hnNumber(value);
   return number === null ? "—" : number.toFixed(decimals === undefined ? 1 : decimals);
+}
+function hnEnergy(value) {
+  var formatted = hnFormat(value, 2);
+  return formatted === "—" ? formatted : formatted + " kWh";
 }
 function hnClock(timestamp, includeDate) {
   if (!Number.isFinite(timestamp) || timestamp < 1000000000) return "N/A";
@@ -449,6 +452,9 @@ function hnRenderSummary() {
   document.getElementById("hnDhwRuntime").textContent = hnDuration(hnSegmentSeconds(function (s) { return hnBitActive(s, HN_DHW_COMPRESSOR); }));
   document.getElementById("hnHeatCop").textContent = hnFormat(efficiency.heatingCop, 2);
   document.getElementById("hnDhwCop").textContent = hnFormat(efficiency.dhwCop, 2);
+  document.getElementById("hnSelectedElectrical").textContent = hnEnergy(efficiency.totalElectricalKWh);
+  document.getElementById("hnSelectedHeat").textContent = hnEnergy(efficiency.totalThermalKWh);
+  document.getElementById("hnSelectedCop").textContent = hnFormat(efficiency.totalCop, 2);
 }
 function hnCalendarCopRows(id, periods) {
   var rows = (periods || []).filter(function (period) {
@@ -456,26 +462,32 @@ function hnCalendarCopRows(id, periods) {
   }).slice().reverse();
   document.getElementById(id).innerHTML = rows.length ? rows.map(function (period) {
     return "<tr><td>" + hmEscape(btDate(period.period) || "—") + "</td><td>" +
+      hmEscape(hnFormat(period.electricalKWh, 2)) + "</td><td>" +
+      hmEscape(hnFormat(period.heatKWh, 2)) + "</td><td>" +
       hmEscape(hnFormat(period.heatCop, 2)) + "</td><td>" +
       hmEscape(hnFormat(period.dhwCop, 2)) + "</td><td>" +
       hmEscape(hnFormat(period.totalCop, 2)) + "</td></tr>";
-  }).join("") : '<tr><td colspan="4">No stored COP data.</td></tr>';
+  }).join("") : '<tr><td colspan="6">No stored energy data.</td></tr>';
   return rows.length;
 }
 function hnRenderCalendarCop(data) {
   var current = data.current || {},
     monthCount = hnCalendarCopRows("hnMonthlyCop", data.monthly),
     yearCount = hnCalendarCopRows("hnYearlyCop", data.yearly);
-  document.getElementById("hnCurrentDayCop").textContent = hnFormat(current.day && current.day.totalCop, 2);
-  document.getElementById("hnCurrentMonthCop").textContent = hnFormat(current.month && current.month.totalCop, 2);
-  document.getElementById("hnCurrentYearCop").textContent = hnFormat(current.year && current.year.totalCop, 2);
+  ["day", "month", "year"].forEach(function (key) {
+    var period = current[key] || {}, prefix = "hnCurrent" + key.charAt(0).toUpperCase() + key.slice(1);
+    document.getElementById(prefix + "Period").textContent = btDate(period.period);
+    document.getElementById(prefix + "Electrical").textContent = hnEnergy(period.electricalKWh);
+    document.getElementById(prefix + "Heat").textContent = hnEnergy(period.heatKWh);
+    document.getElementById(prefix + "Cop").textContent = hnFormat(period.totalCop, 2);
+  });
   document.getElementById("hnCalendarCopStatus").textContent =
     monthCount + " stored month(s) · " + yearCount + " stored year(s)";
-  hnCalendarCopLoaded = true;
 }
 function hnLoadCalendarCop() {
-  if (hnCalendarCopLoaded || hnCalendarCopLoading) return;
+  if (hnCalendarCopLoading) return;
   hnCalendarCopLoading = true;
+  document.getElementById("hnCalendarCopStatus").textContent = "Updating…";
   fetch("/efficiencyapi", { cache: "no-store" })
     .then(function (response) {
       return response.text().then(function (body) {
@@ -491,11 +503,12 @@ function hnLoadCalendarCop() {
     })
     .catch(function (error) {
       hnCalendarCopLoading = false;
+      hnRenderCalendarCop({});
       document.getElementById("hnCalendarCopStatus").textContent = "Unavailable";
       document.getElementById("hnMonthlyCop").innerHTML =
-        '<tr><td colspan="4">Calendar COP unavailable: ' + hmEscape(error.message) + "</td></tr>";
+        '<tr><td colspan="6">Calendar energy unavailable: ' + hmEscape(error.message) + "</td></tr>";
       document.getElementById("hnYearlyCop").innerHTML =
-        '<tr><td colspan="4">Calendar COP unavailable.</td></tr>';
+        '<tr><td colspan="6">Calendar energy unavailable.</td></tr>';
     });
 }
 function hnBuildCycles() {

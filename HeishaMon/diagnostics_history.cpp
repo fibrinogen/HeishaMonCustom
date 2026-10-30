@@ -1572,6 +1572,11 @@ struct DailyDemandPeriod {
   double heatingDegreeDays = NAN;
   double heatingElectricalKWh = 0.0;
   double dhwElectricalKWh = 0.0;
+  double heatingThermalKWh = 0.0;
+  double dhwThermalKWh = 0.0;
+  uint32_t compressorSeconds = 0;
+  uint32_t compressorStarts = 0;
+  float outsideAverage = NAN;
 };
 
 struct EfficiencyArchive {
@@ -1610,7 +1615,9 @@ static bool parseCsvDouble(const char *text, double &value) {
 }
 
 static bool parseDailySummaryLine(char *line, uint32_t &dayStart,
-    EnergyTotals &heating, EnergyTotals &dhw, double &heatingDegreeDays) {
+    EnergyTotals &heating, EnergyTotals &dhw, double &heatingDegreeDays,
+    uint32_t *compressorSeconds = nullptr, uint32_t *compressorStarts = nullptr,
+    float *outsideAverage = nullptr) {
   if (line == nullptr || strncmp(line, "day,", 4) == 0) return false;
   char *fields[13] = {};
   char *cursor = line;
@@ -1643,6 +1650,18 @@ static bool parseDailySummaryLine(char *line, uint32_t &dayStart,
   dhw.intervals = dhwThermal > 0.0 && dhwElectrical > 0.0 ? 1 : 0;
   heatingDegreeDays = NAN;
   if (fieldCount > 7) parseCsvDouble(fields[7], heatingDegreeDays);
+  if (compressorSeconds != nullptr) {
+    *compressorSeconds = 0;
+    if (fieldCount > 8) parseCsvUnsigned(fields[8], UINT32_MAX, *compressorSeconds);
+  }
+  if (compressorStarts != nullptr) {
+    *compressorStarts = 0;
+    if (fieldCount > 9) parseCsvUnsigned(fields[9], UINT32_MAX, *compressorStarts);
+  }
+  if (outsideAverage != nullptr) {
+    *outsideAverage = NAN;
+    if (fieldCount > 12) parseCsvFloat(fields[12], *outsideAverage);
+  }
   return true;
 }
 
@@ -1718,6 +1737,7 @@ static bool initializeEfficiencyArchive(EfficiencyArchive &archive,
     period.tm_isdst = -1;
     archive.demandDays[index].start = (uint32_t)mktime(&period);
     archive.demandDays[index].heatingDegreeDays = NAN;
+    archive.demandDays[index].outsideAverage = NAN;
   }
   return true;
 }
@@ -1735,7 +1755,8 @@ static void addEfficiencyTotals(EfficiencyPeriod &period,
 
 static void addEfficiencyDay(EfficiencyArchive &archive, uint32_t dayStart,
     const EnergyTotals &heating, const EnergyTotals &dhw,
-    double heatingDegreeDays) {
+    double heatingDegreeDays, uint32_t compressorSeconds = 0,
+    uint32_t compressorStarts = 0, float outsideAverage = NAN) {
   time_t value = (time_t)dayStart;
   struct tm local = {};
   if (localtime_r(&value, &local) == nullptr) return;
@@ -1758,6 +1779,13 @@ static void addEfficiencyDay(EfficiencyArchive &archive, uint32_t dayStart,
     if (archive.demandDays[index].start != dayStart) continue;
     archive.demandDays[index].heatingElectricalKWh += heating.electricalKWh;
     archive.demandDays[index].dhwElectricalKWh += dhw.electricalKWh;
+    archive.demandDays[index].heatingThermalKWh += heating.thermalKWh;
+    archive.demandDays[index].dhwThermalKWh += dhw.thermalKWh;
+    archive.demandDays[index].compressorSeconds += compressorSeconds;
+    archive.demandDays[index].compressorStarts += compressorStarts;
+    if (isfinite(outsideAverage)) {
+      archive.demandDays[index].outsideAverage = outsideAverage;
+    }
     if (isfinite(heatingDegreeDays)) {
       archive.demandDays[index].heatingDegreeDays = heatingDegreeDays;
     }
@@ -1794,10 +1822,15 @@ static bool readEfficiencyArchive(EfficiencyArchive &archive,
       EnergyTotals heating;
       EnergyTotals dhw;
       double heatingDegreeDays = NAN;
+      uint32_t compressorSeconds = 0;
+      uint32_t compressorStarts = 0;
+      float outsideAverage = NAN;
       if (parseDailySummaryLine(storedArchiveCsvLine, dayStart, heating, dhw,
-          heatingDegreeDays)) {
+          heatingDegreeDays, &compressorSeconds, &compressorStarts,
+          &outsideAverage)) {
         if (!dailySummary.valid || dayStart != dailySummary.dayStart) {
-          addEfficiencyDay(archive, dayStart, heating, dhw, heatingDegreeDays);
+          addEfficiencyDay(archive, dayStart, heating, dhw, heatingDegreeDays,
+            compressorSeconds, compressorStarts, outsideAverage);
         }
       }
     }
@@ -1806,9 +1839,13 @@ static bool readEfficiencyArchive(EfficiencyArchive &archive,
   }
   root.close();
   if (includeCurrentDay && dailySummary.valid) {
+    float outsideAverage = dailySummary.outsideSamples > 0 ?
+      (float)(dailySummary.outsideSum / dailySummary.outsideSamples) : NAN;
     addEfficiencyDay(archive, dailySummary.dayStart, dailySummary.heating,
       dailySummary.dhw, dailySummary.outsideSamples > 0 ?
-        dailySummary.heatingDegreeDays : NAN);
+        dailySummary.heatingDegreeDays : NAN,
+      dailySummary.compressorSeconds, dailySummary.compressorStarts,
+      outsideAverage);
   }
   return true;
 }
@@ -1883,9 +1920,15 @@ static void appendDailyDemandJson(struct webserver_t *client,
     return;
   }
   appendFmt(client,
-    "{\"period\":\"%04d-%02d-%02d\",\"heatConsumptionKWh\":%.4f,\"dhwConsumptionKWh\":%.4f,\"heatingDegreeDays\":",
+    "{\"period\":\"%04d-%02d-%02d\",\"heatConsumptionKWh\":%.4f,\"dhwConsumptionKWh\":%.4f,\"heatProductionKWh\":%.4f,\"dhwProductionKWh\":%.4f,\"compressorSeconds\":%lu,\"compressorStarts\":%lu,\"outsideAverage\":",
     local.tm_year + 1900, local.tm_mon + 1, local.tm_mday,
-    period.heatingElectricalKWh, period.dhwElectricalKWh);
+    period.heatingElectricalKWh, period.dhwElectricalKWh,
+    period.heatingThermalKWh, period.dhwThermalKWh,
+    (unsigned long)period.compressorSeconds,
+    (unsigned long)period.compressorStarts);
+  appendJsonFloat(client, isfinite(period.outsideAverage),
+    period.outsideAverage);
+  appendText(client, ",\"heatingDegreeDays\":");
   appendJsonFloat(client, isfinite(period.heatingDegreeDays),
     (float)period.heatingDegreeDays);
   appendText(client, "}");
@@ -1908,6 +1951,15 @@ static void appendHourlyDemandJson(struct webserver_t *client,
     period.heatingElectricalKWh, period.dhwElectricalKWh);
   appendJsonFloat(client, isfinite(degreeDifference), degreeDifference);
   appendText(client, "}");
+}
+
+static void appendCalendarEnergyJson(struct webserver_t *client,
+    const EnergyTotals &heating, const EnergyTotals &dhw) {
+  RecordedEnergy energy = recordedEnergy(heating, dhw);
+  appendFmt(client,
+    ",\"electricalKWh\":%.4f,\"heatKWh\":%.4f,\"heatConsumptionKWh\":%.4f,\"dhwConsumptionKWh\":%.4f",
+    energy.electricalKWh, energy.heatKWh,
+    heating.electricalKWh, dhw.electricalKWh);
 }
 
 static void appendEfficiencyPeriodJson(struct webserver_t *client,
@@ -1937,6 +1989,7 @@ static void appendEfficiencyPeriodJson(struct webserver_t *client,
   appendJsonFloat(client, isfinite(dhwCop), dhwCop);
   appendText(client, ",\"totalCop\":");
   appendJsonFloat(client, isfinite(totalCop), totalCop);
+  appendCalendarEnergyJson(client, period.heating, period.dhw);
   appendText(client, "}");
 }
 
@@ -1950,12 +2003,15 @@ static void appendCurrentCopJson(struct webserver_t *client, const char *period,
   totalsCop(heating, heatingCop);
   totalsCop(dhw, dhwCop);
   totalsCop(total, totalCop);
-  appendFmt(client, "{\"period\":\"%s\",\"heatCop\":", period);
+  appendFmt(client,
+    "{\"period\":\"%s\",\"heatProductionKWh\":%.4f,\"dhwProductionKWh\":%.4f,\"heatCop\":",
+    period, heating.thermalKWh, dhw.thermalKWh);
   appendJsonFloat(client, isfinite(heatingCop), heatingCop);
   appendText(client, ",\"dhwCop\":");
   appendJsonFloat(client, isfinite(dhwCop), dhwCop);
   appendText(client, ",\"totalCop\":");
   appendJsonFloat(client, isfinite(totalCop), totalCop);
+  appendCalendarEnergyJson(client, heating, dhw);
   appendText(client, "}");
 }
 
@@ -2360,7 +2416,7 @@ static void appendStoredSampleJson(struct webserver_t *client,
 // counted all matching CSV rows and then scanned them a second time to choose
 // every nth sample. Time buckets preserve chronological display while keeping
 // the shared SD lock for roughly half as long.
-constexpr uint16_t MAX_STORED_HISTORY_DISPLAY_POINTS = 72;
+constexpr uint16_t MAX_STORED_HISTORY_DISPLAY_POINTS = 180;
 struct StoredHistoryOutput {
   struct webserver_t *client;
   uint32_t lowerTimestamp;

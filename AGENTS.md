@@ -10,7 +10,14 @@ The whole firmware lives in one Arduino sketch directory: `HeishaMon/`. There is
 
 ## Build commands
 
-This is an Arduino sketch, built with `arduino-cli` (not `make`/`cmake`). Helper scripts wrap the exact `arduino-cli compile` invocations used in CI:
+In this workspace, build the ESP32-S3 PlatformIO target from the repository root
+with `../tools/pio run -e esp32s3`. The [shared launcher](../PLATFORMIO.md)
+selects the existing PlatformIO installation; **Firmware: Build** in VS Code
+uses the same entry point. The Arduino CLI builds below remain available for
+both boards.
+
+The Arduino CLI builds use the following helper scripts, which wrap the
+`arduino-cli compile` invocations:
 
 ```bash
 scripts/build_esp8266.sh   # builds HeishaMon/HeishaMon.ino for the small (Wemos D1 mini / ESP8266) PCB

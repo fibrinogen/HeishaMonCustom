@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>History new 2 - HeishaMon</title>
+    <link rel="icon" type="image/x-icon" href="/webui/heishamon_h_favicon.ico?v={{WEBUI_VERSION}}" />
+    <link rel="stylesheet" href="/webui/styles.css?v={{WEBUI_VERSION}}" />
+    <script src="/webui/common.js?v={{WEBUI_VERSION}}"></script>
+  </head>
+  <body>
+    <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
+    <aside class="sidemenu" id="sideMenu">
+      <div class="sidemenu-header">
+        <h2>HeishaMon</h2>
+        <p>Custom build {{CUSTOM_VERSION}}<br /><small>Base: {{BASE_VERSION}}</small></p>
+      </div>
+      <div class="theme-toggle">
+        <label class="theme-toggle-label"><span class="nav-icon">☀</span> Dark Mode</label>
+        <label class="theme-switch"><input type="checkbox" id="darkModeToggle" onchange="toggleDarkMode()" /><span class="theme-slider"></span></label>
+      </div>
+      <nav class="sidemenu-nav" id="sideNav"></nav>
+      <div class="sidemenu-footer"><a href="https://github.com/heishamon/HeishaMon" target="_blank">GitHub</a></div>
+    </aside>
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="hamburger" onclick="toggleMenu()">&#9776;</button><a class="topbar-logo" href="/">Heisha<span>Mon</span></a>
+      </div>
+    </header>
+    <main class="main-content history-page history-new-page">
+      <div class="history-heading">
+        <div>
+          <h1>History new 2 <span class="history-new-badge">operator view</span></h1>
+          <div class="history-note">
+            Compare with <a href="/history">History</a> · <a href="/history-new">History new</a>
+          </div>
+        </div>
+        <span id="h2Status" class="history-status">Loading…</span>
+      </div>
+
+      <nav class="tabnav history-tabs" aria-label="History sections">
+        <button id="h2TabStory" class="active" type="button" onclick="h2ShowTab('story')">Operating story &amp; diagnostics</button>
+        <button id="h2TabEnergy" type="button" onclick="h2ShowTab('energy')">Energy, demand &amp; long-term</button>
+        <button id="h2TabStorage" type="button" onclick="h2ShowTab('storage')">Storage settings</button>
+      </nav>
+
+      <div id="h2StoryView">
+        <div class="history-toolbar">
+          <label>Preset <select id="h2Range" onchange="h2ApplyPreset(true)">
+            <option value="1h">Last 1 h</option><option value="3h">Last 3 h</option><option value="6h">Last 6 h</option>
+            <option value="24h" selected>Last 24 h</option><option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option><option value="90d">Last 90 days</option><option value="custom">Custom period</option>
+          </select></label>
+          <label>Start <input id="h2Start" type="date" lang="de-DE" onchange="h2PeriodEdited()" /><select id="h2StartHour" aria-label="Start hour" onchange="h2PeriodEdited()"></select>:<select id="h2StartMinute" aria-label="Start minute" onchange="h2PeriodEdited()"></select></label>
+          <label>End <input id="h2End" type="date" lang="de-DE" onchange="h2PeriodEdited()" /><select id="h2EndHour" aria-label="End hour" onchange="h2PeriodEdited()"></select>:<select id="h2EndMinute" aria-label="End minute" onchange="h2PeriodEdited()"></select></label>
+          <label>Detail <select id="h2MaxPoints" onchange="h2Refresh()">
+            <option value="72">72 pts</option><option value="144" selected>144 pts</option><option value="180">180 pts</option>
+          </select></label>
+          <button type="button" class="dashboard-button" onclick="h2StepPeriod(-1)" title="Previous period">◀ Prev</button>
+          <button type="button" class="dashboard-button" onclick="h2StepPeriod(1)" title="Next period">Next ▶</button>
+          <button type="button" class="dashboard-button" onclick="h2Refresh()">Load period</button>
+          <button id="h2ResetZoom" type="button" class="dashboard-button" onclick="h2ResetZoom()" hidden>Reset zoom</button>
+          <button type="button" class="dashboard-button" onclick="h2ExportSamplesCsv()">Export CSV</button>
+        </div>
+
+        <div class="history-note history-new-intro">
+          Operator diagnostics view: combines synchronized timelines, spread (ΔT) and target-excess tracking, compressor modulation (Hz), water flow (l/min), defrost/evaporator behavior, and per-cycle energy analysis. Hover any chart for a shared timestamp; drag across a chart or click a cycle row to zoom in.
+        </div>
+
+        <div class="history-new-summary" aria-label="Selected-period operating metrics">
+          <div class="history-new-metric"><span>Compressor runtime</span><strong id="h2Runtime">—</strong><small id="h2Duty">Duty —</small></div>
+          <div class="history-new-metric"><span>Starts &amp; avg cycle</span><strong id="h2Starts">—</strong><small id="h2AvgCycle">Ø —</small></div>
+          <div class="history-new-metric"><span>Room heating</span><strong id="h2HeatRuntime">—</strong><small id="h2HeatShare">—</small></div>
+          <div class="history-new-metric"><span>DHW heating</span><strong id="h2DhwRuntime">—</strong><small id="h2DhwShare">—</small></div>
+          <div class="history-new-metric"><span>Defrosts</span><strong id="h2DefrostCount">—</strong><small id="h2DefrostRuntime">0 min</small></div>
+          <div class="history-new-metric"><span>Backup heaters</span><strong id="h2HeaterRuntime">—</strong><small id="h2HeaterDetail">Internal / external</small></div>
+        </div>
+
+        <div class="history-new-summary history-new-summary-4" aria-label="Selected-period energy and COP">
+          <div class="history-new-metric"><span>Electrical consumption</span><strong id="h2SelectedElectrical">—</strong><small id="h2SelectedElectricalSplit">Heat — · DHW —</small></div>
+          <div class="history-new-metric"><span>Heat produced</span><strong id="h2SelectedHeat">—</strong><small id="h2SelectedHeatSplit">Heat — · DHW —</small></div>
+          <div class="history-new-metric"><span>Heating COP</span><strong id="h2HeatCop">—</strong><small id="h2HeatPowerAvg">Room heating</small></div>
+          <div class="history-new-metric"><span>Total &amp; DHW COP</span><strong id="h2SelectedCop">—</strong><small id="h2DhwCop">DHW COP —</small></div>
+        </div>
+
+        <section class="panel history-card">
+          <div class="panel-header"><h3>1 · Operation — when and for what purpose?</h3></div>
+          <div class="history-card-body">
+            <canvas id="h2Activity" class="history-new-activity" aria-label="Heat-pump operation timeline"></canvas>
+            <div class="history-note">Exact state transitions from the three-way valve, compressor, defrost flag and backup heaters. Vertical lines mark scheduler actions, mode changes and errors.</div>
+          </div>
+        </section>
+
+        <section class="panel history-card history-new-selection">
+          <div class="panel-header"><h3>Selected time</h3><span id="h2SelectedTime" class="panel-meta">Move over a chart</span></div>
+          <div id="h2Context" class="history-new-context history-new-context-5"><span>Select a timestamp to inspect operation, demand, hydraulics/spread, modulation and COP together.</span></div>
+        </section>
+
+        <section class="panel history-card">
+          <div class="panel-header"><h3>2 · Heating water circuit — delivered temperature</h3></div>
+          <div class="history-card-body"><canvas id="h2Water" class="history-chart"></canvas><div id="h2WaterLegend" class="history-legend"></div><div class="history-note">Main water target, optional Zone 1 direct water target, flow (outlet) and return (inlet). Room-heating activity is shaded.</div></div>
+        </section>
+
+        <section class="panel history-card">
+          <div class="panel-header"><h3>3 · Spread (ΔT), target excess &amp; heating curve shift</h3></div>
+          <div class="history-card-body"><canvas id="h2Delta" class="history-chart"></canvas><div id="h2DeltaLegend" class="history-legend"></div><div class="history-note">All values in Kelvin (K): Spread ΔT (Flow − Return), Target excess (Flow − Target; compressor typically stops above +2 K), and Heating curve shift (K).</div></div>
+        </section>
+
+        <div class="history-new-two-column">
+          <section class="panel history-card">
+            <div class="panel-header"><h3>4 · Compressor modulation &amp; current</h3></div>
+            <div class="history-card-body"><canvas id="h2Modulation" class="history-chart"></canvas><div id="h2ModulationLegend" class="history-legend"></div><div class="history-note">Compressor frequency (Hz) and current (A) show whether the heat pump modulates down to minimum (~19–20 Hz) or ramps up.</div></div>
+          </section>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>5 · Hydraulics — water flow</h3></div>
+            <div class="history-card-body"><canvas id="h2Flow" class="history-chart"></canvas><div id="h2FlowLegend" class="history-legend"></div><div class="history-note">Flow rate in l/min across heating, DHW and defrost circulation peaks.</div></div>
+          </section>
+        </div>
+
+        <div class="history-new-two-column">
+          <section class="panel history-card">
+            <div class="panel-header"><h3>6 · DHW — tank &amp; charging temperatures</h3></div>
+            <div class="history-card-body"><canvas id="h2Dhw" class="history-chart"></canvas><div id="h2DhwLegend" class="history-legend"></div><div class="history-note">Tank setpoint and actual temperature continuously; flow and return temperatures while the three-way valve is in DHW position.</div></div>
+          </section>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>7 · Icing &amp; defrost — outside vs. evaporator</h3></div>
+            <div class="history-card-body"><canvas id="h2Eva" class="history-chart"></canvas><div id="h2EvaLegend" class="history-legend"></div><div class="history-note">Evaporator outlet temperature dropping well below outside temperature indicates coil icing; defrost intervals are shaded.</div></div>
+          </section>
+        </div>
+
+        <section class="panel history-card">
+          <div class="panel-header"><h3>8 · Room heating — request and result</h3></div>
+          <div class="history-card-body"><canvas id="h2Room" class="history-chart"></canvas><div id="h2RoomLegend" class="history-legend"></div><div class="history-note">Room setpoint (when Zone 1 uses room control), actual Zone 1 temperature and outside temperature.</div></div>
+        </section>
+
+        <div class="history-new-two-column">
+          <section class="panel history-card">
+            <div class="panel-header"><h3>9 · Thermal output and electrical input</h3></div>
+            <div class="history-card-body"><canvas id="h2Power" class="history-chart"></canvas><div id="h2PowerLegend" class="history-legend"></div><div class="history-note">Uses water-side calculated thermal power (matching integrated kWh/COP totals) with fallback to Panasonic production.</div></div>
+          </section>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>10 · COP during operation</h3></div>
+            <div class="history-card-body"><canvas id="h2Cop" class="history-chart"></canvas><div id="h2CopLegend" class="history-legend"></div><div class="history-note">Separate instantaneous/bucket COP for room heating and DHW. Period cards above use integrated energy totals.</div></div>
+          </section>
+        </div>
+
+        <section class="panel history-card">
+          <div class="panel-header">
+            <h3>Compressor cycles — click a row to zoom in</h3>
+            <span class="panel-meta"><button type="button" class="dashboard-button" onclick="h2ExportCyclesCsv()" style="padding:4px 10px;font-size:11px">Export cycles CSV</button></span>
+          </div>
+          <div class="history-new-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Start</th>
+                  <th>Purpose</th>
+                  <th>Duration</th>
+                  <th>Modulation (Ø / max)</th>
+                  <th>Temperatures &amp; spread</th>
+                  <th>Energy &amp; COP</th>
+                </tr>
+              </thead>
+              <tbody id="h2Cycles"><tr><td colspan="6">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel history-card">
+          <div class="panel-header"><h3>Operating events — additional “why” context</h3><span id="h2EventStatus" class="panel-meta"></span></div>
+          <div id="h2Events" class="history-new-events"><div class="history-note">Loading events…</div></div>
+        </section>
+      </div>
+
+      <div id="h2EnergyView" hidden>
+        <div class="history-aggregate-heading" style="margin-top:4px">
+          <h2>Calendar energy &amp; COP</h2>
+          <span id="h2CalendarCopStatus" class="history-status">Loading…</span>
+        </div>
+        <div class="history-new-summary history-current-energy" aria-label="Current calendar energy and COP">
+          <section class="history-new-metric history-energy-card">
+            <h3>Today <small id="h2CurrentDayPeriod"></small></h3>
+            <dl>
+              <div class="history-energy-electrical"><dt>Electrical (Heat / DHW)</dt><dd id="h2CurrentDayElectrical">—</dd></div>
+              <div class="history-energy-heat"><dt>Heat produced (Heat / DHW)</dt><dd id="h2CurrentDayHeat">—</dd></div>
+              <div><dt>COP (Heat / DHW / Total)</dt><dd id="h2CurrentDayCop">—</dd></div>
+            </dl>
+          </section>
+          <section class="history-new-metric history-energy-card">
+            <h3>This month <small id="h2CurrentMonthPeriod"></small></h3>
+            <dl>
+              <div class="history-energy-electrical"><dt>Electrical (Heat / DHW)</dt><dd id="h2CurrentMonthElectrical">—</dd></div>
+              <div class="history-energy-heat"><dt>Heat produced (Heat / DHW)</dt><dd id="h2CurrentMonthHeat">—</dd></div>
+              <div><dt>COP (Heat / DHW / Total)</dt><dd id="h2CurrentMonthCop">—</dd></div>
+            </dl>
+          </section>
+          <section class="history-new-metric history-energy-card">
+            <h3>This year <small id="h2CurrentYearPeriod"></small></h3>
+            <dl>
+              <div class="history-energy-electrical"><dt>Electrical (Heat / DHW)</dt><dd id="h2CurrentYearElectrical">—</dd></div>
+              <div class="history-energy-heat"><dt>Heat produced (Heat / DHW)</dt><dd id="h2CurrentYearHeat">—</dd></div>
+              <div><dt>COP (Heat / DHW / Total)</dt><dd id="h2CurrentYearCop">—</dd></div>
+            </dl>
+          </section>
+        </div>
+        <div class="history-note">Calendar totals cover recorded room heating and DHW from daily SD summaries. Values in parentheses show (Heating / DHW).</div>
+
+        <div class="history-aggregate-heading">
+          <h2>Heating demand, weather &amp; daily cycling</h2>
+        </div>
+        <div class="history-aggregate-grid">
+          <section class="panel history-card" style="grid-column: 1 / -1">
+            <div class="panel-header"><h3>Daily demand — last 31 days</h3></div>
+            <div class="history-card-body">
+              <canvas id="h2DailyDemand" class="history-bar-chart"></canvas>
+              <div id="h2DailyDemandLegend" class="history-legend"></div>
+              <div class="history-note">Heating degree days (K·d) use a configurable reference of <span id="h2DegreeDayBaseLabel">18.0 °C</span>. Heat and DHW show electrical consumption in kWh.</div>
+            </div>
+          </section>
+          <section class="panel history-card" style="grid-column: 1 / -1">
+            <div class="panel-header"><h3>Hourly demand — last 24 hours</h3></div>
+            <div class="history-card-body">
+              <canvas id="h2HourlyDemand" class="history-bar-chart"></canvas>
+              <div id="h2HourlyDemandLegend" class="history-legend"></div>
+              <div class="history-note">Hourly heating degree difference (K) and electrical energy consumption per hour in kWh.</div>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel history-card">
+          <div class="panel-header">
+            <h3>Daily operator summary — last 31 days (click a day to open in chart view)</h3>
+          </div>
+          <div class="history-new-table-wrap history-energy-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Outside Ø</th>
+                  <th>HDD (K·d)</th>
+                  <th>Starts</th>
+                  <th>Runtime</th>
+                  <th>Electrical (kWh)</th>
+                  <th>Heat (kWh)</th>
+                  <th>kWh<sub>el</sub> / K·d</th>
+                  <th>Daily COP</th>
+                </tr>
+              </thead>
+              <tbody id="h2DailyTable"><tr><td colspan="9">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+
+        <div class="history-aggregate-heading">
+          <h2>Monthly &amp; yearly archive</h2>
+        </div>
+        <div class="history-aggregate-grid">
+          <section class="panel history-card">
+            <div class="panel-header"><h3>Monthly thermal production</h3></div>
+            <div class="history-card-body">
+              <canvas id="h2MonthlyProduction" class="history-bar-chart"></canvas>
+              <div id="h2MonthlyProductionLegend" class="history-legend"></div>
+            </div>
+          </section>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>Monthly COP</h3></div>
+            <div class="history-card-body">
+              <canvas id="h2MonthlyCopChart" class="history-bar-chart"></canvas>
+              <div id="h2MonthlyCopLegend" class="history-legend"></div>
+            </div>
+          </section>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>Yearly thermal production</h3></div>
+            <div class="history-card-body">
+              <canvas id="h2YearlyProduction" class="history-bar-chart"></canvas>
+              <div id="h2YearlyProductionLegend" class="history-legend"></div>
+            </div>
+          </section>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>Yearly COP</h3></div>
+            <div class="history-card-body">
+              <canvas id="h2YearlyCopChart" class="history-bar-chart"></canvas>
+              <div id="h2YearlyCopLegend" class="history-legend"></div>
+            </div>
+          </section>
+        </div>
+
+        <div class="history-new-two-column">
+          <section class="panel history-card">
+            <div class="panel-header"><h3>Monthly energy &amp; COP</h3></div>
+            <div class="history-new-table-wrap history-energy-table">
+              <table>
+                <thead><tr><th>Month</th><th>Electrical<br />(kWh)</th><th>Heat<br />(kWh)</th><th>Heating<br />COP</th><th>DHW<br />COP</th><th>Total<br />COP</th></tr></thead>
+                <tbody id="h2MonthlyCop"><tr><td colspan="6">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="panel history-card">
+            <div class="panel-header"><h3>Yearly energy &amp; COP</h3></div>
+            <div class="history-new-table-wrap history-energy-table">
+              <table>
+                <thead><tr><th>Year</th><th>Electrical<br />(kWh)</th><th>Heat<br />(kWh)</th><th>Heating<br />COP</th><th>DHW<br />COP</th><th>Total<br />COP</th></tr></thead>
+                <tbody id="h2YearlyCop"><tr><td colspan="6">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <section id="h2StorageView" class="panel history-storage-card" hidden>
+        <div class="panel-header">
+          <h3>Storage settings</h3>
+          <span id="h2StorageStatus" class="history-status">Loading…</span>
+        </div>
+        <div class="history-storage-body">
+          <div class="history-storage-row">
+            <div>
+              <strong>Storage interval</strong>
+              <p>How often a history sample is stored in RAM and on the SD card.</p>
+            </div>
+            <select id="h2Interval" onchange="h2SetIntervalValue()">
+              <option value="1" selected>1 min</option><option value="2">2 min</option><option value="3">3 min</option>
+              <option value="4">4 min</option><option value="5">5 min</option><option value="6">6 min</option>
+              <option value="7">7 min</option><option value="8">8 min</option><option value="9">9 min</option>
+              <option value="10">10 min</option>
+            </select>
+          </div>
+          <div class="history-storage-row">
+            <div>
+              <strong>SD retention</strong>
+              <p>Automatically removes old history and event CSV files. Unlimited uses the available SD-card space.</p>
+            </div>
+            <select id="h2Retention" onchange="h2SetRetentionValue()">
+              <option value="0">Unlimited</option><option value="7">7 days</option><option value="14">14 days</option>
+              <option value="30" selected>30 days</option><option value="90">90 days</option>
+            </select>
+          </div>
+          <div class="history-storage-row">
+            <div>
+              <strong>Electrical power source</strong>
+              <p>Used for electrical energy and COP. Keep Panasonic selected unless an external MQTT power meter is configured.</p>
+            </div>
+            <span id="h2ElectricalSourceControl"></span>
+          </div>
+          <div class="history-storage-row">
+            <div>
+              <strong>Heating degree-day base temperature (°C)</strong>
+              <p>Reference indoor/heating limit temperature for heating degree days (K·d) and hourly degree difference (e.g. 15 °C for well-insulated homes, 18 °C standard).</p>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input id="h2DegreeDayBase" type="number" min="5" max="30" step="0.5" value="18.0" style="width:90px" onchange="h2SetDegreeDayBase()" />
+              <span>°C</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script src="/webui/history-new-2.js?v={{WEBUI_VERSION}}"></script>
+  </body>
+</html>

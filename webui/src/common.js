@@ -222,6 +222,7 @@ function markActiveNav() {
       "/diagnostics",
       "/history",
       "/history-new",
+      "/history-new-2",
     ];
     var customActive = customPaths.indexOf(current) >= 0;
     var toggle = group.querySelector(".sidemenu-group-toggle");
@@ -294,6 +295,7 @@ function groupCustomNav() {
   submenu.appendChild(createNavLink("/diagnostics", "Diagnostics", "◌"));
   submenu.appendChild(createNavLink("/history", "History", "▥"));
   submenu.appendChild(createNavLink("/history-new", "History new", "▤"));
+  submenu.appendChild(createNavLink("/history-new-2", "History new 2", "▦"));
   group.appendChild(submenu);
   nav.innerHTML = "";
   nav.appendChild(createNavLink("/", "Home", "↳"));

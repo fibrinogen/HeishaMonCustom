@@ -333,8 +333,12 @@ Alle [von uns verwendeten Bibliotheken](LIBSUSED.md) die zum Kompilieren notwend
 
 Das Repository enthält zusätzlich eine PlatformIO-Konfiguration für die große HeishaMon-Platine mit ESP32-S3. PlatformIO lädt die benötigte Plattform und die Bibliotheken automatisch. Die Befehle müssen im Projekt-Wurzelverzeichnis ausgeführt werden:
 
+Im Workspace den [gemeinsamen PlatformIO-Starter](../PLATFORMIO.md) verwenden;
+außerhalb davon die Befehle direkt mit der eingerichteten `pio`-Installation
+ausführen.
+
 ```bash
-pio run -e esp32s3
+../tools/pio run -e esp32s3
 ```
 
 Die Firmware wird nach `.pio/build/esp32s3/firmware.bin` geschrieben. Bootloader, Partitionstabelle und eine kombinierte Factory-Datei liegen ebenfalls in diesem Verzeichnis.
@@ -342,13 +346,13 @@ Die Firmware wird nach `.pio/build/esp32s3/firmware.bin` geschrieben. Bootloader
 Zum direkten Flashen per USB:
 
 ```bash
-pio run -e esp32s3 -t upload
+../tools/pio run -e esp32s3 -t upload
 ```
 
 Für die serielle Ausgabe:
 
 ```bash
-pio device monitor -e esp32s3
+../tools/pio device monitor -e esp32s3
 ```
 
 Die PlatformIO-Konfiguration liegt in [platformio.ini](platformio.ini). Nicht die ESP8266-Firmware auf die große ESP32-S3-Platine flashen.

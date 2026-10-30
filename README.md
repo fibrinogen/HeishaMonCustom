@@ -362,11 +362,13 @@ esp8266 by esp8266 community version 3.0.2 [Arduino](https://github.com/esp8266/
 
 All the [libs we use](LIBSUSED.md) necessary for compiling.
 
-For the large ESP32-S3 board, PlatformIO resolves the pinned framework and libraries from `platformio.ini`:
+For the large ESP32-S3 board, PlatformIO resolves the pinned framework and libraries from `platformio.ini`.
+In this workspace, use the [shared PlatformIO launcher](../PLATFORMIO.md)
+from the project root; outside it, use your configured `pio` directly:
 
 ```bash
 cd /path/to/HeishaMon
-pio run -e esp32s3
+../tools/pio run -e esp32s3
 ```
 
 The OTA image is generated as `.pio/build/esp32s3/firmware.bin` and the complete factory image as `.pio/build/esp32s3/firmware.factory.bin`.

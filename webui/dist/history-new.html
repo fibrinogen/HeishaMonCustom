@@ -31,7 +31,7 @@
       <div class="history-heading">
         <div>
           <h1>History new <span class="history-new-badge">comparison</span></h1>
-          <div class="history-note"><a href="/history">Open the existing History page</a></div>
+          <div class="history-note"><a href="/history">Open the existing History page</a> · <a href="/history-new-2">Open History new 2</a></div>
         </div>
         <span id="hnStatus" class="history-status">Loading…</span>
       </div>
@@ -60,31 +60,47 @@
         <div class="history-new-metric"><span>DHW COP</span><strong id="hnDhwCop">—</strong></div>
       </div>
 
+      <div class="history-new-summary history-current-energy" aria-label="Selected-period energy totals">
+        <div class="history-new-metric"><span>Electrical consumption</span><strong id="hnSelectedElectrical">—</strong></div>
+        <div class="history-new-metric"><span>Heat produced</span><strong id="hnSelectedHeat">—</strong></div>
+        <div class="history-new-metric"><span>Total COP</span><strong id="hnSelectedCop">—</strong></div>
+      </div>
+
       <div class="history-aggregate-heading">
-        <h2>Calendar COP</h2>
+        <h2>Calendar energy &amp; COP</h2>
         <span id="hnCalendarCopStatus" class="history-status">Loading…</span>
       </div>
-      <div class="history-new-summary history-current-cop" aria-label="Current calendar COP">
-        <div class="history-new-metric"><span>Current day COP</span><strong id="hnCurrentDayCop">—</strong></div>
-        <div class="history-new-metric"><span>Current month COP</span><strong id="hnCurrentMonthCop">—</strong></div>
-        <div class="history-new-metric"><span>Current year COP</span><strong id="hnCurrentYearCop">—</strong></div>
+      <div class="history-new-summary history-current-energy" aria-label="Current calendar energy and COP">
+        <section class="history-new-metric history-energy-card">
+          <h3>Today <small id="hnCurrentDayPeriod"></small></h3>
+          <dl><div class="history-energy-electrical"><dt>Electrical consumption</dt><dd id="hnCurrentDayElectrical">—</dd></div><div class="history-energy-heat"><dt>Heat produced</dt><dd id="hnCurrentDayHeat">—</dd></div><div><dt>Total COP</dt><dd id="hnCurrentDayCop">—</dd></div></dl>
+        </section>
+        <section class="history-new-metric history-energy-card">
+          <h3>This month <small id="hnCurrentMonthPeriod"></small></h3>
+          <dl><div class="history-energy-electrical"><dt>Electrical consumption</dt><dd id="hnCurrentMonthElectrical">—</dd></div><div class="history-energy-heat"><dt>Heat produced</dt><dd id="hnCurrentMonthHeat">—</dd></div><div><dt>Total COP</dt><dd id="hnCurrentMonthCop">—</dd></div></dl>
+        </section>
+        <section class="history-new-metric history-energy-card">
+          <h3>This year <small id="hnCurrentYearPeriod"></small></h3>
+          <dl><div class="history-energy-electrical"><dt>Electrical consumption</dt><dd id="hnCurrentYearElectrical">—</dd></div><div class="history-energy-heat"><dt>Heat produced</dt><dd id="hnCurrentYearHeat">—</dd></div><div><dt>Total COP</dt><dd id="hnCurrentYearCop">—</dd></div></dl>
+        </section>
       </div>
+      <div class="history-note">Calendar totals cover recorded room heating and DHW, independently of the selected chart period. COP is heat produced divided by electrical consumption; it is unavailable until electrical energy has been recorded.</div>
       <div class="history-new-two-column">
         <section class="panel history-card">
-          <div class="panel-header"><h3>Monthly COP history</h3></div>
-          <div class="history-new-table-wrap">
+          <div class="panel-header"><h3>Monthly energy &amp; COP</h3></div>
+          <div class="history-new-table-wrap history-energy-table">
             <table>
-              <thead><tr><th>Month</th><th>Heating</th><th>DHW</th><th>Total</th></tr></thead>
-              <tbody id="hnMonthlyCop"><tr><td colspan="4">Loading…</td></tr></tbody>
+              <thead><tr><th>Month</th><th>Electrical<br />(kWh)</th><th>Heat<br />(kWh)</th><th>Heating<br />COP</th><th>DHW<br />COP</th><th>Total<br />COP</th></tr></thead>
+              <tbody id="hnMonthlyCop"><tr><td colspan="6">Loading…</td></tr></tbody>
             </table>
           </div>
         </section>
         <section class="panel history-card">
-          <div class="panel-header"><h3>Yearly COP history</h3></div>
-          <div class="history-new-table-wrap">
+          <div class="panel-header"><h3>Yearly energy &amp; COP</h3></div>
+          <div class="history-new-table-wrap history-energy-table">
             <table>
-              <thead><tr><th>Year</th><th>Heating</th><th>DHW</th><th>Total</th></tr></thead>
-              <tbody id="hnYearlyCop"><tr><td colspan="4">Loading…</td></tr></tbody>
+              <thead><tr><th>Year</th><th>Electrical<br />(kWh)</th><th>Heat<br />(kWh)</th><th>Heating<br />COP</th><th>DHW<br />COP</th><th>Total<br />COP</th></tr></thead>
+              <tbody id="hnYearlyCop"><tr><td colspan="6">Loading…</td></tr></tbody>
             </table>
           </div>
         </section>
