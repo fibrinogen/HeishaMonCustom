@@ -24,6 +24,7 @@ function wpRenderHeatpumpData(data) {
 }
 function wpHandleTopicUpdate(topic, value) {
   wpValues[topic] = value;
+  if (topic === "TOP58" || topic === "TOP59") wpSync();
 }
 function wpStatus(message, isError) {
   var el = document.getElementById("wpSettingsStatus");
@@ -99,6 +100,10 @@ function wpSync() {
       });
   var schedule = document.getElementById("wpScheduleToggle");
   if (schedule) schedule.checked = Number(wpValues.TOP13) !== 0;
+  var roomHeater = document.getElementById("wpRoomHeaterToggle");
+  if (roomHeater) roomHeater.checked = Number(wpValues.TOP59) === 1;
+  var dhwHeater = document.getElementById("wpDhwHeaterToggle");
+  if (dhwHeater) dhwHeater.checked = Number(wpValues.TOP58) === 1;
   wpSetSelect("wpZones", "TOP94");
   var slider = document.getElementById("wpMaxPumpSlider");
   if (

@@ -242,6 +242,55 @@
             </div>
             <div class="dashboard-section-title">Backup heater</div>
             <div class="dashboard-row">
+              <span>Room heater</span>
+              <div class="dashboard-control">
+                <span id="TOP59-Description" class="dashboard-value">--</span
+                ><span id="TOP59-Value" class="dashboard-hidden"></span
+                ><label class="dashboard-toggle"
+                  ><input
+                    id="wpRoomHeaterToggle"
+                    type="checkbox"
+                    onchange="wpToggle(this,'SetRoomHeaterState')" /><span
+                    class="dashboard-toggle-slider"
+                  ></span
+                ></label>
+              </div>
+            </div>
+            <div class="dashboard-row">
+              <span>DHW heater</span>
+              <div class="dashboard-control">
+                <span id="TOP58-Description" class="dashboard-value">--</span
+                ><span id="TOP58-Value" class="dashboard-hidden"></span
+                ><label class="dashboard-toggle"
+                  ><input
+                    id="wpDhwHeaterToggle"
+                    type="checkbox"
+                    onchange="wpToggle(this,'SetDHWHeaterState')" /><span
+                    class="dashboard-toggle-slider"
+                  ></span
+                ></label>
+              </div>
+            </div>
+            <div class="dashboard-row">
+              <span>Outdoor on temp.</span>
+              <div class="dashboard-control">
+                <button
+                  class="dashboard-step"
+                  onclick="wpStep('SetHeaterOnOutdoorTemp','TOP78',-1,-15,20)"
+                >
+                  &#8964;</button
+                ><span class="dashboard-value"
+                  ><span id="TOP78-Value">--</span> &deg;C</span
+                ><span id="TOP78-Description" class="dashboard-hidden"></span
+                ><button
+                  class="dashboard-step"
+                  onclick="wpStep('SetHeaterOnOutdoorTemp','TOP78',1,-15,20)"
+                >
+                  &#8963;
+                </button>
+              </div>
+            </div>
+            <div class="dashboard-row">
               <span>Start delta</span>
               <div class="dashboard-control">
                 <button
@@ -284,7 +333,7 @@
               <div class="dashboard-control">
                 <button
                   class="dashboard-step"
-                  onclick="wpStep('SetHeaterDelayTime','TOP96',-5,0,60)"
+                  onclick="wpStep('SetHeaterDelayTime','TOP96',-5,0,90)"
                 >
                   &#8964;</button
                 ><span class="dashboard-value"
@@ -292,7 +341,7 @@
                 ><span id="TOP96-Description" class="dashboard-hidden"></span
                 ><button
                   class="dashboard-step"
-                  onclick="wpStep('SetHeaterDelayTime','TOP96',5,0,60)"
+                  onclick="wpStep('SetHeaterDelayTime','TOP96',5,0,90)"
                 >
                   &#8963;
                 </button>

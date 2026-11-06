@@ -4,9 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Heisha Monitor</title>
-    <link rel="icon" type="image/x-icon" href="/webui/heishamon_h_favicon.ico?v=0.2.7-web.51" />
-    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.51" />
-    <script src="/webui/common.js?v=0.2.7-web.51"></script>
+    <link rel="icon" type="image/x-icon" href="/webui/heishamon_h_favicon.ico?v=0.2.7-web.52" />
+    <link rel="stylesheet" href="/webui/styles.css?v=0.2.7-web.52" />
+    <script src="/webui/common.js?v=0.2.7-web.52"></script>
   </head>
   <body>
     <div class="sidemenu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
@@ -242,6 +242,55 @@
             </div>
             <div class="dashboard-section-title">Backup heater</div>
             <div class="dashboard-row">
+              <span>Room heater</span>
+              <div class="dashboard-control">
+                <span id="TOP59-Description" class="dashboard-value">--</span
+                ><span id="TOP59-Value" class="dashboard-hidden"></span
+                ><label class="dashboard-toggle"
+                  ><input
+                    id="wpRoomHeaterToggle"
+                    type="checkbox"
+                    onchange="wpToggle(this,'SetRoomHeaterState')" /><span
+                    class="dashboard-toggle-slider"
+                  ></span
+                ></label>
+              </div>
+            </div>
+            <div class="dashboard-row">
+              <span>DHW heater</span>
+              <div class="dashboard-control">
+                <span id="TOP58-Description" class="dashboard-value">--</span
+                ><span id="TOP58-Value" class="dashboard-hidden"></span
+                ><label class="dashboard-toggle"
+                  ><input
+                    id="wpDhwHeaterToggle"
+                    type="checkbox"
+                    onchange="wpToggle(this,'SetDHWHeaterState')" /><span
+                    class="dashboard-toggle-slider"
+                  ></span
+                ></label>
+              </div>
+            </div>
+            <div class="dashboard-row">
+              <span>Outdoor on temp.</span>
+              <div class="dashboard-control">
+                <button
+                  class="dashboard-step"
+                  onclick="wpStep('SetHeaterOnOutdoorTemp','TOP78',-1,-15,20)"
+                >
+                  &#8964;</button
+                ><span class="dashboard-value"
+                  ><span id="TOP78-Value">--</span> &deg;C</span
+                ><span id="TOP78-Description" class="dashboard-hidden"></span
+                ><button
+                  class="dashboard-step"
+                  onclick="wpStep('SetHeaterOnOutdoorTemp','TOP78',1,-15,20)"
+                >
+                  &#8963;
+                </button>
+              </div>
+            </div>
+            <div class="dashboard-row">
               <span>Start delta</span>
               <div class="dashboard-control">
                 <button
@@ -284,7 +333,7 @@
               <div class="dashboard-control">
                 <button
                   class="dashboard-step"
-                  onclick="wpStep('SetHeaterDelayTime','TOP96',-5,0,60)"
+                  onclick="wpStep('SetHeaterDelayTime','TOP96',-5,0,90)"
                 >
                   &#8964;</button
                 ><span class="dashboard-value"
@@ -292,7 +341,7 @@
                 ><span id="TOP96-Description" class="dashboard-hidden"></span
                 ><button
                   class="dashboard-step"
-                  onclick="wpStep('SetHeaterDelayTime','TOP96',5,0,60)"
+                  onclick="wpStep('SetHeaterDelayTime','TOP96',5,0,90)"
                 >
                   &#8963;
                 </button>
@@ -469,7 +518,7 @@
         </section>
       </div>
     </main>
-    <script src="/webui/websocket.js?v=0.2.7-web.51"></script>
-    <script src="/webui/wpsettings.js?v=0.2.7-web.51"></script>
+    <script src="/webui/websocket.js?v=0.2.7-web.52"></script>
+    <script src="/webui/wpsettings.js?v=0.2.7-web.52"></script>
   </body>
 </html>
