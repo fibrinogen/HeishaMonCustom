@@ -473,8 +473,22 @@ function schedulerLoadEvents(reset) {
     { cache: "no-store" },
   )
     .then(function (response) {
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      return response.json();
+      return response.text().then(function (body) {
+        var data = null;
+        try {
+          if (body) data = JSON.parse(body);
+        } catch (e) {}
+        if (!response.ok) {
+          throw new Error(
+            (data && data.error ? data.error + " (" : "") +
+              "HTTP " +
+              response.status +
+              (data && data.error ? ")" : ""),
+          );
+        }
+        if (!data) throw new Error("Invalid JSON response");
+        return data;
+      });
     })
     .then(function (data) {
       if (data.error) throw new Error(data.error);
@@ -500,8 +514,22 @@ function schedulerRefresh() {
   if (schedulerRefreshPromise) return schedulerRefreshPromise;
   schedulerRefreshPromise = fetch("/schedulerapi", { cache: "no-store" })
     .then(function (response) {
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      return response.json();
+      return response.text().then(function (body) {
+        var data = null;
+        try {
+          if (body) data = JSON.parse(body);
+        } catch (e) {}
+        if (!response.ok) {
+          throw new Error(
+            (data && data.error ? data.error + " (" : "") +
+              "HTTP " +
+              response.status +
+              (data && data.error ? ")" : ""),
+          );
+        }
+        if (!data) throw new Error("Invalid JSON response");
+        return data;
+      });
     })
     .then(function (data) {
       schedulerRefreshPromise = null;

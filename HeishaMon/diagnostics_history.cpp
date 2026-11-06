@@ -2867,8 +2867,12 @@ static void handlePersistentSchedulerEventLog(struct webserver_t *client,
 
   uint32_t endIndex = offset < total.count ? total.count - offset : 0;
   uint16_t returned = (uint16_t)min<uint32_t>(limit, endIndex);
-  PersistentEventLine *pageEvents = returned == 0 ? nullptr :
-    (PersistentEventLine *)malloc(sizeof(PersistentEventLine) * returned);
+  PersistentEventLine *pageEvents = nullptr;
+  if (returned != 0) {
+    size_t bytes = sizeof(PersistentEventLine) * returned;
+    pageEvents = (PersistentEventLine *)(psramFound() ? ps_malloc(bytes) : nullptr);
+    if (pageEvents == nullptr) pageEvents = (PersistentEventLine *)malloc(bytes);
+  }
   if (returned != 0 && pageEvents == nullptr) {
     sdHistoryReaderBusy = false;
     xSemaphoreGive(sdFilesystemMutex);
@@ -3195,6 +3199,9 @@ static void writeDailySummaryToSd(const DailySummary &summary) {
     local.tm_mon + 1, local.tm_mday);
   char temporaryPath[56];
   snprintf(temporaryPath, sizeof(temporaryPath), "%s.tmp", path);
+  char backupPath[56];
+  snprintf(backupPath, sizeof(backupPath), "%s.bak", path);
+  unlink(temporaryPath);
   FILE *file = fopen(temporaryPath, "w");
   if (!file) {
     setSdOpenError("daily summary file");
@@ -3215,9 +3222,28 @@ static void writeDailySummaryToSd(const DailySummary &summary) {
     isfinite(summary.outsideMaximum) ? String(summary.outsideMaximum, 1).c_str() : "",
     isfinite(outsideAverage) ? String(outsideAverage, 1).c_str() : "");
   bool writeOk = ferror(file) == 0;
-  if (fclose(file) != 0 || !writeOk || rename(temporaryPath, path) != 0) {
+  if (fclose(file) != 0 || !writeOk) {
+    unlink(temporaryPath);
     setSdWriterError("Could not finish daily summary file");
+    return;
   }
+  // ESP-IDF FATFS rename() fails with EEXIST if the destination already exists
+  // (e.g. when updating the midnight summary after splitting the first sample
+  // of the new day). Move any existing file aside first.
+  unlink(backupPath);
+  bool hadExisting = rename(path, backupPath) == 0;
+  if (!hadExisting && errno != ENOENT) {
+    unlink(temporaryPath);
+    setSdWriterError("Could not finish daily summary file");
+    return;
+  }
+  if (rename(temporaryPath, path) != 0) {
+    if (hadExisting) rename(backupPath, path);
+    unlink(temporaryPath);
+    setSdWriterError("Could not finish daily summary file");
+    return;
+  }
+  unlink(backupPath);
 #else
   (void)summary;
 #endif
