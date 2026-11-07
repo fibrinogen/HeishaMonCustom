@@ -606,11 +606,11 @@ function h2BuildCycles() {
         var prev = points[i - 1],
           t0 = Math.max(cycle.start, Number(prev.t)),
           t1 = Math.min(cycle.end, t);
-        if (t1 > t0 && t - Number(prev.t) <= 3600) {
+        if (t1 > t0 && t - Number(prev.t) <= 3600 && !prev.defrost && !p.defrost) {
           var pTh0 = h2Number(prev.activeThermal), pTh1 = h2Number(p.activeThermal),
             pEl0 = h2Number(prev.electrical), pEl1 = h2Number(p.electrical);
-          if (pTh0 !== null && pTh1 !== null) thKWh += ((pTh0 + pTh1) * 0.5) * ((t1 - t0) / 3600);
-          if (pEl0 !== null && pEl1 !== null) elKWh += ((pEl0 + pEl1) * 0.5) * ((t1 - t0) / 3600);
+          if (pTh0 !== null && pTh1 !== null && pTh0 >= 0 && pTh1 >= 0) thKWh += ((pTh0 + pTh1) * 0.5) * ((t1 - t0) / 3600);
+          if (pEl0 !== null && pEl1 !== null && pEl0 >= 0 && pEl1 >= 0) elKWh += ((pEl0 + pEl1) * 0.5) * ((t1 - t0) / 3600);
         }
       }
     }

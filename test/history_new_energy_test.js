@@ -121,6 +121,7 @@ async function run() {
     samples: [
       { t: 1760000600, inlet: 28.0, outlet: 32.5, target: 31.0, hz: 20, current: 3.2, flow: 14.5, outside: 2.0, evaOutlet: -1.5, power: 4.5, electrical: 1.0, cop: 4.5, heatingCurveShift: -1, mode: 0, valve: 0, dhwActive: false },
       { t: 1760001800, inlet: 29.0, outlet: 34.0, target: 31.0, hz: 34, current: 4.8, flow: 15.0, outside: 2.0, evaOutlet: -3.0, power: 5.2, electrical: 1.3, cop: 4.0, heatingCurveShift: -1, mode: 0, valve: 0, dhwActive: false },
+      { t: 1760002400, inlet: 30.0, outlet: 26.0, target: 31.0, hz: 20, current: 1.5, flow: 20.0, outside: 2.0, evaOutlet: 5.0, power: -5.5, electrical: 0.5, cop: null, heatingCurveShift: -1, mode: 0, valve: 0, dhwActive: false, defrost: true },
     ],
   });
   assert.equal(prepared.samples[0].spread, 4.5);
@@ -143,8 +144,8 @@ async function run() {
 
   context2.h2BuildCycles();
   assert(markup2("h2Cycles").includes("Room heating + defrost"));
-  assert(markup2("h2Cycles").includes("27 / 34 Hz"));
-  assert(markup2("h2Cycles").includes("Ø ΔT 4.8 K"));
+  assert(markup2("h2Cycles").includes("25 / 34 Hz"));
+  assert(markup2("h2Cycles").includes("1.62 kWh th · COP 4.22"));
 
   context2.h2UpdateContext(prepared.samples[1]);
   assert(markup2("h2Context").includes("ΔT 5.0 K"));

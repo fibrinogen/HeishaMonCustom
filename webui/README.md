@@ -29,7 +29,7 @@ directory or unrelated files.
 History and History new also include the year whenever a chart label or
 tooltip includes a date. History new calendar COP cards/tables and History
 bar-chart periods also use German dates/months. The current generated package
-is `0.2.8-web.53`.
+is `0.2.9-web.54`.
 
 **History new** shows electrical consumption (kWh), heat produced (kWh), and
 COP for the selected chart period, today, this month, this year, and recorded

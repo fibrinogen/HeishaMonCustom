@@ -65,7 +65,7 @@ static HistorySample sample(uint32_t when, int thermal100, int electricalW) {
   HistorySample result = {};
   result.timestamp = when;
   result.flags = SAMPLE_FLAG_TIME_VALID | SAMPLE_FLAG_COMPRESSOR;
-  result.operatingMode = 1;
+  result.operatingMode = 0; // TOP4 = 0 (Heat)
   result.thermalPower100 = thermal100;
   result.electricalPowerW = electricalW;
   result.validFields =
@@ -168,6 +168,49 @@ int main() {
   second.bootId = first.bootId;
   second.electricalSource = 1;
   assert(!addEnergyPair(first, second, 0, 0, UINT32_MAX, gap));
+
+  // Verify 0-based TOP4 operating modes (0=Heat, 1=Cool, 2=Auto(heat),
+  // 3=DHW, 4=Heat+DHW, 5=Cool+DHW, 6=Auto(heat)+DHW, 7=Auto(cool),
+  // 8=Auto(cool)+DHW) and defrost compressor-start handling.
+  for (uint8_t mode : {0, 2, 4, 6}) {
+    HistorySample s = sample(midnight + 120, 400, 1000);
+    s.operatingMode = mode;
+    assert(efficiencyGroup(s) == 1);
+    s.flags |= SAMPLE_FLAG_DHW;
+    assert(efficiencyGroup(s) == 2);
+  }
+  {
+    HistorySample s = sample(midnight + 120, 400, 1000);
+    s.operatingMode = 3; // DHW
+    assert(efficiencyGroup(s) == 2);
+  }
+  for (uint8_t mode : {1, 7}) {
+    HistorySample s = sample(midnight + 120, 400, 1000);
+    s.operatingMode = mode;
+    assert(efficiencyGroup(s) == 0);
+  }
+  for (uint8_t mode : {5, 8}) {
+    HistorySample s = sample(midnight + 120, 400, 1000);
+    s.operatingMode = mode;
+    assert(efficiencyGroup(s) == 0);
+    s.flags |= SAMPLE_FLAG_DHW;
+    assert(efficiencyGroup(s) == 2);
+  }
+  {
+    DailySummary defrostDay;
+    defrostDay.valid = true;
+    defrostDay.dayStart = midnight;
+    HistorySample s0 = sample(midnight + 60, 0, 0);
+    s0.flags = SAMPLE_FLAG_TIME_VALID;
+    HistorySample s1 = sample(midnight + 120, 400, 1000);
+    HistorySample s2 = sample(midnight + 180, 100, 500);
+    s2.flags = SAMPLE_FLAG_TIME_VALID | SAMPLE_FLAG_DEFROST; // 4-way valve pause during defrost
+    HistorySample s3 = sample(midnight + 240, 400, 1000);
+    accumulateDailySample(defrostDay, &s0, s1, 18);
+    accumulateDailySample(defrostDay, &s1, s2, 18);
+    accumulateDailySample(defrostDay, &s2, s3, 18);
+    assert(defrostDay.compressorStarts == 1);
+  }
 
   Sink sink;
   assert(publishRecordedEnergy(sink, "test/pump", "today", total, true));

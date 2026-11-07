@@ -20,13 +20,16 @@ inline int efficiencyGroup(const HistorySample &sample) {
       (sample.flags & SAMPLE_FLAG_DEFROST) != 0)
     return 0;
   switch (sample.operatingMode) {
-  case 1: // Heat
-  case 3: // Auto(heat)
+  case 0: // Heat
+  case 2: // Auto(heat)
+  case 4: // Heat+DHW
+  case 6: // Auto(heat)+DHW
     return (sample.flags & SAMPLE_FLAG_DHW) != 0 ? 2 : 1;
-  case 4: // DHW
-  case 5: // Heat+DHW
-  case 7: // Auto(heat)+DHW
-    return (sample.flags & SAMPLE_FLAG_DHW) != 0 ? 2 : 1;
+  case 3: // DHW
+    return 2;
+  case 5: // Cool+DHW
+  case 8: // Auto(cool)+DHW
+    return (sample.flags & SAMPLE_FLAG_DHW) != 0 ? 2 : 0;
   default:
     return 0;
   }
@@ -146,8 +149,10 @@ inline void accumulateDailySample(DailySummary &summary,
   addEnergyPair(*previous, sample, 2, summary.dayStart, upper, summary.dhw);
   if ((sample.flags & SAMPLE_FLAG_COMPRESSOR) != 0)
     summary.compressorSeconds += upper - lower;
+  constexpr uint8_t CYCLE_ACTIVE_FLAGS =
+      SAMPLE_FLAG_COMPRESSOR | SAMPLE_FLAG_DEFROST;
   if (sampleDay == summary.dayStart &&
-      (sample.flags & SAMPLE_FLAG_COMPRESSOR) != 0 &&
-      (previous->flags & SAMPLE_FLAG_COMPRESSOR) == 0)
+      (sample.flags & CYCLE_ACTIVE_FLAGS) != 0 &&
+      (previous->flags & CYCLE_ACTIVE_FLAGS) == 0)
     summary.compressorStarts++;
 }

@@ -6,8 +6,8 @@
 // N is a monotonically increasing Web UI build number. Never reset it: this
 // makes every uploaded package uniquely identifiable, even across firmware
 // releases. Increment it for every Web UI package we publish.
-#define CUSTOM_FIRMWARE_VERSION "0.2.8"
-#define CUSTOM_WEBUI_BUILD "53"
+#define CUSTOM_FIRMWARE_VERSION "0.2.9"
+#define CUSTOM_WEBUI_BUILD "54"
 #define CUSTOM_WEBUI_VERSION CUSTOM_FIRMWARE_VERSION "-web." CUSTOM_WEBUI_BUILD
 
 // Backwards-compatible name used by existing custom feature code.
