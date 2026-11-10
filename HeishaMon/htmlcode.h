@@ -436,9 +436,10 @@ input:disabled + .theme-slider-compact {
 .scheduler-day input:checked+span{border-color:var(--accent);background:var(--accent-glow);color:var(--accent)}
 .scheduler-form-note{padding:10px 12px;border-left:3px solid var(--accent);background:var(--bg-elevated);color:var(--text-muted);font-size:10.5px;line-height:1.5}
 .scheduler-editor-footer{display:flex;justify-content:flex-end;gap:8px;padding:13px 18px;border-top:1px solid var(--border)}
-.scheduler-event-result{font-weight:600}
+.scheduler-event-result{font-weight:600;white-space:nowrap}
 .scheduler-event-result.executed,.scheduler-event-result.no-change{color:var(--green)}
-.scheduler-event-result.failed,.scheduler-event-result.busy{color:var(--red)}
+.scheduler-event-result.failed,.scheduler-event-result.busy,.scheduler-event-result.cancelled{color:var(--red)}
+.scheduler-event-detail{white-space:normal;overflow-wrap:anywhere;line-height:1.45}
 .hardware-page{max-width:1280px;margin:0 auto}
 .hardware-top-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
 .hardware-card{padding:0 14px 12px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg)}

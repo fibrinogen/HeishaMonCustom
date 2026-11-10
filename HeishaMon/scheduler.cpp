@@ -92,7 +92,7 @@ void SchedulerManager::checkSchedules(const SchedulerClock &clock) {
     snprintf(matchMessage, sizeof(matchMessage), "[SCHED] #%u %s matched at %02u:%02u",
       entry.id, entry.name, clock.hour, clock.minute);
     log(matchMessage);
-    char action[96] = {0};
+    char action[192] = {0};
     describeActions(entry, action, sizeof(action));
     char decision[SCHEDULER_DETAIL_LENGTH] = {0};
     if (!enabled_) {
@@ -338,7 +338,7 @@ void SchedulerManager::addEvent(const SchedulerEntry &entry, const char *result,
   strlcpy(event.result, result, sizeof(event.result));
   strlcpy(event.detail, detail, sizeof(event.detail));
 
-  char message[256];
+  char message[SCHEDULER_DETAIL_LENGTH + 96];
   snprintf(message, sizeof(message), "[SCHED] #%u %s -> %s: %s",
     entry.id, entry.name, result, detail);
   log(message);
@@ -625,7 +625,7 @@ bool SchedulerManager::runNow(uint8_t id, char *message, size_t messageSize) {
   }
   int8_t index = findIndex(id);
   if (index < 0) { snprintf(message, messageSize, "Schedule not found"); return false; }
-  char action[96] = {0};
+  char action[192] = {0};
   describeActions(entries_[index], action, sizeof(action));
   char detail[SCHEDULER_DETAIL_LENGTH];
   if (!evaluateCondition(entries_[index], detail, sizeof(detail))) {

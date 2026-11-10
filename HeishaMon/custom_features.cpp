@@ -99,7 +99,7 @@ static bool dispatchZone1HeatSemanticCommand(const char *commandName,
 
 static void persistSchedulerEvent(const SchedulerEvent *event) {
   if (event == nullptr) return;
-  char message[96];
+  char message[HISTORY_EVENT_MESSAGE_LENGTH];
   snprintf(message, sizeof(message), "#%u %s -> %s: %s", event->entryId,
     event->name, event->result, event->detail);
   diagnosticsHistoryRecordEvent(HISTORY_EVENT_SCHEDULER, message, event->entryId);
@@ -566,7 +566,7 @@ static void appendSchedulerResponse(SchedulerRequestState *state,
 
 static void appendSchedulerResult(SchedulerRequestState *state, bool accepted,
     const char *message) {
-  char result[192];
+  char result[416];
   snprintf(result, sizeof(result), "%s: %s", accepted ? "OK" : "ERROR", message);
   appendSchedulerResponse(state, result);
   if (accepted) diagnosticsHistoryRecordEvent(HISTORY_EVENT_SCHEDULER,
@@ -632,7 +632,7 @@ static void handleSchedulerArgument(struct webserver_t *client, struct arguments
   }
   char value[args->len + 1];
   snprintf(value, sizeof(value), "%.*s", args->len, args->value);
-  char response[160] = {0};
+  char response[384] = {0};
   bool accepted = false;
 
   if (strcmp(name, "delete") == 0 || strcmp(name, "run") == 0) {

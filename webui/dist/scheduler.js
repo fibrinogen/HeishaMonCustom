@@ -402,6 +402,26 @@ function schedulerParsePersistentEvent(event) {
     detail: match ? match[4] : message,
   };
 }
+function schedulerResolveEventDetail(event) {
+  var detail = String((event && event.detail) || "");
+  var ramEvents = (schedulerData && schedulerData.events) || [];
+  if (!ramEvents.length) return detail;
+  var formattedTime = hmFormatDateTime24(Number(event.t) * 1000);
+  for (var i = 0; i < ramEvents.length; i++) {
+    var ramEvent = ramEvents[i];
+    if (!ramEvent || Number(ramEvent.id) !== Number(event.id)) continue;
+    if (
+      String(ramEvent.result || "").trim() !== String(event.result || "").trim()
+    )
+      continue;
+    if (hmFormatDateTime24(ramEvent.time) !== formattedTime) continue;
+    var ramDetail = String(ramEvent.detail || "");
+    if (ramDetail.length > detail.length && ramDetail.indexOf(detail) === 0) {
+      return ramDetail;
+    }
+  }
+  return detail;
+}
 function schedulerRenderPersistentEvents(error) {
   var events = document.getElementById("schedulerEvents");
   var status = document.getElementById("schedulerLogStatus");
@@ -431,8 +451,8 @@ function schedulerRenderPersistentEvents(error) {
           schedulerEscape(resultClass) +
           '">' +
           schedulerEscape(event.result) +
-          "</td><td>" +
-          schedulerEscape(event.detail) +
+          '</td><td class="scheduler-event-detail">' +
+          schedulerEscape(schedulerResolveEventDetail(event)) +
           "</td></tr>"
         );
       })
@@ -534,6 +554,7 @@ function schedulerRefresh() {
     .then(function (data) {
       schedulerRefreshPromise = null;
       schedulerRender(data);
+      if (schedulerLogEvents.length) schedulerRenderPersistentEvents();
       return data;
     })
     .catch(function (error) {

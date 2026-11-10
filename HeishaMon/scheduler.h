@@ -8,7 +8,7 @@
 #define SCHEDULER_MAX_ENTRIES 24
 #define SCHEDULER_MAX_EVENTS 10
 #define SCHEDULER_NAME_LENGTH 33
-#define SCHEDULER_DETAIL_LENGTH 128
+#define SCHEDULER_DETAIL_LENGTH 320
 #define SCHEDULER_MAX_ACTIONS 4
 #define SCHEDULER_MAX_CONDITIONS 4
 
@@ -135,7 +135,7 @@ class SchedulerManager {
     uint8_t nextActionIndex;
     SchedulerAction actions[SCHEDULER_MAX_ACTIONS];
     bool automation;
-    char conditionDetail[80];
+    char conditionDetail[160];
     SchedulerDispatchGuard guard;
     SchedulerDispatchObserver observer;
     void *observerContext;

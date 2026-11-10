@@ -30,6 +30,8 @@ enum HistoryEventType : uint8_t {
   HISTORY_EVENT_COUNT
 };
 
+constexpr size_t HISTORY_EVENT_MESSAGE_LENGTH = 384;
+
 struct HistoryEvent {
   uint32_t sequence;
   uint32_t timestamp;
@@ -37,7 +39,7 @@ struct HistoryEvent {
   int32_t value;
   HistoryEventType type;
   uint8_t timeValid;
-  char message[96];
+  char message[HISTORY_EVENT_MESSAGE_LENGTH];
 };
 
 void diagnosticsHistoryBegin();

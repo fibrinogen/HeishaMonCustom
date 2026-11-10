@@ -282,7 +282,7 @@ static void appendText(struct webserver_t *client, const char *text) {
 }
 
 static void appendFmt(struct webserver_t *client, const char *format, ...) {
-  char buffer[640];
+  char buffer[768];
   va_list args;
   va_start(args, format);
   vsnprintf(buffer, sizeof(buffer), format, args);
@@ -314,8 +314,16 @@ static const char *eventTypeName(HistoryEventType type) {
   }
 }
 
+static void sanitizePersistentEventText(char *text) {
+  if (text == nullptr) return;
+  for (; *text; text++) {
+    unsigned char value = (unsigned char)*text;
+    if (value < 0x20 || *text == '"' || *text == '\\') *text = ' ';
+  }
+}
+
 static void logHistoryEvent(HistoryEventType type, const char *message) {
-  char line[128];
+  char line[HISTORY_EVENT_MESSAGE_LENGTH + 32];
   snprintf(line, sizeof(line), "[HISTORY] %s: %s", eventTypeName(type), message);
   log_message(line);
 }
@@ -327,6 +335,7 @@ static void addEvent(HistoryEventType type, const char *message, int32_t value =
   uint32_t uptimeSeconds = (uint32_t)(millis() / 1000UL);
   char loggedMessage[sizeof(events[0].message)];
   snprintf(loggedMessage, sizeof(loggedMessage), "%s", message == nullptr ? "" : message);
+  sanitizePersistentEventText(loggedMessage);
 #if defined(ESP32)
   portENTER_CRITICAL(&historyDataMux);
 #endif
@@ -1348,7 +1357,7 @@ constexpr uint8_t MAX_STORED_HISTORY_FILES = 96;
 // Archive paths are only used by SD history reads. Keep this 6.9 KB list in
 // PSRAM alongside the history cache, not in permanently reserved internal RAM.
 static char (*storedArchivePaths)[72] = nullptr;
-static char storedArchiveCsvLine[512];
+static char storedArchiveCsvLine[640];
 
 typedef bool (*StoredHistoryVisitor)(const HistorySample &sample, void *context);
 
@@ -2653,18 +2662,10 @@ struct PersistentEventLine {
   uint32_t timestamp;
   int32_t value;
   char type[32];
-  char message[96];
+  char message[HISTORY_EVENT_MESSAGE_LENGTH];
 };
 
 typedef bool (*PersistentEventVisitor)(const PersistentEventLine &event, void *context);
-
-static void sanitizePersistentEventText(char *text) {
-  if (text == nullptr) return;
-  for (; *text; text++) {
-    unsigned char value = (unsigned char)*text;
-    if (value < 0x20 || *text == '"' || *text == '\\') *text = ' ';
-  }
-}
 
 static bool parsePersistentEventLine(char *line, PersistentEventLine &event) {
   if (line == nullptr || strncmp(line, "timestamp,", 10) == 0) return false;
