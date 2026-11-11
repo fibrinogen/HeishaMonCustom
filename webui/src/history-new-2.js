@@ -334,7 +334,7 @@ function h2PaintChartSelection(view, point) {
     foreground = styles.getPropertyValue("--text-primary").trim() || "#222",
     padding = 7,
     lineHeight = 17,
-    header = h2Clock(Number(point.t), h2RequestEnd - h2RequestStart >= 86400),
+    header = h2Clock(Number(point.t), true),
     boxWidth;
   ctx.strokeStyle = "rgba(117,129,138,.65)";
   ctx.beginPath(); ctx.moveTo(x, view.top); ctx.lineTo(x, view.top + view.plotH); ctx.stroke();
@@ -421,19 +421,84 @@ function h2PaintActivity() {
     ctx.strokeStyle = event.type === "error_appeared" ? "#c62828" : "rgba(117,129,138,.75)";
     ctx.beginPath(); ctx.moveTo(x, view.top); ctx.lineTo(x, view.top + view.plotH); ctx.stroke();
   });
-  if (h2SelectedTimestamp !== null) {
-    var selected = h2NearestPoint(h2SelectedTimestamp);
-    if (selected) {
-      var selectedX = view.xTime(Number(selected.t));
-      ctx.strokeStyle = "rgba(30,136,229,.95)"; ctx.beginPath(); ctx.moveTo(selectedX, view.top); ctx.lineTo(selectedX, view.top + view.plotH); ctx.stroke();
-    }
-  }
   ctx.fillStyle = "#75818a"; ctx.textAlign = "center";
   [0, 0.25, 0.5, 0.75, 1].forEach(function (fraction) {
     ctx.fillText(h2Clock(h2RequestStart + (h2RequestEnd - h2RequestStart) * fraction, h2RequestEnd - h2RequestStart >= 43200), view.left + view.plotW * fraction, view.height - 10);
   });
   ctx.textAlign = "left";
+  if (h2SelectedTimestamp !== null) {
+    var selected = h2NearestPoint(h2SelectedTimestamp);
+    if (selected) h2PaintActivitySelection(view, selected);
+  }
   if (h2Drag && h2Drag.view === view) h2PaintDrag(ctx, view);
+}
+function h2OperationColor(state) {
+  if (!state) return "#75818a";
+  if (h2BitActive(state, H2_DEFROST)) return "#5e35b1";
+  if (h2BitActive(state, 56)) return "#1565c0";
+  if (h2BitActive(state, 7)) return "#ef6c00";
+  if (h2BitActive(state, H2_SYSTEM_ON)) return "#78909c";
+  return "#75818a";
+}
+function h2ActivitySelectionInfo(point) {
+  var timestamp = Number(point && point.t),
+    state = h2StateAt(timestamp),
+    operation = h2OperationLabel(state),
+    cop = h2Number(point && point.cop),
+    dhw = point && (point.dhwActive === true || Number(point.valve) === 1);
+  return {
+    header: h2Clock(timestamp, true),
+    entries: [
+      { label: "Operation", value: operation, color: h2OperationColor(state) },
+      { label: "COP", value: cop === null ? "—" : h2Format(cop, 2), color: dhw ? "#1565c0" : "#2e7d32" },
+    ],
+  };
+}
+function h2PaintActivitySelection(view, point) {
+  var ctx = view.ctx,
+    x = view.xTime(Number(point.t)),
+    info = h2ActivitySelectionInfo(point),
+    styles = getComputedStyle(document.documentElement),
+    background = styles.getPropertyValue("--bg-elevated").trim() || "#fff",
+    foreground = styles.getPropertyValue("--text-primary").trim() || "#222",
+    padding = 7,
+    lineHeight = 17,
+    boxWidth;
+  ctx.strokeStyle = "rgba(30,136,229,.95)";
+  ctx.beginPath();
+  ctx.moveTo(x, view.top);
+  ctx.lineTo(x, view.top + view.plotH);
+  ctx.stroke();
+  ctx.save();
+  ctx.font = "12px Arial";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  boxWidth = ctx.measureText(info.header).width;
+  info.entries.forEach(function (entry) {
+    entry.text = entry.label + ": " + entry.value;
+    boxWidth = Math.max(boxWidth, ctx.measureText(entry.text).width + 14);
+  });
+  boxWidth += padding * 2;
+  var boxHeight = padding * 2 + 17 + info.entries.length * lineHeight,
+    boxX = x + 10 + boxWidth <= view.width - 2 ? x + 10 : x - boxWidth - 10,
+    boxY = view.top + 4;
+  boxX = Math.max(view.left + 2, Math.min(view.width - boxWidth - 2, boxX));
+  ctx.fillStyle = background;
+  ctx.strokeStyle = "rgba(117,129,138,.55)";
+  ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+  ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+  ctx.fillStyle = foreground;
+  ctx.fillText(info.header, boxX + padding, boxY + padding + 11);
+  info.entries.forEach(function (entry, index) {
+    var y = boxY + padding + 25 + index * lineHeight;
+    ctx.fillStyle = entry.color;
+    ctx.beginPath();
+    ctx.arc(boxX + padding + 4, y - 4, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = foreground;
+    ctx.fillText(entry.text, boxX + padding + 13, y);
+  });
+  ctx.restore();
 }
 
 function h2SelectTimestamp(timestamp) {

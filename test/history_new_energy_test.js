@@ -151,6 +151,17 @@ async function run() {
   assert(markup2("h2Context").includes("ΔT 5.0 K"));
   assert(markup2("h2Context").includes("34 Hz"));
 
+  const activityHover = context2.h2ActivitySelectionInfo(prepared.samples[1]);
+  assert.match(activityHover.header, /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/);
+  assert.equal(activityHover.entries[0].label, "Operation");
+  assert.equal(activityHover.entries[0].value, "Room heating");
+  assert.equal(activityHover.entries[1].label, "COP");
+  assert.equal(activityHover.entries[1].value, "4.00");
+
+  const defrostHover = context2.h2ActivitySelectionInfo(prepared.samples[2]);
+  assert.equal(defrostHover.entries[0].value, "Defrost");
+  assert.equal(defrostHover.entries[1].value, "—");
+
   context2.h2RenderCalendarCop({
     heatingDegreeDayBase: 16.5,
     current: {
