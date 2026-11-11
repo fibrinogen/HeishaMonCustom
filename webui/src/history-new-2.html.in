@@ -87,7 +87,7 @@
           <div class="panel-header"><h3>1 · Operation — when and for what purpose?</h3></div>
           <div class="history-card-body">
             <canvas id="h2Activity" class="history-new-activity" aria-label="Heat-pump operation timeline"></canvas>
-            <div class="history-note">Exact state transitions from the three-way valve, compressor, defrost flag and backup heaters. Vertical lines mark scheduler actions, mode changes and errors.</div>
+            <div class="history-note">Exact state transitions from the three-way valve, compressor, defrost flag and backup heaters, overlaid with the COP curve (right axis). Vertical lines mark scheduler actions, mode changes and errors.</div>
           </div>
         </section>
 

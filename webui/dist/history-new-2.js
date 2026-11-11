@@ -377,6 +377,24 @@ var h2ActivityRows = [
   { label: "External heater", color: "#c62828", active: function (s) { return h2BitActive(s, H2_HEAT_EXTERNAL | H2_DHW_EXTERNAL); } },
   { label: "Circulation / idle", color: "#78909c", active: function (s) { return h2BitActive(s, H2_SYSTEM_ON) && !h2CompressorActive(s) && !h2BitActive(s, 54); } },
 ];
+function h2ActivityCopRange(points) {
+  var values = [];
+  (points || []).forEach(function (point) {
+    var cop = h2Number(point && point.cop);
+    if (cop !== null) values.push(cop);
+  });
+  var min = values.length ? Math.min.apply(null, values) : 0,
+    max = values.length ? Math.max.apply(null, values) : 6;
+  if (min === max) {
+    min = Math.max(0, min - 1);
+    max += 1;
+  } else {
+    var padding = (max - min) * 0.08;
+    min = Math.max(0, min - padding);
+    max += padding;
+  }
+  return { min: min, max: max, hasValues: values.length > 0 };
+}
 function h2DrawActivity() {
   var canvas = document.getElementById("h2Activity");
   if (!canvas || !canvas.getContext) return;
@@ -384,16 +402,84 @@ function h2DrawActivity() {
     density = window.devicePixelRatio || 1,
     width = canvas.clientWidth || 800,
     height = 186,
-    view = { canvas: canvas, ctx: ctx, width: width, height: height, left: 118, right: 12, top: 6, bottom: 26 };
+    points = (h2Data && h2Data.samples) || [],
+    copRange = h2ActivityCopRange(points),
+    view = {
+      canvas: canvas, ctx: ctx, width: width, height: height,
+      points: points, copMin: copRange.min, copMax: copRange.max,
+      left: 118, right: 42, top: 14, bottom: 25,
+    };
   view.plotW = width - view.left - view.right;
   view.plotH = height - view.top - view.bottom;
   view.xTime = function (time) { return view.left + view.plotW * (time - h2RequestStart) / Math.max(1, h2RequestEnd - h2RequestStart); };
   view.timeAtX = function (x) { return h2RequestStart + (h2RequestEnd - h2RequestStart) * (x - view.left) / view.plotW; };
+  view.yCop = function (value) { return view.top + view.plotH - view.plotH * (value - view.copMin) / Math.max(1e-6, view.copMax - view.copMin); };
   canvas.width = width * density; canvas.height = height * density;
   ctx.setTransform(density, 0, 0, density, 0, 0);
   h2ActivityView = view;
   h2SetupInteraction(view);
   h2PaintActivity();
+}
+function h2PaintActivityCopOverlay(ctx, view) {
+  var rightX = view.left + view.plotW,
+    points = view.points || [],
+    styles = getComputedStyle(document.documentElement),
+    halo = styles.getPropertyValue("--bg-elevated").trim() || "#fff";
+  ctx.strokeStyle = "#75818a";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(rightX, view.top);
+  ctx.lineTo(rightX, view.top + view.plotH);
+  ctx.stroke();
+  ctx.fillStyle = "#00acc1";
+  ctx.textAlign = "left";
+  ctx.fillText("COP", rightX + 5, view.top - 6);
+  ctx.fillStyle = "#75818a";
+  for (var tick = 0; tick <= 3; tick++) {
+    var copVal = view.copMax - (view.copMax - view.copMin) * tick / 3,
+      tickY = view.top + view.plotH * tick / 3;
+    ctx.beginPath();
+    ctx.moveTo(rightX, tickY);
+    ctx.lineTo(rightX + 4, tickY);
+    ctx.stroke();
+    ctx.fillText(copVal.toFixed(1), rightX + 6, tickY);
+  }
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(view.left, view.top, view.plotW, view.plotH);
+  ctx.clip();
+  [
+    { color: halo, width: 4.2, radius: 3.8 },
+    { color: "#00acc1", width: 2.2, radius: 2.4 },
+  ].forEach(function (pass) {
+    ctx.strokeStyle = pass.color;
+    ctx.fillStyle = pass.color;
+    ctx.lineWidth = pass.width;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    var started = false;
+    points.forEach(function (point) {
+      var val = h2Number(point.cop);
+      if (val === null) { started = false; return; }
+      var x = view.xTime(Number(point.t)), y = view.yCop(val);
+      if (started) ctx.lineTo(x, y);
+      else { ctx.moveTo(x, y); started = true; }
+    });
+    ctx.stroke();
+    points.forEach(function (point, index) {
+      var val = h2Number(point.cop);
+      if (val === null) return;
+      var prev = index > 0 ? h2Number(points[index - 1].cop) : null,
+        next = index + 1 < points.length ? h2Number(points[index + 1].cop) : null;
+      if (prev === null && next === null) {
+        ctx.beginPath();
+        ctx.arc(view.xTime(Number(point.t)), view.yCop(val), pass.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+  });
+  ctx.restore();
 }
 function h2PaintActivity() {
   var view = h2ActivityView;
@@ -407,6 +493,8 @@ function h2PaintActivity() {
     var y = view.top + rowIndex * rowHeight;
     ctx.fillStyle = "#75818a"; ctx.fillText(row.label, 2, y + rowHeight / 2);
     ctx.fillStyle = "rgba(117,129,138,.10)"; ctx.fillRect(view.left, y, view.plotW, rowHeight - 1);
+    ctx.save();
+    ctx.globalAlpha = 0.78;
     states.forEach(function (state, index) {
       if (!row.active(state)) return;
       var end = index + 1 < states.length ? Number(states[index + 1].t) : h2RequestEnd,
@@ -414,6 +502,7 @@ function h2PaintActivity() {
         x2 = view.xTime(Math.min(h2RequestEnd, end));
       ctx.fillStyle = row.color; ctx.fillRect(x1, y, Math.max(1, x2 - x1), rowHeight - 1);
     });
+    ctx.restore();
   });
   h2Events.forEach(function (event) {
     if (["scheduler", "operation_mode_changed", "error_appeared"].indexOf(event.type) < 0) return;
@@ -421,6 +510,7 @@ function h2PaintActivity() {
     ctx.strokeStyle = event.type === "error_appeared" ? "#c62828" : "rgba(117,129,138,.75)";
     ctx.beginPath(); ctx.moveTo(x, view.top); ctx.lineTo(x, view.top + view.plotH); ctx.stroke();
   });
+  h2PaintActivityCopOverlay(ctx, view);
   ctx.fillStyle = "#75818a"; ctx.textAlign = "center";
   [0, 0.25, 0.5, 0.75, 1].forEach(function (fraction) {
     ctx.fillText(h2Clock(h2RequestStart + (h2RequestEnd - h2RequestStart) * fraction, h2RequestEnd - h2RequestStart >= 43200), view.left + view.plotW * fraction, view.height - 10);
@@ -444,13 +534,13 @@ function h2ActivitySelectionInfo(point) {
   var timestamp = Number(point && point.t),
     state = h2StateAt(timestamp),
     operation = h2OperationLabel(state),
-    cop = h2Number(point && point.cop),
-    dhw = point && (point.dhwActive === true || Number(point.valve) === 1);
+    cop = h2Number(point && point.cop);
   return {
     header: h2Clock(timestamp, true),
+    cop: cop,
     entries: [
       { label: "Operation", value: operation, color: h2OperationColor(state) },
-      { label: "COP", value: cop === null ? "—" : h2Format(cop, 2), color: dhw ? "#1565c0" : "#2e7d32" },
+      { label: "COP", value: cop === null ? "—" : h2Format(cop, 2), color: "#00acc1" },
     ],
   };
 }
@@ -463,12 +553,24 @@ function h2PaintActivitySelection(view, point) {
     foreground = styles.getPropertyValue("--text-primary").trim() || "#222",
     padding = 7,
     lineHeight = 17,
+    rightEdge = view.left + view.plotW,
     boxWidth;
   ctx.strokeStyle = "rgba(30,136,229,.95)";
   ctx.beginPath();
   ctx.moveTo(x, view.top);
   ctx.lineTo(x, view.top + view.plotH);
   ctx.stroke();
+  if (info.cop !== null && view.yCop) {
+    var copY = view.yCop(info.cop);
+    ctx.fillStyle = background;
+    ctx.beginPath();
+    ctx.arc(x, copY, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#00acc1";
+    ctx.beginPath();
+    ctx.arc(x, copY, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.save();
   ctx.font = "12px Arial";
   ctx.textAlign = "left";
@@ -480,9 +582,9 @@ function h2PaintActivitySelection(view, point) {
   });
   boxWidth += padding * 2;
   var boxHeight = padding * 2 + 17 + info.entries.length * lineHeight,
-    boxX = x + 10 + boxWidth <= view.width - 2 ? x + 10 : x - boxWidth - 10,
+    boxX = x + 10 + boxWidth <= rightEdge - 2 ? x + 10 : x - boxWidth - 10,
     boxY = view.top + 4;
-  boxX = Math.max(view.left + 2, Math.min(view.width - boxWidth - 2, boxX));
+  boxX = Math.max(view.left + 2, Math.min(rightEdge - boxWidth - 2, boxX));
   ctx.fillStyle = background;
   ctx.strokeStyle = "rgba(117,129,138,.55)";
   ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
