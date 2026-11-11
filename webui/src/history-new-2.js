@@ -241,7 +241,9 @@ function h2CreateChart(config) {
     density = window.devicePixelRatio || 1,
     width = canvas.clientWidth || 700,
     height = 230,
-    points = h2Data.samples || [],
+    points = config.id === "h2Cop" && h2Data.copChartPoints && h2Data.copChartPoints.length
+      ? h2Data.copChartPoints
+      : (h2Data.samples || []),
     values = [];
   config.lines.forEach(function (line) {
     points.forEach(function (point) {
@@ -377,10 +379,129 @@ var h2ActivityRows = [
   { label: "External heater", color: "#c62828", active: function (s) { return h2BitActive(s, H2_HEAT_EXTERNAL | H2_DHW_EXTERNAL); } },
   { label: "Circulation / idle", color: "#78909c", active: function (s) { return h2BitActive(s, H2_SYSTEM_ON) && !h2CompressorActive(s) && !h2BitActive(s, 54); } },
 ];
+function h2PointCop(point) {
+  if (!point || point.defrost === true) return null;
+  var cop = h2Number(point.cop);
+  if (cop !== null) return cop;
+  var thermal = h2Number(point.activeThermal),
+    electrical = h2Number(point.electrical);
+  if ((point.compressor === true || h2Number(point.hz) > 0) &&
+      thermal !== null && thermal > 0 && electrical !== null && electrical > 0.05) {
+    return thermal / electrical;
+  }
+  return null;
+}
+function h2BuildActivityCopSegments(data) {
+  var states = (data && data.sourceStates) || [],
+    points = (data && data.samples) || [],
+    hasBounds = h2RequestEnd > h2RequestStart,
+    rangeStart = hasBounds ? h2RequestStart : (states.length ? Number(states[0].t) : (points.length ? Number(points[0].t) : 0)),
+    rangeEnd = hasBounds ? h2RequestEnd : (points.length ? Number(points[points.length - 1].t) : (states.length ? Number(states[states.length - 1].t) : rangeStart)),
+    rawSegments = [],
+    current = null;
+  states.forEach(function (state, index) {
+    var sStart = Math.max(rangeStart, Number(state.t)),
+      sEnd = Math.min(rangeEnd, index + 1 < states.length ? Number(states[index + 1].t) : rangeEnd);
+    if (sEnd <= sStart) return;
+    var heat = h2BitActive(state, H2_HEAT_COMPRESSOR),
+      dhw = h2BitActive(state, H2_DHW_COMPRESSOR),
+      active = (heat || dhw) && !h2BitActive(state, H2_DEFROST);
+    if (active) {
+      if (current && current.dhw === dhw && current.end === sStart) {
+        current.end = sEnd;
+      } else {
+        if (current) rawSegments.push(current);
+        current = { start: sStart, end: sEnd, dhw: dhw };
+      }
+    } else if (current) {
+      rawSegments.push(current);
+      current = null;
+    }
+  });
+  if (current) rawSegments.push(current);
+
+  var segments = [],
+    chartPoints = [];
+  rawSegments.forEach(function (seg, segIndex) {
+    var nextSegStart = segIndex + 1 < rawSegments.length ? rawSegments[segIndex + 1].start : Infinity,
+      segPoints = [];
+    for (var i = 0; i < points.length; i++) {
+      var p = points[i],
+        cop = h2PointCop(p);
+      if (cop === null) continue;
+      var t = Number(p.t),
+        prevT = i > 0 ? Number(points[i - 1].t) : rangeStart;
+      if (t >= seg.start && t <= seg.end) {
+        segPoints.push({ t: t, cop: cop });
+      } else if (t > seg.end && prevT < seg.end && t < nextSegStart) {
+        segPoints.push({ t: seg.end, cop: cop });
+      }
+    }
+    if (!segPoints.length) {
+      var step = Math.max(Number(data && data.intervalSeconds) || 300, (rangeEnd - rangeStart) / Math.max(1, points.length)),
+        bestCop = null,
+        bestDist = Infinity;
+      points.forEach(function (p) {
+        var cop = h2PointCop(p);
+        if (cop === null) return;
+        var t = Number(p.t),
+          dist = t < seg.start ? seg.start - t : t > seg.end ? t - seg.end : 0;
+        if (dist <= step && dist < bestDist) {
+          bestDist = dist;
+          bestCop = cop;
+        }
+      });
+      if (bestCop !== null) {
+        segPoints.push({ t: seg.start, cop: bestCop }, { t: seg.end, cop: bestCop });
+      }
+    }
+    if (!segPoints.length) return;
+    if (segPoints[0].t > seg.start) {
+      segPoints.unshift({ t: seg.start, cop: segPoints[0].cop });
+    }
+    if (segPoints[segPoints.length - 1].t < seg.end) {
+      segPoints.push({ t: seg.end, cop: segPoints[segPoints.length - 1].cop });
+    }
+    segments.push({ start: seg.start, end: seg.end, dhw: seg.dhw, points: segPoints });
+    segPoints.forEach(function (pt) {
+      chartPoints.push({
+        t: pt.t,
+        cop: pt.cop,
+        heatCop: seg.dhw ? null : pt.cop,
+        dhwCop: seg.dhw ? pt.cop : null,
+      });
+    });
+    chartPoints.push({ t: seg.end, cop: null, heatCop: null, dhwCop: null });
+  });
+  data.copSegments = segments;
+  data.copChartPoints = chartPoints;
+}
+function h2ActivityCopAt(timestamp, point) {
+  var state = h2StateAt(timestamp);
+  if (!h2BitActive(state, H2_HEAT_COMPRESSOR | H2_DHW_COMPRESSOR) || h2BitActive(state, H2_DEFROST)) {
+    return null;
+  }
+  var segments = (h2Data && h2Data.copSegments) || [];
+  for (var i = 0; i < segments.length; i++) {
+    var seg = segments[i];
+    if (timestamp < seg.start || timestamp > seg.end || !seg.points.length) continue;
+    for (var j = 0; j < seg.points.length; j++) {
+      if (seg.points[j].t >= timestamp) {
+        if (j === 0) return seg.points[0].cop;
+        var p0 = seg.points[j - 1],
+          p1 = seg.points[j],
+          span = p1.t - p0.t;
+        return span > 0 ? p0.cop + (p1.cop - p0.cop) * ((timestamp - p0.t) / span) : p1.cop;
+      }
+    }
+    return seg.points[seg.points.length - 1].cop;
+  }
+  return h2PointCop(point);
+}
 function h2ActivityCopRange(points) {
   var values = [];
   (points || []).forEach(function (point) {
-    var cop = h2Number(point && point.cop);
+    var cop = h2PointCop(point);
     if (cop !== null) values.push(cop);
   });
   var min = values.length ? Math.min.apply(null, values) : 0,
@@ -422,7 +543,7 @@ function h2DrawActivity() {
 }
 function h2PaintActivityCopOverlay(ctx, view) {
   var rightX = view.left + view.plotW,
-    points = view.points || [],
+    segments = (h2Data && h2Data.copSegments) || [],
     styles = getComputedStyle(document.documentElement),
     halo = styles.getPropertyValue("--bg-elevated").trim() || "#fff";
   ctx.strokeStyle = "#75818a";
@@ -449,35 +570,22 @@ function h2PaintActivityCopOverlay(ctx, view) {
   ctx.rect(view.left, view.top, view.plotW, view.plotH);
   ctx.clip();
   [
-    { color: halo, width: 4.2, radius: 3.8 },
-    { color: "#00acc1", width: 2.2, radius: 2.4 },
+    { color: halo, width: 4.2 },
+    { color: "#00acc1", width: 2.2 },
   ].forEach(function (pass) {
     ctx.strokeStyle = pass.color;
-    ctx.fillStyle = pass.color;
     ctx.lineWidth = pass.width;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.beginPath();
-    var started = false;
-    points.forEach(function (point) {
-      var val = h2Number(point.cop);
-      if (val === null) { started = false; return; }
-      var x = view.xTime(Number(point.t)), y = view.yCop(val);
-      if (started) ctx.lineTo(x, y);
-      else { ctx.moveTo(x, y); started = true; }
+    segments.forEach(function (seg) {
+      (seg.points || []).forEach(function (pt, idx) {
+        var x = view.xTime(Number(pt.t)), y = view.yCop(pt.cop);
+        if (idx === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
     });
     ctx.stroke();
-    points.forEach(function (point, index) {
-      var val = h2Number(point.cop);
-      if (val === null) return;
-      var prev = index > 0 ? h2Number(points[index - 1].cop) : null,
-        next = index + 1 < points.length ? h2Number(points[index + 1].cop) : null;
-      if (prev === null && next === null) {
-        ctx.beginPath();
-        ctx.arc(view.xTime(Number(point.t)), view.yCop(val), pass.radius, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    });
   });
   ctx.restore();
 }
@@ -518,7 +626,7 @@ function h2PaintActivity() {
   ctx.textAlign = "left";
   if (h2SelectedTimestamp !== null) {
     var selected = h2NearestPoint(h2SelectedTimestamp);
-    if (selected) h2PaintActivitySelection(view, selected);
+    if (selected) h2PaintActivitySelection(view, selected, h2SelectedTimestamp);
   }
   if (h2Drag && h2Drag.view === view) h2PaintDrag(ctx, view);
 }
@@ -530,13 +638,14 @@ function h2OperationColor(state) {
   if (h2BitActive(state, H2_SYSTEM_ON)) return "#78909c";
   return "#75818a";
 }
-function h2ActivitySelectionInfo(point) {
-  var timestamp = Number(point && point.t),
-    state = h2StateAt(timestamp),
+function h2ActivitySelectionInfo(point, timestamp) {
+  var ts = timestamp !== undefined ? Number(timestamp) : Number(point && point.t),
+    nearest = point && typeof point === "object" ? point : h2NearestPoint(ts),
+    state = h2StateAt(ts),
     operation = h2OperationLabel(state),
-    cop = h2Number(point && point.cop);
+    cop = h2ActivityCopAt(ts, nearest);
   return {
-    header: h2Clock(timestamp, true),
+    header: h2Clock(ts, true),
     cop: cop,
     entries: [
       { label: "Operation", value: operation, color: h2OperationColor(state) },
@@ -544,10 +653,11 @@ function h2ActivitySelectionInfo(point) {
     ],
   };
 }
-function h2PaintActivitySelection(view, point) {
-  var ctx = view.ctx,
-    x = view.xTime(Number(point.t)),
-    info = h2ActivitySelectionInfo(point),
+function h2PaintActivitySelection(view, point, timestamp) {
+  var ts = timestamp !== undefined ? Number(timestamp) : Number(point.t),
+    ctx = view.ctx,
+    x = view.xTime(ts),
+    info = h2ActivitySelectionInfo(point, ts),
     styles = getComputedStyle(document.documentElement),
     background = styles.getPropertyValue("--bg-elevated").trim() || "#fff",
     foreground = styles.getPropertyValue("--text-primary").trim() || "#222",
@@ -606,9 +716,11 @@ function h2PaintActivitySelection(view, point) {
 function h2SelectTimestamp(timestamp) {
   var point = h2NearestPoint(timestamp);
   if (!point) return;
-  h2SelectedTimestamp = Number(point.t);
+  h2SelectedTimestamp = h2RequestEnd > h2RequestStart
+    ? Math.max(h2RequestStart, Math.min(h2RequestEnd, Math.round(timestamp)))
+    : Number(point.t);
   h2PaintAll();
-  h2UpdateContext(point);
+  h2UpdateContext(point, h2SelectedTimestamp);
 }
 function h2PaintAll() {
   Object.keys(h2Views).forEach(function (id) { h2PaintChart(h2Views[id]); });
@@ -637,14 +749,16 @@ function h2ModeLabel(value) {
   var index = h2Number(value);
   return index !== null && labels[index] ? labels[index] : "Unknown mode";
 }
-function h2UpdateContext(point) {
-  var state = h2StateAt(Number(point.t)),
+function h2UpdateContext(point, timestamp) {
+  var ts = timestamp !== undefined ? Number(timestamp) : Number(point.t),
+    state = h2StateAt(ts),
     operation = h2OperationLabel(state),
+    cop = h2ActivityCopAt(ts, point),
     valve = (point.dhwActive === true || Number(point.valve) === 1) ? "DHW" : "Heat",
     demand = "Water target " + h2Format(point.target) + " °C",
     hydraulics = "VL " + h2Format(point.outlet) + " °C · RL " + h2Format(point.inlet) + " °C · ΔT " + h2Format(point.spread, 1) + " K · Flow " + h2Format(point.flow, 1) + " l/min",
     modulation = h2Format(point.hz, 0) + " Hz · " + h2Format(point.current, 1) + " A · Eva " + h2Format(point.evaOutlet) + " °C (Out " + h2Format(point.outside) + " °C)",
-    powerCop = h2Format(point.activeThermal, 2) + " kW th · " + h2Format(point.electrical, 2) + " kW el · COP " + h2Format(point.cop, 2);
+    powerCop = h2Format(point.activeThermal, 2) + " kW th · " + h2Format(point.electrical, 2) + " kW el · COP " + h2Format(cop !== null ? cop : point.cop, 2);
   if (operation === "DHW heating" && h2Number(point.dhw) !== null && h2Number(point.dhwTarget) !== null) {
     demand = "DHW tank " + h2Format(point.dhw) + " °C vs " + h2Format(point.dhwTarget) + " °C target";
   } else if (h2Number(point.roomSetpoint) !== null && h2Number(point.room) !== null) {
@@ -652,7 +766,7 @@ function h2UpdateContext(point) {
   } else if (h2Number(point.heatingCurveShift) !== null) {
     demand += " · Shift " + (Number(point.heatingCurveShift) > 0 ? "+" : "") + h2Format(point.heatingCurveShift, 0) + " K · VL−Soll " + h2Format(point.targetDelta, 1) + " K";
   }
-  document.getElementById("h2SelectedTime").textContent = h2Clock(Number(point.t), true);
+  document.getElementById("h2SelectedTime").textContent = h2Clock(ts, true);
   document.getElementById("h2Context").innerHTML =
     '<div><span>Operation &amp; valve</span><strong>' + hmEscape(operation + " · " + h2ModeLabel(point.mode) + " · Valve " + valve) + "</strong></div>" +
     '<div><span>Demand &amp; control</span><strong>' + hmEscape(demand) + "</strong></div>" +
@@ -846,6 +960,7 @@ function h2PrepareData(data) {
     point.heatCop = dhw ? null : point.cop;
     point.dhwCop = dhw ? point.cop : null;
   });
+  h2BuildActivityCopSegments(data);
   return data;
 }
 

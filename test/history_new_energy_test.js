@@ -155,6 +155,13 @@ async function run() {
   assert(copRange.hasValues);
   assert(copRange.min < 4.0 && copRange.max > 4.5);
 
+  assert.equal(prepared.copSegments.length, 1);
+  assert.equal(prepared.copSegments[0].start, 1760000600);
+  assert.equal(prepared.copSegments[0].end, 1760002400);
+  assert.equal(prepared.copSegments[0].points[0].t, 1760000600);
+  assert.equal(prepared.copSegments[0].points[prepared.copSegments[0].points.length - 1].t, 1760002400);
+  assert.equal(prepared.copSegments[0].points[prepared.copSegments[0].points.length - 1].cop, 4.0);
+
   const activityHover = context2.h2ActivitySelectionInfo(prepared.samples[1]);
   assert.match(activityHover.header, /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/);
   assert.equal(activityHover.cop, 4.0);
@@ -162,6 +169,11 @@ async function run() {
   assert.equal(activityHover.entries[0].value, "Room heating");
   assert.equal(activityHover.entries[1].label, "COP");
   assert.equal(activityHover.entries[1].value, "4.00");
+
+  // Just before the runtime bar stops at 1760002400, COP is still 4.00; at 1760002400 (Defrost) it stops.
+  const endEdgeHover = context2.h2ActivitySelectionInfo(prepared.samples[2], 1760002399);
+  assert.equal(endEdgeHover.entries[0].value, "Room heating");
+  assert.equal(endEdgeHover.entries[1].value, "4.00");
 
   const defrostHover = context2.h2ActivitySelectionInfo(prepared.samples[2]);
   assert.equal(defrostHover.cop, null);
