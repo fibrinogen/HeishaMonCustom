@@ -26,8 +26,8 @@ var H2_HEAT_COMPRESSOR = 1,
 var h2Lines = {
   target: { key: "target", label: "Main water target", color: "#ef6c00", unit: "°C" },
   controllerTarget: { key: "controllerTarget", label: "Zone 1 direct target", color: "#8e44ad", unit: "°C" },
-  heatOutlet: { key: "heatOutlet", label: "Flow / outlet", color: "#43a047", unit: "°C" },
-  heatInlet: { key: "heatInlet", label: "Return / inlet", color: "#1e88e5", unit: "°C" },
+  outlet: { key: "outlet", label: "Flow / outlet", color: "#43a047", unit: "°C" },
+  inlet: { key: "inlet", label: "Return / inlet", color: "#1e88e5", unit: "°C" },
   spread: { key: "spread", label: "Spread ΔT (VL − RL)", color: "#00897b", unit: "K" },
   targetDelta: { key: "targetDelta", label: "Target excess (VL − Soll)", color: "#d81b60", unit: "K" },
   curveShift: { key: "heatingCurveShift", label: "Heating curve shift", color: "#6a1b9a", unit: "K" },
@@ -49,7 +49,7 @@ var h2Lines = {
 };
 
 var h2Charts = [
-  { id: "h2Water", legend: "h2WaterLegend", unit: "°C", activity: "heat", lines: [h2Lines.target, h2Lines.controllerTarget, h2Lines.heatOutlet, h2Lines.heatInlet] },
+  { id: "h2Water", legend: "h2WaterLegend", unit: "°C", activity: "heat", lines: [h2Lines.target, h2Lines.controllerTarget, h2Lines.outlet, h2Lines.inlet] },
   { id: "h2Delta", legend: "h2DeltaLegend", unit: "K", activity: "heat", zeroLine: true, lines: [h2Lines.spread, h2Lines.targetDelta, h2Lines.curveShift] },
   { id: "h2Modulation", legend: "h2ModulationLegend", unit: "Hz / A", activity: "compressor", lines: [h2Lines.hz, h2Lines.current] },
   { id: "h2Flow", legend: "h2FlowLegend", unit: "l/min", activity: "compressor", lines: [h2Lines.flow] },
@@ -379,17 +379,11 @@ var h2ActivityRows = [
   { label: "External heater", color: "#c62828", active: function (s) { return h2BitActive(s, H2_HEAT_EXTERNAL | H2_DHW_EXTERNAL); } },
   { label: "Circulation / idle", color: "#78909c", active: function (s) { return h2BitActive(s, H2_SYSTEM_ON) && !h2CompressorActive(s) && !h2BitActive(s, 54); } },
 ];
+var H2_MAX_PLAUSIBLE_COP = 10;
 function h2PointCop(point) {
   if (!point || point.defrost === true) return null;
   var cop = h2Number(point.cop);
-  if (cop !== null) return cop;
-  var thermal = h2Number(point.activeThermal),
-    electrical = h2Number(point.electrical);
-  if ((point.compressor === true || h2Number(point.hz) > 0) &&
-      thermal !== null && thermal > 0 && electrical !== null && electrical > 0.05) {
-    return thermal / electrical;
-  }
-  return null;
+  return cop !== null && cop > 0 && cop <= H2_MAX_PLAUSIBLE_COP ? cop : null;
 }
 function h2BuildActivityCopSegments(data) {
   var states = (data && data.sourceStates) || [],
@@ -424,24 +418,31 @@ function h2BuildActivityCopSegments(data) {
     chartPoints = [];
   rawSegments.forEach(function (seg, segIndex) {
     var nextSegStart = segIndex + 1 < rawSegments.length ? rawSegments[segIndex + 1].start : Infinity,
-      segPoints = [];
+      prevSegEnd = segIndex > 0 ? rawSegments[segIndex - 1].end : -Infinity,
+      segPoints = [],
+      hadSampleInSeg = false;
     for (var i = 0; i < points.length; i++) {
       var p = points[i],
-        cop = h2PointCop(p);
-      if (cop === null) continue;
-      var t = Number(p.t),
-        prevT = i > 0 ? Number(points[i - 1].t) : rangeStart;
+        t = Number(p.t),
+        prevT = i > 0 ? Number(points[i - 1].t) : rangeStart,
+        pDhw = p.dhwActive === true || Number(p.valve) === 1;
       if (t >= seg.start && t <= seg.end) {
-        segPoints.push({ t: t, cop: cop });
+        if (t === seg.start && prevSegEnd === seg.start && pDhw !== seg.dhw) continue;
+        hadSampleInSeg = true;
+        var cop = h2PointCop(p);
+        if (cop !== null) segPoints.push({ t: t, cop: cop });
       } else if (t > seg.end && prevT < seg.end && t < nextSegStart) {
-        segPoints.push({ t: seg.end, cop: cop });
+        var edgeCop = h2PointCop(p);
+        if (edgeCop !== null) segPoints.push({ t: seg.end, cop: edgeCop });
       }
     }
-    if (!segPoints.length) {
+    if (!segPoints.length && !hadSampleInSeg) {
       var step = Math.max(Number(data && data.intervalSeconds) || 300, (rangeEnd - rangeStart) / Math.max(1, points.length)),
         bestCop = null,
         bestDist = Infinity;
       points.forEach(function (p) {
+        var pDhw = p.dhwActive === true || Number(p.valve) === 1;
+        if (pDhw !== seg.dhw) return;
         var cop = h2PointCop(p);
         if (cop === null) return;
         var t = Number(p.t),
@@ -950,13 +951,12 @@ function h2PrepareData(data) {
       power = h2Number(point.power),
       heatProduction = h2Number(point.heatProduction),
       dhwProduction = h2Number(point.dhwProduction);
-    point.heatInlet = dhw ? null : inlet;
-    point.heatOutlet = dhw ? null : outlet;
     point.dhwInlet = dhw ? inlet : null;
     point.dhwOutlet = dhw ? outlet : null;
     point.spread = inlet !== null && outlet !== null ? outlet - inlet : null;
     point.targetDelta = !dhw && outlet !== null && target !== null ? outlet - target : null;
     point.activeThermal = power !== null ? power : (dhw ? dhwProduction : heatProduction);
+    point.cop = h2PointCop(point);
     point.heatCop = dhw ? null : point.cop;
     point.dhwCop = dhw ? point.cop : null;
   });

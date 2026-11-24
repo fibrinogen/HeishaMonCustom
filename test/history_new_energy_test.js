@@ -180,6 +180,31 @@ async function run() {
   assert.equal(defrostHover.entries[0].value, "Defrost");
   assert.equal(defrostHover.entries[1].value, "—");
 
+  // A multi-sample bucket ending at compressor startup (cop: null, diluted electrical: 0.2, thermal: 4.936)
+  // or a transient valve-switch spike (cop: 24.68) must never produce a 24.68 COP spike.
+  const startupBucketSample = { t: 1760000600, compressor: true, hz: 20, power: 4.936, electrical: 0.2, cop: null, dhwActive: false, valve: 0 };
+  const spikeSample = { t: 1760000600, compressor: true, hz: 20, power: 4.936, electrical: 0.2, cop: 24.68, dhwActive: false, valve: 0 };
+  assert.equal(context2.h2PointCop(startupBucketSample), null);
+  assert.equal(context2.h2PointCop(spikeSample), null);
+
+  // Panel 2 ("2 · Heating water circuit — delivered temperature") must keep plotting
+  // flow/outlet and return/inlet during DHW phases instead of dropping to null.
+  const dhwPrepared = context2.h2PrepareData({
+    sourceStates: [],
+    samples: [
+      { t: 1760000600, inlet: 38.5, outlet: 46.0, target: 31.0, dhwActive: true, valve: 1 },
+    ],
+  });
+  const waterChart = context2.h2Charts.find(chart => chart.id === "h2Water");
+  const waterValues = Object.fromEntries(
+    waterChart.lines.map(line => [line.key, context2.h2Value(dhwPrepared.samples[0], line)])
+  );
+  assert.equal(waterValues.outlet, 46.0);
+  assert.equal(waterValues.inlet, 38.5);
+  assert.equal(dhwPrepared.samples[0].dhwOutlet, 46.0);
+  assert.equal(dhwPrepared.samples[0].dhwInlet, 38.5);
+  assert.equal(dhwPrepared.samples[0].targetDelta, null);
+
   context2.h2RenderCalendarCop({
     heatingDegreeDayBase: 16.5,
     current: {
