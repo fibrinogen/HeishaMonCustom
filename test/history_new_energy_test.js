@@ -192,6 +192,39 @@ async function run() {
   assert.equal(withoutCop.entries.some(entry => entry.label === "Outside"), true);
   elements2.get("h2ActivityShowCop").checked = true;
 
+  // Optional overlays (Evaporator, Flow/outlet, Room, Compressor Hz, Thermal kW, Electrical kW)
+  // are off by default, can be enabled individually, and share unit-based right axes.
+  assert.equal(activityHover.entries.length, 3);
+  elements2.get("h2ActivityShowEva").checked = true;
+  elements2.get("h2ActivityShowOutlet").checked = true;
+  elements2.get("h2ActivityShowHz").checked = true;
+  elements2.get("h2ActivityShowThermal").checked = true;
+  elements2.get("h2ActivityShowElectrical").checked = true;
+  const withExtras = context2.h2ActivitySelectionInfo(prepared.samples[1]);
+  assert.equal(withExtras.entries.find(e => e.label === "Evaporator").value, "-3.0 °C");
+  assert.equal(withExtras.entries.find(e => e.label === "Flow / outlet").value, "34.0 °C");
+  assert.equal(withExtras.entries.find(e => e.label === "Compressor").value, "34 Hz");
+  assert.equal(withExtras.entries.find(e => e.label === "Thermal").value, "5.20 kW");
+  assert.equal(withExtras.entries.find(e => e.label === "Electrical").value, "1.30 kW");
+  const noop = () => {};
+  const activityCanvas = elements2.get("h2Activity");
+  activityCanvas.clientWidth = 900;
+  activityCanvas.addEventListener = noop;
+  activityCanvas.getContext = () => ({
+    setTransform: noop, clearRect: noop, fillRect: noop, strokeRect: noop,
+    fillText: noop, beginPath: noop, moveTo: noop, lineTo: noop, stroke: noop,
+    arc: noop, fill: noop, save: noop, restore: noop, rect: noop, clip: noop,
+    measureText: text => ({ width: String(text).length * 7 }),
+  });
+  context2.getComputedStyle = () => ({ getPropertyValue: () => "#ffffff" });
+  context2.h2DrawActivity();
+  assert.equal(context2.h2ActivityView.activeGroups.map(g => g.id).join(","), "cop,temp,hz,kw");
+  assert(context2.h2ActivityView.axesByGroup.temp.min < -3.0);
+  assert(context2.h2ActivityView.axesByGroup.temp.max > 34.0);
+  assert(context2.h2ActivityView.axesByGroup.kw.min < -5.5);
+  ["h2ActivityShowEva", "h2ActivityShowOutlet", "h2ActivityShowHz", "h2ActivityShowThermal", "h2ActivityShowElectrical"]
+    .forEach(id => { elements2.get(id).checked = false; });
+
   // Just before the runtime bar stops at 1760002400, COP is still 4.00; at 1760002400 (Defrost) it stops.
   const endEdgeHover = context2.h2ActivitySelectionInfo(prepared.samples[2], 1760002399);
   assert.equal(endEdgeHover.entries[0].value, "Room heating");

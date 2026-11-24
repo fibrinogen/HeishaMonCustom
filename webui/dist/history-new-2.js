@@ -499,38 +499,85 @@ function h2ActivityCopAt(timestamp, point) {
   }
   return h2PointCop(point);
 }
-var H2_ACTIVITY_COP_COLOR = "#00acc1",
-  H2_ACTIVITY_OUTSIDE_COLOR = "#d81b60";
-function h2ActivityOptionEnabled(id) {
-  var el = document.getElementById(id);
-  return !el || el.checked !== false;
+var h2ActivityAxisGroups = [
+  { id: "cop", title: "COP", width: 34, minFloor: 0, fallbackMax: 6, axisDecimals: 1 },
+  { id: "temp", title: "°C", width: 40, minFloor: null, fallbackMax: 20, axisDecimals: 1 },
+  { id: "hz", title: "Hz", width: 36, minFloor: 0, fallbackMax: 100, axisDecimals: 0 },
+  { id: "kw", title: "kW", width: 36, minFloor: null, fallbackMax: 6, axisDecimals: 1 },
+];
+var h2ActivityOverlays = [
+  {
+    id: "cop", checkboxId: "h2ActivityShowCop", label: "COP", color: "#00acc1",
+    axisGroup: "cop", decimals: 2, unit: "", defaultOn: true, lineWidth: 2.2,
+    readPoint: h2PointCop, atTimestamp: h2ActivityCopAt,
+  },
+  {
+    id: "outside", checkboxId: "h2ActivityShowOutside", label: "Outside", color: "#d81b60",
+    axisGroup: "temp", decimals: 1, unit: " °C", defaultOn: true, lineWidth: 2.0,
+  },
+  {
+    id: "evaOutlet", checkboxId: "h2ActivityShowEva", label: "Evaporator", color: "#1e88e5",
+    axisGroup: "temp", decimals: 1, unit: " °C", defaultOn: false, lineWidth: 1.9,
+  },
+  {
+    id: "outlet", checkboxId: "h2ActivityShowOutlet", label: "Flow / outlet", color: "#43a047",
+    axisGroup: "temp", decimals: 1, unit: " °C", defaultOn: false, lineWidth: 1.9,
+  },
+  {
+    id: "room", checkboxId: "h2ActivityShowRoom", label: "Room", color: "#ef6c00",
+    axisGroup: "temp", decimals: 1, unit: " °C", defaultOn: false, lineWidth: 1.9,
+  },
+  {
+    id: "hz", checkboxId: "h2ActivityShowHz", label: "Compressor", color: "#8e44ad",
+    axisGroup: "hz", decimals: 0, unit: " Hz", defaultOn: false, lineWidth: 1.9,
+  },
+  {
+    id: "activeThermal", checkboxId: "h2ActivityShowThermal", label: "Thermal", color: "#00897b",
+    axisGroup: "kw", decimals: 2, unit: " kW", defaultOn: false, lineWidth: 1.9,
+  },
+  {
+    id: "electrical", checkboxId: "h2ActivityShowElectrical", label: "Electrical", color: "#c62828",
+    axisGroup: "kw", decimals: 2, unit: " kW", defaultOn: false, lineWidth: 1.9,
+  },
+];
+function h2ActivityOverlayEnabled(overlay) {
+  var el = document.getElementById(overlay.checkboxId);
+  if (!el || typeof el.checked !== "boolean") return !!overlay.defaultOn;
+  return el.checked;
 }
-function h2ActivityOutsideAt(timestamp, point) {
+function h2ActivityOverlayValue(overlay, point) {
+  if (!point) return null;
+  return overlay.readPoint ? overlay.readPoint(point) : h2Number(point[overlay.id]);
+}
+function h2ActivitySampleAt(key, timestamp, point) {
   var points = (h2Data && h2Data.samples) || [];
-  if (!points.length) return h2Number(point && point.outside);
-  if (timestamp <= Number(points[0].t)) return h2Number(points[0].outside);
+  if (!points.length) return h2Number(point && point[key]);
+  if (timestamp <= Number(points[0].t)) return h2Number(points[0][key]);
   var last = points[points.length - 1];
-  if (timestamp >= Number(last.t)) return h2Number(last.outside);
+  if (timestamp >= Number(last.t)) return h2Number(last[key]);
   for (var i = 0; i < points.length; i++) {
     var cur = points[i],
       curT = Number(cur.t),
-      curVal = h2Number(cur.outside);
+      curVal = h2Number(cur[key]);
     if (curT === timestamp) return curVal;
     if (curT > timestamp) {
       var prev = points[i - 1],
-        prevVal = prev ? h2Number(prev.outside) : null;
+        prevVal = prev ? h2Number(prev[key]) : null;
       if (prevVal === null || curVal === null) return null;
       var span = curT - Number(prev.t);
       return span > 0 ? prevVal + (curVal - prevVal) * ((timestamp - Number(prev.t)) / span) : curVal;
     }
   }
-  return h2Number(point && point.outside);
+  return h2Number(point && point[key]);
 }
-function h2ActivityRange(points, reader, minFloor, fallbackMax) {
-  var values = [];
+function h2ActivityRange(points, readers, minFloor, fallbackMax) {
+  var values = [],
+    list = Array.isArray(readers) ? readers : [readers];
   (points || []).forEach(function (point) {
-    var value = reader(point);
-    if (value !== null) values.push(value);
+    list.forEach(function (reader) {
+      var value = reader(point);
+      if (value !== null) values.push(value);
+    });
   });
   var min = values.length ? Math.min.apply(null, values) : 0,
     max = values.length ? Math.max.apply(null, values) : fallbackMax;
@@ -559,50 +606,68 @@ function h2DrawActivity() {
     width = canvas.clientWidth || 800,
     height = 186,
     points = (h2Data && h2Data.samples) || [],
-    showCop = h2ActivityOptionEnabled("h2ActivityShowCop"),
-    showOutside = h2ActivityOptionEnabled("h2ActivityShowOutside"),
-    copRange = h2ActivityCopRange(points),
-    outsideRange = h2ActivityOutsideRange(points),
-    right = 12 + (showCop ? 34 : 0) + (showOutside ? 40 : 0),
-    view = {
-      canvas: canvas, ctx: ctx, width: width, height: height,
-      points: points, showCop: showCop, showOutside: showOutside,
-      copMin: copRange.min, copMax: copRange.max,
-      outsideMin: outsideRange.min, outsideMax: outsideRange.max,
-      outsideHasValues: outsideRange.hasValues,
-      left: 118, right: right, top: 14, bottom: 25,
+    activeOverlays = h2ActivityOverlays.filter(h2ActivityOverlayEnabled),
+    activeGroups = [],
+    axesByGroup = {},
+    right = 12;
+  h2ActivityAxisGroups.forEach(function (group) {
+    var groupOverlays = activeOverlays.filter(function (overlay) { return overlay.axisGroup === group.id; });
+    if (!groupOverlays.length) return;
+    var range = h2ActivityRange(
+      points,
+      groupOverlays.map(function (overlay) {
+        return function (point) { return h2ActivityOverlayValue(overlay, point); };
+      }),
+      group.minFloor,
+      group.fallbackMax
+    );
+    var axis = {
+      id: group.id, title: group.title, width: group.width, axisDecimals: group.axisDecimals,
+      titleColor: groupOverlays.length === 1 ? groupOverlays[0].color : "#75818a",
+      min: range.min, max: range.max, hasValues: range.hasValues,
     };
+    activeGroups.push(axis);
+    axesByGroup[group.id] = axis;
+    right += group.width;
+  });
+  var view = {
+    canvas: canvas, ctx: ctx, width: width, height: height,
+    points: points, activeOverlays: activeOverlays, activeGroups: activeGroups, axesByGroup: axesByGroup,
+    left: 118, right: right, top: 14, bottom: 25,
+  };
   view.plotW = Math.max(1, width - view.left - view.right);
   view.plotH = height - view.top - view.bottom;
   view.xTime = function (time) { return view.left + view.plotW * (time - h2RequestStart) / Math.max(1, h2RequestEnd - h2RequestStart); };
   view.timeAtX = function (x) { return h2RequestStart + (h2RequestEnd - h2RequestStart) * (x - view.left) / view.plotW; };
-  view.yCop = function (value) { return view.top + view.plotH - view.plotH * (value - view.copMin) / Math.max(1e-6, view.copMax - view.copMin); };
-  view.yOutside = function (value) { return view.top + view.plotH - view.plotH * (value - view.outsideMin) / Math.max(1e-6, view.outsideMax - view.outsideMin); };
+  activeGroups.forEach(function (axis) {
+    axis.y = function (value) { return view.top + view.plotH - view.plotH * (value - axis.min) / Math.max(1e-6, axis.max - axis.min); };
+  });
+  if (axesByGroup.cop) view.yCop = axesByGroup.cop.y;
   canvas.width = width * density; canvas.height = height * density;
   ctx.setTransform(density, 0, 0, density, 0, 0);
   h2ActivityView = view;
   h2SetupInteraction(view);
   h2PaintActivity();
 }
-function h2PaintActivityRightAxis(ctx, view, x, title, color, minVal, maxVal) {
+function h2PaintActivityRightAxis(ctx, view, x, axis) {
   ctx.strokeStyle = "#75818a";
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(x, view.top);
   ctx.lineTo(x, view.top + view.plotH);
   ctx.stroke();
-  ctx.fillStyle = color;
+  ctx.fillStyle = axis.titleColor;
   ctx.textAlign = "left";
-  ctx.fillText(title, x + 4, view.top - 6);
+  ctx.fillText(axis.title, x + 4, view.top - 6);
   ctx.fillStyle = "#75818a";
   for (var tick = 0; tick <= 3; tick++) {
-    var val = maxVal - (maxVal - minVal) * tick / 3,
+    var val = axis.max - (axis.max - axis.min) * tick / 3,
       tickY = view.top + view.plotH * tick / 3;
     ctx.beginPath();
     ctx.moveTo(x, tickY);
     ctx.lineTo(x + 4, tickY);
     ctx.stroke();
-    ctx.fillText(val.toFixed(1), x + 6, tickY);
+    ctx.fillText(val.toFixed(axis.axisDecimals), x + 6, tickY);
   }
 }
 function h2PaintActivityHaloStroke(ctx, halo, color, width, drawPath) {
@@ -623,42 +688,45 @@ function h2PaintActivityOverlays(ctx, view) {
   var axisX = view.left + view.plotW,
     segments = (h2Data && h2Data.copSegments) || [],
     styles = getComputedStyle(document.documentElement),
-    halo = styles.getPropertyValue("--bg-elevated").trim() || "#fff";
-  if (view.showCop) {
-    h2PaintActivityRightAxis(ctx, view, axisX, "COP", H2_ACTIVITY_COP_COLOR, view.copMin, view.copMax);
-    axisX += 36;
-  }
-  if (view.showOutside) {
-    h2PaintActivityRightAxis(ctx, view, axisX, "°C", H2_ACTIVITY_OUTSIDE_COLOR, view.outsideMin, view.outsideMax);
-  }
-  if (!view.showCop && !view.showOutside) return;
+    halo = styles.getPropertyValue("--bg-elevated").trim() || "#fff",
+    drawOrder = view.activeOverlays.slice().sort(function (a, b) {
+      return (a.id === "cop" ? 1 : 0) - (b.id === "cop" ? 1 : 0);
+    });
+  view.activeGroups.forEach(function (axis) {
+    h2PaintActivityRightAxis(ctx, view, axisX, axis);
+    axisX += axis.width;
+  });
+  if (!drawOrder.length) return;
   ctx.save();
   ctx.beginPath();
   ctx.rect(view.left, view.top, view.plotW, view.plotH);
   ctx.clip();
-  if (view.showOutside && view.outsideHasValues) {
-    h2PaintActivityHaloStroke(ctx, halo, H2_ACTIVITY_OUTSIDE_COLOR, 2.0, function () {
+  drawOrder.forEach(function (overlay) {
+    var axis = view.axesByGroup[overlay.axisGroup];
+    if (!axis || !axis.hasValues) return;
+    if (overlay.id === "cop") {
+      h2PaintActivityHaloStroke(ctx, halo, overlay.color, overlay.lineWidth, function () {
+        segments.forEach(function (seg) {
+          (seg.points || []).forEach(function (pt, idx) {
+            var x = view.xTime(Number(pt.t)), y = axis.y(pt.cop);
+            if (idx === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          });
+        });
+      });
+      return;
+    }
+    h2PaintActivityHaloStroke(ctx, halo, overlay.color, overlay.lineWidth, function () {
       var started = false;
       view.points.forEach(function (pt) {
-        var val = h2Number(pt.outside);
+        var val = h2ActivityOverlayValue(overlay, pt);
         if (val === null) { started = false; return; }
-        var x = view.xTime(Number(pt.t)), y = view.yOutside(val);
+        var x = view.xTime(Number(pt.t)), y = axis.y(val);
         if (started) ctx.lineTo(x, y);
         else { ctx.moveTo(x, y); started = true; }
       });
     });
-  }
-  if (view.showCop) {
-    h2PaintActivityHaloStroke(ctx, halo, H2_ACTIVITY_COP_COLOR, 2.2, function () {
-      segments.forEach(function (seg) {
-        (seg.points || []).forEach(function (pt, idx) {
-          var x = view.xTime(Number(pt.t)), y = view.yCop(pt.cop);
-          if (idx === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        });
-      });
-    });
-  }
+  });
   ctx.restore();
 }
 function h2PaintActivity() {
@@ -715,17 +783,30 @@ function h2ActivitySelectionInfo(point, timestamp) {
     nearest = point && typeof point === "object" ? point : h2NearestPoint(ts),
     state = h2StateAt(ts),
     operation = h2OperationLabel(state),
-    showCop = h2ActivityOptionEnabled("h2ActivityShowCop"),
-    showOutside = h2ActivityOptionEnabled("h2ActivityShowOutside"),
-    cop = showCop ? h2ActivityCopAt(ts, nearest) : null,
-    outside = showOutside ? h2ActivityOutsideAt(ts, nearest) : null,
-    entries = [{ label: "Operation", value: operation, color: h2OperationColor(state) }];
-  if (showCop) entries.push({ label: "COP", value: cop === null ? "—" : h2Format(cop, 2), color: H2_ACTIVITY_COP_COLOR });
-  if (showOutside) entries.push({ label: "Outside", value: outside === null ? "—" : h2Format(outside, 1) + " °C", color: H2_ACTIVITY_OUTSIDE_COLOR });
+    entries = [{ label: "Operation", value: operation, color: h2OperationColor(state) }],
+    values = {};
+  h2ActivityOverlays.forEach(function (overlay) {
+    if (!h2ActivityOverlayEnabled(overlay)) {
+      values[overlay.id] = null;
+      return;
+    }
+    var val = overlay.atTimestamp
+      ? overlay.atTimestamp(ts, nearest)
+      : h2ActivitySampleAt(overlay.id, ts, nearest);
+    values[overlay.id] = val;
+    entries.push({
+      label: overlay.label,
+      value: val === null ? "—" : h2Format(val, overlay.decimals) + overlay.unit,
+      color: overlay.color,
+      axisGroup: overlay.axisGroup,
+      rawValue: val,
+    });
+  });
   return {
     header: h2Clock(ts, true),
-    cop: cop,
-    outside: outside,
+    cop: values.cop,
+    outside: values.outside,
+    values: values,
     entries: entries,
   };
 }
@@ -747,8 +828,9 @@ function h2PaintActivitySelection(view, point, timestamp) {
     styles = getComputedStyle(document.documentElement),
     background = styles.getPropertyValue("--bg-elevated").trim() || "#fff",
     foreground = styles.getPropertyValue("--text-primary").trim() || "#222",
-    padding = 7,
-    lineHeight = 17,
+    compact = info.entries.length > 5,
+    padding = compact ? 5 : 7,
+    lineHeight = compact ? 14 : 17,
     rightEdge = view.left + view.plotW,
     boxWidth;
   ctx.strokeStyle = "rgba(30,136,229,.95)";
@@ -756,14 +838,13 @@ function h2PaintActivitySelection(view, point, timestamp) {
   ctx.moveTo(x, view.top);
   ctx.lineTo(x, view.top + view.plotH);
   ctx.stroke();
-  if (view.showOutside && info.outside !== null && view.yOutside) {
-    h2PaintActivitySelectionDot(ctx, x, view.yOutside(info.outside), background, H2_ACTIVITY_OUTSIDE_COLOR);
-  }
-  if (view.showCop && info.cop !== null && view.yCop) {
-    h2PaintActivitySelectionDot(ctx, x, view.yCop(info.cop), background, H2_ACTIVITY_COP_COLOR);
-  }
+  info.entries.forEach(function (entry) {
+    if (!entry.axisGroup || entry.rawValue === null || entry.rawValue === undefined) return;
+    var axis = view.axesByGroup && view.axesByGroup[entry.axisGroup];
+    if (axis && axis.y) h2PaintActivitySelectionDot(ctx, x, axis.y(entry.rawValue), background, entry.color);
+  });
   ctx.save();
-  ctx.font = "12px Arial";
+  ctx.font = compact ? "11px Arial" : "12px Arial";
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   boxWidth = ctx.measureText(info.header).width;
@@ -772,7 +853,8 @@ function h2PaintActivitySelection(view, point, timestamp) {
     boxWidth = Math.max(boxWidth, ctx.measureText(entry.text).width + 14);
   });
   boxWidth += padding * 2;
-  var boxHeight = padding * 2 + 17 + info.entries.length * lineHeight,
+  var headerHeight = compact ? 14 : 17,
+    boxHeight = padding * 2 + headerHeight + info.entries.length * lineHeight,
     boxX = x + 10 + boxWidth <= rightEdge - 2 ? x + 10 : x - boxWidth - 10,
     boxY = view.top + 4;
   boxX = Math.max(view.left + 2, Math.min(rightEdge - boxWidth - 2, boxX));
@@ -781,9 +863,9 @@ function h2PaintActivitySelection(view, point, timestamp) {
   ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
   ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
   ctx.fillStyle = foreground;
-  ctx.fillText(info.header, boxX + padding, boxY + padding + 11);
+  ctx.fillText(info.header, boxX + padding, boxY + padding + (compact ? 10 : 11));
   info.entries.forEach(function (entry, index) {
-    var y = boxY + padding + 25 + index * lineHeight;
+    var y = boxY + padding + (compact ? 22 : 25) + index * lineHeight;
     ctx.fillStyle = entry.color;
     ctx.beginPath();
     ctx.arc(boxX + padding + 4, y - 4, 3, 0, Math.PI * 2);
