@@ -165,10 +165,32 @@ async function run() {
   const activityHover = context2.h2ActivitySelectionInfo(prepared.samples[1]);
   assert.match(activityHover.header, /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/);
   assert.equal(activityHover.cop, 4.0);
+  assert.equal(activityHover.outside, 2.0);
   assert.equal(activityHover.entries[0].label, "Operation");
   assert.equal(activityHover.entries[0].value, "Room heating");
   assert.equal(activityHover.entries[1].label, "COP");
   assert.equal(activityHover.entries[1].value, "4.00");
+  assert.equal(activityHover.entries[2].label, "Outside");
+  assert.equal(activityHover.entries[2].value, "2.0 °C");
+
+  // Negative outside temperatures are preserved without clamping to 0, and overlays can be toggled off.
+  const coldRange = context2.h2ActivityOutsideRange([
+    { t: 1760000600, outside: -4.0 },
+    { t: 1760001800, outside: 2.0 },
+  ]);
+  assert(coldRange.hasValues);
+  assert(coldRange.min < -4.0 && coldRange.max > 2.0);
+  elements2.get("h2ActivityShowOutside").checked = false;
+  const withoutOutside = context2.h2ActivitySelectionInfo(prepared.samples[1]);
+  assert.equal(withoutOutside.outside, null);
+  assert.equal(withoutOutside.entries.some(entry => entry.label === "Outside"), false);
+  elements2.get("h2ActivityShowOutside").checked = true;
+  elements2.get("h2ActivityShowCop").checked = false;
+  const withoutCop = context2.h2ActivitySelectionInfo(prepared.samples[1]);
+  assert.equal(withoutCop.cop, null);
+  assert.equal(withoutCop.entries.some(entry => entry.label === "COP"), false);
+  assert.equal(withoutCop.entries.some(entry => entry.label === "Outside"), true);
+  elements2.get("h2ActivityShowCop").checked = true;
 
   // Just before the runtime bar stops at 1760002400, COP is still 4.00; at 1760002400 (Defrost) it stops.
   const endEdgeHover = context2.h2ActivitySelectionInfo(prepared.samples[2], 1760002399);

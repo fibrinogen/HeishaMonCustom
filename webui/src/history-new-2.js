@@ -499,23 +499,57 @@ function h2ActivityCopAt(timestamp, point) {
   }
   return h2PointCop(point);
 }
-function h2ActivityCopRange(points) {
+var H2_ACTIVITY_COP_COLOR = "#00acc1",
+  H2_ACTIVITY_OUTSIDE_COLOR = "#d81b60";
+function h2ActivityOptionEnabled(id) {
+  var el = document.getElementById(id);
+  return !el || el.checked !== false;
+}
+function h2ActivityOutsideAt(timestamp, point) {
+  var points = (h2Data && h2Data.samples) || [];
+  if (!points.length) return h2Number(point && point.outside);
+  if (timestamp <= Number(points[0].t)) return h2Number(points[0].outside);
+  var last = points[points.length - 1];
+  if (timestamp >= Number(last.t)) return h2Number(last.outside);
+  for (var i = 0; i < points.length; i++) {
+    var cur = points[i],
+      curT = Number(cur.t),
+      curVal = h2Number(cur.outside);
+    if (curT === timestamp) return curVal;
+    if (curT > timestamp) {
+      var prev = points[i - 1],
+        prevVal = prev ? h2Number(prev.outside) : null;
+      if (prevVal === null || curVal === null) return null;
+      var span = curT - Number(prev.t);
+      return span > 0 ? prevVal + (curVal - prevVal) * ((timestamp - Number(prev.t)) / span) : curVal;
+    }
+  }
+  return h2Number(point && point.outside);
+}
+function h2ActivityRange(points, reader, minFloor, fallbackMax) {
   var values = [];
   (points || []).forEach(function (point) {
-    var cop = h2PointCop(point);
-    if (cop !== null) values.push(cop);
+    var value = reader(point);
+    if (value !== null) values.push(value);
   });
   var min = values.length ? Math.min.apply(null, values) : 0,
-    max = values.length ? Math.max.apply(null, values) : 6;
+    max = values.length ? Math.max.apply(null, values) : fallbackMax;
   if (min === max) {
-    min = Math.max(0, min - 1);
+    min -= 1;
     max += 1;
   } else {
     var padding = (max - min) * 0.08;
-    min = Math.max(0, min - padding);
+    min -= padding;
     max += padding;
   }
+  if (minFloor !== null) min = Math.max(minFloor, min);
   return { min: min, max: max, hasValues: values.length > 0 };
+}
+function h2ActivityCopRange(points) {
+  return h2ActivityRange(points, h2PointCop, 0, 6);
+}
+function h2ActivityOutsideRange(points) {
+  return h2ActivityRange(points, function (point) { return h2Number(point && point.outside); }, null, 20);
 }
 function h2DrawActivity() {
   var canvas = document.getElementById("h2Activity");
@@ -525,69 +559,106 @@ function h2DrawActivity() {
     width = canvas.clientWidth || 800,
     height = 186,
     points = (h2Data && h2Data.samples) || [],
+    showCop = h2ActivityOptionEnabled("h2ActivityShowCop"),
+    showOutside = h2ActivityOptionEnabled("h2ActivityShowOutside"),
     copRange = h2ActivityCopRange(points),
+    outsideRange = h2ActivityOutsideRange(points),
+    right = 12 + (showCop ? 34 : 0) + (showOutside ? 40 : 0),
     view = {
       canvas: canvas, ctx: ctx, width: width, height: height,
-      points: points, copMin: copRange.min, copMax: copRange.max,
-      left: 118, right: 42, top: 14, bottom: 25,
+      points: points, showCop: showCop, showOutside: showOutside,
+      copMin: copRange.min, copMax: copRange.max,
+      outsideMin: outsideRange.min, outsideMax: outsideRange.max,
+      outsideHasValues: outsideRange.hasValues,
+      left: 118, right: right, top: 14, bottom: 25,
     };
-  view.plotW = width - view.left - view.right;
+  view.plotW = Math.max(1, width - view.left - view.right);
   view.plotH = height - view.top - view.bottom;
   view.xTime = function (time) { return view.left + view.plotW * (time - h2RequestStart) / Math.max(1, h2RequestEnd - h2RequestStart); };
   view.timeAtX = function (x) { return h2RequestStart + (h2RequestEnd - h2RequestStart) * (x - view.left) / view.plotW; };
   view.yCop = function (value) { return view.top + view.plotH - view.plotH * (value - view.copMin) / Math.max(1e-6, view.copMax - view.copMin); };
+  view.yOutside = function (value) { return view.top + view.plotH - view.plotH * (value - view.outsideMin) / Math.max(1e-6, view.outsideMax - view.outsideMin); };
   canvas.width = width * density; canvas.height = height * density;
   ctx.setTransform(density, 0, 0, density, 0, 0);
   h2ActivityView = view;
   h2SetupInteraction(view);
   h2PaintActivity();
 }
-function h2PaintActivityCopOverlay(ctx, view) {
-  var rightX = view.left + view.plotW,
-    segments = (h2Data && h2Data.copSegments) || [],
-    styles = getComputedStyle(document.documentElement),
-    halo = styles.getPropertyValue("--bg-elevated").trim() || "#fff";
+function h2PaintActivityRightAxis(ctx, view, x, title, color, minVal, maxVal) {
   ctx.strokeStyle = "#75818a";
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(rightX, view.top);
-  ctx.lineTo(rightX, view.top + view.plotH);
+  ctx.moveTo(x, view.top);
+  ctx.lineTo(x, view.top + view.plotH);
   ctx.stroke();
-  ctx.fillStyle = "#00acc1";
+  ctx.fillStyle = color;
   ctx.textAlign = "left";
-  ctx.fillText("COP", rightX + 5, view.top - 6);
+  ctx.fillText(title, x + 4, view.top - 6);
   ctx.fillStyle = "#75818a";
   for (var tick = 0; tick <= 3; tick++) {
-    var copVal = view.copMax - (view.copMax - view.copMin) * tick / 3,
+    var val = maxVal - (maxVal - minVal) * tick / 3,
       tickY = view.top + view.plotH * tick / 3;
     ctx.beginPath();
-    ctx.moveTo(rightX, tickY);
-    ctx.lineTo(rightX + 4, tickY);
+    ctx.moveTo(x, tickY);
+    ctx.lineTo(x + 4, tickY);
     ctx.stroke();
-    ctx.fillText(copVal.toFixed(1), rightX + 6, tickY);
+    ctx.fillText(val.toFixed(1), x + 6, tickY);
   }
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(view.left, view.top, view.plotW, view.plotH);
-  ctx.clip();
+}
+function h2PaintActivityHaloStroke(ctx, halo, color, width, drawPath) {
   [
-    { color: halo, width: 4.2 },
-    { color: "#00acc1", width: 2.2 },
+    { color: halo, width: width + 2 },
+    { color: color, width: width },
   ].forEach(function (pass) {
     ctx.strokeStyle = pass.color;
     ctx.lineWidth = pass.width;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.beginPath();
-    segments.forEach(function (seg) {
-      (seg.points || []).forEach(function (pt, idx) {
-        var x = view.xTime(Number(pt.t)), y = view.yCop(pt.cop);
-        if (idx === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      });
-    });
+    drawPath();
     ctx.stroke();
   });
+}
+function h2PaintActivityOverlays(ctx, view) {
+  var axisX = view.left + view.plotW,
+    segments = (h2Data && h2Data.copSegments) || [],
+    styles = getComputedStyle(document.documentElement),
+    halo = styles.getPropertyValue("--bg-elevated").trim() || "#fff";
+  if (view.showCop) {
+    h2PaintActivityRightAxis(ctx, view, axisX, "COP", H2_ACTIVITY_COP_COLOR, view.copMin, view.copMax);
+    axisX += 36;
+  }
+  if (view.showOutside) {
+    h2PaintActivityRightAxis(ctx, view, axisX, "°C", H2_ACTIVITY_OUTSIDE_COLOR, view.outsideMin, view.outsideMax);
+  }
+  if (!view.showCop && !view.showOutside) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(view.left, view.top, view.plotW, view.plotH);
+  ctx.clip();
+  if (view.showOutside && view.outsideHasValues) {
+    h2PaintActivityHaloStroke(ctx, halo, H2_ACTIVITY_OUTSIDE_COLOR, 2.0, function () {
+      var started = false;
+      view.points.forEach(function (pt) {
+        var val = h2Number(pt.outside);
+        if (val === null) { started = false; return; }
+        var x = view.xTime(Number(pt.t)), y = view.yOutside(val);
+        if (started) ctx.lineTo(x, y);
+        else { ctx.moveTo(x, y); started = true; }
+      });
+    });
+  }
+  if (view.showCop) {
+    h2PaintActivityHaloStroke(ctx, halo, H2_ACTIVITY_COP_COLOR, 2.2, function () {
+      segments.forEach(function (seg) {
+        (seg.points || []).forEach(function (pt, idx) {
+          var x = view.xTime(Number(pt.t)), y = view.yCop(pt.cop);
+          if (idx === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+      });
+    });
+  }
   ctx.restore();
 }
 function h2PaintActivity() {
@@ -619,7 +690,7 @@ function h2PaintActivity() {
     ctx.strokeStyle = event.type === "error_appeared" ? "#c62828" : "rgba(117,129,138,.75)";
     ctx.beginPath(); ctx.moveTo(x, view.top); ctx.lineTo(x, view.top + view.plotH); ctx.stroke();
   });
-  h2PaintActivityCopOverlay(ctx, view);
+  h2PaintActivityOverlays(ctx, view);
   ctx.fillStyle = "#75818a"; ctx.textAlign = "center";
   [0, 0.25, 0.5, 0.75, 1].forEach(function (fraction) {
     ctx.fillText(h2Clock(h2RequestStart + (h2RequestEnd - h2RequestStart) * fraction, h2RequestEnd - h2RequestStart >= 43200), view.left + view.plotW * fraction, view.height - 10);
@@ -644,15 +715,29 @@ function h2ActivitySelectionInfo(point, timestamp) {
     nearest = point && typeof point === "object" ? point : h2NearestPoint(ts),
     state = h2StateAt(ts),
     operation = h2OperationLabel(state),
-    cop = h2ActivityCopAt(ts, nearest);
+    showCop = h2ActivityOptionEnabled("h2ActivityShowCop"),
+    showOutside = h2ActivityOptionEnabled("h2ActivityShowOutside"),
+    cop = showCop ? h2ActivityCopAt(ts, nearest) : null,
+    outside = showOutside ? h2ActivityOutsideAt(ts, nearest) : null,
+    entries = [{ label: "Operation", value: operation, color: h2OperationColor(state) }];
+  if (showCop) entries.push({ label: "COP", value: cop === null ? "—" : h2Format(cop, 2), color: H2_ACTIVITY_COP_COLOR });
+  if (showOutside) entries.push({ label: "Outside", value: outside === null ? "—" : h2Format(outside, 1) + " °C", color: H2_ACTIVITY_OUTSIDE_COLOR });
   return {
     header: h2Clock(ts, true),
     cop: cop,
-    entries: [
-      { label: "Operation", value: operation, color: h2OperationColor(state) },
-      { label: "COP", value: cop === null ? "—" : h2Format(cop, 2), color: "#00acc1" },
-    ],
+    outside: outside,
+    entries: entries,
   };
+}
+function h2PaintActivitySelectionDot(ctx, x, y, background, color) {
+  ctx.fillStyle = background;
+  ctx.beginPath();
+  ctx.arc(x, y, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+  ctx.fill();
 }
 function h2PaintActivitySelection(view, point, timestamp) {
   var ts = timestamp !== undefined ? Number(timestamp) : Number(point.t),
@@ -671,16 +756,11 @@ function h2PaintActivitySelection(view, point, timestamp) {
   ctx.moveTo(x, view.top);
   ctx.lineTo(x, view.top + view.plotH);
   ctx.stroke();
-  if (info.cop !== null && view.yCop) {
-    var copY = view.yCop(info.cop);
-    ctx.fillStyle = background;
-    ctx.beginPath();
-    ctx.arc(x, copY, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#00acc1";
-    ctx.beginPath();
-    ctx.arc(x, copY, 3.5, 0, Math.PI * 2);
-    ctx.fill();
+  if (view.showOutside && info.outside !== null && view.yOutside) {
+    h2PaintActivitySelectionDot(ctx, x, view.yOutside(info.outside), background, H2_ACTIVITY_OUTSIDE_COLOR);
+  }
+  if (view.showCop && info.cop !== null && view.yCop) {
+    h2PaintActivitySelectionDot(ctx, x, view.yCop(info.cop), background, H2_ACTIVITY_COP_COLOR);
   }
   ctx.save();
   ctx.font = "12px Arial";
