@@ -512,8 +512,8 @@ var h2ActivityOverlays = [
     readPoint: h2PointCop, atTimestamp: h2ActivityCopAt,
   },
   {
-    id: "outside", checkboxId: "h2ActivityShowOutside", label: "Outside", color: "#d81b60",
-    axisGroup: "temp", decimals: 1, unit: " °C", defaultOn: true, lineWidth: 2.0,
+    id: "outside", checkboxId: "h2ActivityShowOutside", label: "Outside", color: "#afb42b",
+    axisGroup: "temp", decimals: 1, unit: " °C", defaultOn: true, lineWidth: 2.0, dash: [6, 4],
   },
   {
     id: "evaOutlet", checkboxId: "h2ActivityShowEva", label: "Evaporator", color: "#1e88e5",
@@ -537,7 +537,7 @@ var h2ActivityOverlays = [
   },
   {
     id: "electrical", checkboxId: "h2ActivityShowElectrical", label: "Electrical", color: "#c62828",
-    axisGroup: "kw", decimals: 2, unit: " kW", defaultOn: false, lineWidth: 1.9,
+    axisGroup: "kw", decimals: 2, unit: " kW", defaultOn: false, lineWidth: 2.0, dash: [2, 4],
   },
 ];
 function h2ActivityOverlayEnabled(overlay) {
@@ -670,7 +670,9 @@ function h2PaintActivityRightAxis(ctx, view, x, axis) {
     ctx.fillText(val.toFixed(axis.axisDecimals), x + 6, tickY);
   }
 }
-function h2PaintActivityHaloStroke(ctx, halo, color, width, drawPath) {
+function h2PaintActivityHaloStroke(ctx, halo, color, width, dash, drawPath) {
+  ctx.save();
+  if (ctx.setLineDash) ctx.setLineDash(dash || []);
   [
     { color: halo, width: width + 2 },
     { color: color, width: width },
@@ -683,6 +685,7 @@ function h2PaintActivityHaloStroke(ctx, halo, color, width, drawPath) {
     drawPath();
     ctx.stroke();
   });
+  ctx.restore();
 }
 function h2PaintActivityOverlays(ctx, view) {
   var axisX = view.left + view.plotW,
@@ -705,7 +708,7 @@ function h2PaintActivityOverlays(ctx, view) {
     var axis = view.axesByGroup[overlay.axisGroup];
     if (!axis || !axis.hasValues) return;
     if (overlay.id === "cop") {
-      h2PaintActivityHaloStroke(ctx, halo, overlay.color, overlay.lineWidth, function () {
+      h2PaintActivityHaloStroke(ctx, halo, overlay.color, overlay.lineWidth, overlay.dash, function () {
         segments.forEach(function (seg) {
           (seg.points || []).forEach(function (pt, idx) {
             var x = view.xTime(Number(pt.t)), y = axis.y(pt.cop);
@@ -716,7 +719,7 @@ function h2PaintActivityOverlays(ctx, view) {
       });
       return;
     }
-    h2PaintActivityHaloStroke(ctx, halo, overlay.color, overlay.lineWidth, function () {
+    h2PaintActivityHaloStroke(ctx, halo, overlay.color, overlay.lineWidth, overlay.dash, function () {
       var started = false;
       view.points.forEach(function (pt) {
         var val = h2ActivityOverlayValue(overlay, pt);

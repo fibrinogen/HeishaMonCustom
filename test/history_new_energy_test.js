@@ -207,6 +207,7 @@ async function run() {
   assert.equal(withExtras.entries.find(e => e.label === "Thermal").value, "5.20 kW");
   assert.equal(withExtras.entries.find(e => e.label === "Electrical").value, "1.30 kW");
   const noop = () => {};
+  const seenDashes = [];
   const activityCanvas = elements2.get("h2Activity");
   activityCanvas.clientWidth = 900;
   activityCanvas.addEventListener = noop;
@@ -214,11 +215,14 @@ async function run() {
     setTransform: noop, clearRect: noop, fillRect: noop, strokeRect: noop,
     fillText: noop, beginPath: noop, moveTo: noop, lineTo: noop, stroke: noop,
     arc: noop, fill: noop, save: noop, restore: noop, rect: noop, clip: noop,
+    setLineDash: dash => seenDashes.push(Array.from(dash)),
     measureText: text => ({ width: String(text).length * 7 }),
   });
   context2.getComputedStyle = () => ({ getPropertyValue: () => "#ffffff" });
   context2.h2DrawActivity();
   assert.equal(context2.h2ActivityView.activeGroups.map(g => g.id).join(","), "cop,temp,hz,kw");
+  assert(seenDashes.some(d => d.join(",") === "6,4"));
+  assert(seenDashes.some(d => d.join(",") === "2,4"));
   assert(context2.h2ActivityView.axesByGroup.temp.min < -3.0);
   assert(context2.h2ActivityView.axesByGroup.temp.max > 34.0);
   assert(context2.h2ActivityView.axesByGroup.kw.min < -5.5);
