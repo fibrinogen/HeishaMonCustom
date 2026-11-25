@@ -208,17 +208,27 @@ async function run() {
   assert.equal(withExtras.entries.find(e => e.label === "Electrical").value, "1.30 kW");
   const noop = () => {};
   const seenDashes = [];
+  let strokeRects = 0;
   const activityCanvas = elements2.get("h2Activity");
   activityCanvas.clientWidth = 900;
   activityCanvas.addEventListener = noop;
   activityCanvas.getContext = () => ({
-    setTransform: noop, clearRect: noop, fillRect: noop, strokeRect: noop,
+    setTransform: noop, clearRect: noop, fillRect: noop,
+    strokeRect: () => { strokeRects++; },
     fillText: noop, beginPath: noop, moveTo: noop, lineTo: noop, stroke: noop,
     arc: noop, fill: noop, save: noop, restore: noop, rect: noop, clip: noop,
     setLineDash: dash => seenDashes.push(Array.from(dash)),
     measureText: text => ({ width: String(text).length * 7 }),
   });
   context2.getComputedStyle = () => ({ getPropertyValue: () => "#ffffff" });
+  context2.h2DrawActivity();
+  assert(markup2("h2ActivityReadout").includes("Move over a chart"));
+  context2.h2SelectTimestamp(1760001800);
+  assert.equal(strokeRects, 0);
+  assert(markup2("h2ActivityReadout").includes("Room heating"));
+  assert(markup2("h2ActivityReadout").includes("34 Hz"));
+  assert(markup2("h2ActivityReadout").includes("5.20 kW"));
+  context2.h2SelectedTimestamp = null;
   context2.h2DrawActivity();
   assert.equal(context2.h2ActivityView.activeGroups.map(g => g.id).join(","), "cop,temp,hz,kw");
   assert(seenDashes.some(d => d.join(",") === "6,4"));

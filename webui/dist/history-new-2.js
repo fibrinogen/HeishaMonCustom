@@ -767,10 +767,12 @@ function h2PaintActivity() {
     ctx.fillText(h2Clock(h2RequestStart + (h2RequestEnd - h2RequestStart) * fraction, h2RequestEnd - h2RequestStart >= 43200), view.left + view.plotW * fraction, view.height - 10);
   });
   ctx.textAlign = "left";
+  var readoutInfo = null;
   if (h2SelectedTimestamp !== null) {
     var selected = h2NearestPoint(h2SelectedTimestamp);
-    if (selected) h2PaintActivitySelection(view, selected, h2SelectedTimestamp);
+    if (selected) readoutInfo = h2PaintActivitySelection(view, selected, h2SelectedTimestamp);
   }
+  h2UpdateActivityReadout(readoutInfo);
   if (h2Drag && h2Drag.view === view) h2PaintDrag(ctx, view);
 }
 function h2OperationColor(state) {
@@ -823,19 +825,28 @@ function h2PaintActivitySelectionDot(ctx, x, y, background, color) {
   ctx.arc(x, y, 3.5, 0, Math.PI * 2);
   ctx.fill();
 }
+function h2UpdateActivityReadout(info) {
+  var el = document.getElementById("h2ActivityReadout");
+  if (!el) return;
+  if (!info) {
+    el.innerHTML = "<span>Move over a chart to inspect operation and overlay values.</span>";
+    return;
+  }
+  el.innerHTML = '<strong style="color:var(--text-primary);font-family:\'JetBrains Mono\',monospace">' +
+    hmEscape(info.header) + "</strong>" +
+    info.entries.map(function (entry) {
+      return '<span class="history-legend-item"><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' +
+        entry.color + '"></i>' + hmEscape(entry.label) + ': <strong style="color:var(--text-primary);font-family:\'JetBrains Mono\',monospace">' +
+        hmEscape(entry.value) + "</strong></span>";
+    }).join("");
+}
 function h2PaintActivitySelection(view, point, timestamp) {
   var ts = timestamp !== undefined ? Number(timestamp) : Number(point.t),
     ctx = view.ctx,
     x = view.xTime(ts),
     info = h2ActivitySelectionInfo(point, ts),
     styles = getComputedStyle(document.documentElement),
-    background = styles.getPropertyValue("--bg-elevated").trim() || "#fff",
-    foreground = styles.getPropertyValue("--text-primary").trim() || "#222",
-    compact = info.entries.length > 5,
-    padding = compact ? 5 : 7,
-    lineHeight = compact ? 14 : 17,
-    rightEdge = view.left + view.plotW,
-    boxWidth;
+    background = styles.getPropertyValue("--bg-elevated").trim() || "#fff";
   ctx.strokeStyle = "rgba(30,136,229,.95)";
   ctx.beginPath();
   ctx.moveTo(x, view.top);
@@ -846,37 +857,7 @@ function h2PaintActivitySelection(view, point, timestamp) {
     var axis = view.axesByGroup && view.axesByGroup[entry.axisGroup];
     if (axis && axis.y) h2PaintActivitySelectionDot(ctx, x, axis.y(entry.rawValue), background, entry.color);
   });
-  ctx.save();
-  ctx.font = compact ? "11px Arial" : "12px Arial";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-  boxWidth = ctx.measureText(info.header).width;
-  info.entries.forEach(function (entry) {
-    entry.text = entry.label + ": " + entry.value;
-    boxWidth = Math.max(boxWidth, ctx.measureText(entry.text).width + 14);
-  });
-  boxWidth += padding * 2;
-  var headerHeight = compact ? 14 : 17,
-    boxHeight = padding * 2 + headerHeight + info.entries.length * lineHeight,
-    boxX = x + 10 + boxWidth <= rightEdge - 2 ? x + 10 : x - boxWidth - 10,
-    boxY = view.top + 4;
-  boxX = Math.max(view.left + 2, Math.min(rightEdge - boxWidth - 2, boxX));
-  ctx.fillStyle = background;
-  ctx.strokeStyle = "rgba(117,129,138,.55)";
-  ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
-  ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
-  ctx.fillStyle = foreground;
-  ctx.fillText(info.header, boxX + padding, boxY + padding + (compact ? 10 : 11));
-  info.entries.forEach(function (entry, index) {
-    var y = boxY + padding + (compact ? 22 : 25) + index * lineHeight;
-    ctx.fillStyle = entry.color;
-    ctx.beginPath();
-    ctx.arc(boxX + padding + 4, y - 4, 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = foreground;
-    ctx.fillText(entry.text, boxX + padding + 13, y);
-  });
-  ctx.restore();
+  return info;
 }
 
 function h2SelectTimestamp(timestamp) {

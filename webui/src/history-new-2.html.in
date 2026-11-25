@@ -98,6 +98,7 @@
             </span>
           </div>
           <div class="history-card-body">
+            <div id="h2ActivityReadout" class="history-legend" style="margin-top:0;margin-bottom:8px;min-height:22px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-elevated)"><span>Move over a chart to inspect operation and overlay values.</span></div>
             <canvas id="h2Activity" class="history-new-activity" aria-label="Heat-pump operation timeline"></canvas>
             <div class="history-note">Exact state transitions from the three-way valve, compressor, defrost flag and backup heaters, with selectable overlays (right axes; shared scales per unit). Vertical lines mark scheduler actions, mode changes and errors.</div>
           </div>
