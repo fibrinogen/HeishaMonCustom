@@ -261,7 +261,67 @@ function wpSyncCurve() {
   if (apply)
     apply.disabled =
       !available || !!validation || !wpCurveDirty || wpCommandBusy;
+  wpSyncCurveShift();
   wpRenderCurveGraph(curve, available);
+}
+function wpSyncCurveShift() {
+  var card = document.getElementById("wpCurveShiftCard"),
+    value = document.getElementById("wpCurveShiftValue"),
+    minus = document.getElementById("wpCurveShiftMinus"),
+    plus = document.getElementById("wpCurveShiftPlus"),
+    available = !!(wpCurveShift && wpCurveShift.available === true),
+    writable = available && wpCurveShift.writable === true,
+    shift = available ? Number(wpCurveShift.shift) : NaN,
+    min =
+      available && Number.isFinite(Number(wpCurveShift.min))
+        ? Number(wpCurveShift.min)
+        : -5,
+    max =
+      available && Number.isFinite(Number(wpCurveShift.max))
+        ? Number(wpCurveShift.max)
+        : 5,
+    valid = available && wpCurveShift.valueValid !== false && Number.isFinite(shift);
+  if (card) card.style.opacity = writable ? "1" : ".55";
+  if (value) {
+    value.textContent = !available
+      ? "N/A"
+      : valid
+        ? (shift > 0 ? "+" : "") + String(shift) + " K"
+        : wpCurveShift.rawValue !== null
+          ? "Invalid (" + String(wpCurveShift.rawValue) + ")"
+          : "N/A";
+  }
+  if (minus)
+    minus.disabled = !writable || wpCommandBusy || (valid && shift <= min);
+  if (plus)
+    plus.disabled = !writable || wpCommandBusy || (valid && shift >= max);
+}
+function wpStepCurveShift(delta) {
+  if (
+    !wpCurveShift ||
+    wpCurveShift.available !== true ||
+    wpCurveShift.writable !== true
+  ) {
+    wpStatus(
+      "Heating curve shift is not writable for the current configuration",
+      true,
+    );
+    return;
+  }
+  var current = Number(wpCurveShift.shift),
+    min = Number.isFinite(Number(wpCurveShift.min))
+      ? Number(wpCurveShift.min)
+      : -5,
+    max = Number.isFinite(Number(wpCurveShift.max))
+      ? Number(wpCurveShift.max)
+      : 5;
+  if (!Number.isFinite(current) || wpCurveShift.valueValid === false)
+    current = 0;
+  var next = Math.max(min, Math.min(max, Math.round(current + delta)));
+  wpCurveShift.shift = next;
+  wpCurveShift.valueValid = true;
+  wpSyncCurve();
+  wpQueueStep("curveShift", "SetHeatingCurveShift", next);
 }
 function wpCurveInputChanged() {
   wpCurveDraft = wpCurveReadInputs();
@@ -457,7 +517,7 @@ function wpRefresh() {
       return wpFetchJson("/heatingcurveshift", "Heating-curve state");
     })
     .then(function (data) {
-      wpCurveShift = data;
+      if (!wpStepTimers.curveShift) wpCurveShift = data;
       wpRefreshPromise = null;
       wpSync();
       wpClearUpdateError();

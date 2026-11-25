@@ -130,6 +130,33 @@
                 >
               </label>
             </div>
+            <div class="wp-curve-endpoint" id="wpCurveShiftCard">
+              <h3>Heating curve shift</h3>
+              <label for="wpCurveShiftValue">
+                Parallel shift (-5 to +5 K)
+                <span class="dashboard-control">
+                  <button
+                    id="wpCurveShiftMinus"
+                    type="button"
+                    class="dashboard-step"
+                    onclick="wpStepCurveShift(-1)"
+                    aria-label="Decrease heating curve shift"
+                  >
+                    &#8964;</button
+                  ><strong id="wpCurveShiftValue" class="dashboard-value"
+                    >-- K</strong
+                  ><button
+                    id="wpCurveShiftPlus"
+                    type="button"
+                    class="dashboard-step"
+                    onclick="wpStepCurveShift(1)"
+                    aria-label="Increase heating curve shift"
+                  >
+                    &#8963;
+                  </button>
+                </span>
+              </label>
+            </div>
             <div id="wpCurveValidation" class="wp-curve-validation"></div>
             <div class="wp-curve-actions">
               <button class="btn btn-ghost" onclick="wpResetCurveDraft()">
@@ -164,9 +191,10 @@
           </div>
         </div>
         <div class="wp-settings-note wp-curve-note">
-          Applying these values immediately changes the Panasonic Zone 1 curve.
-          When a curve shift is active, the graph also shows the effective
-          shifted curve.
+          Applying the curve endpoints immediately changes the Panasonic Zone 1
+          curve. When compensation mode with water-temperature control is
+          active, the parallel shift (-5 to +5 K) can also be adjusted here and
+          updates the effective shifted curve in the graph.
         </div>
       </section>
       <div class="wp-settings-columns">
